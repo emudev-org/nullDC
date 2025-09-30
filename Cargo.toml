@@ -1,0 +1,19 @@
+[package]
+name = "nullDC"
+version = "2.0.0"
+edition = "2024"
+license-file = "LICENSE"
+
+[dependencies]
+wgpu = "26.0.1"
+winit = "0.30.12"
+
+egui = { git = "https://github.com/emilk/egui", rev = "18ea9ff" }
+egui-winit = { git = "https://github.com/emilk/egui", rev = "18ea9ff" }
+egui-wgpu = { git = "https://github.com/emilk/egui", rev = "18ea9ff" }
+
+# Utilities
+bytemuck = "1.16"
+pollster = "0.4"
+env_logger = "0.11"
+log = "0.4"
