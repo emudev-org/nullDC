@@ -1604,7 +1604,7 @@ fn main() {
                 .unwrap(),
         );
 
-    let window_title = format!("nullDC v2.0.0-pre-{}", GIT_HASH);
+    let window_title = format!("nullDC {}", GIT_HASH);
     window.set_title(&window_title);
     let _ = window.request_inner_size(winit::dpi::Size::Physical(winit::dpi::PhysicalSize::new(1024, 1024)));
 
