@@ -292,6 +292,125 @@ impl State {
             rotation: 0.0,
         }
     }
+
+    fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
+        if new_size.width > 0 && new_size.height > 0 {
+            self.size = new_size;
+            self.config.width = new_size.width;
+            self.config.height = new_size.height;
+            self.surface.configure(&self.device, &self.config);
+        }
+    }
+
+    fn update(&mut self) {
+        // place per-frame updates here (e.g., rotation += …)
+    }
+
+    fn render(&mut self, window: &Window) -> Result<(), wgpu::SurfaceError> {
+        let output = self.surface.get_current_texture()?;
+        let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        // Begin egui frame
+        let raw_input = self.egui_state.take_egui_input(window);
+        let egui_output = self.egui_ctx.run(raw_input, |ctx| {
+            egui::Window::new("Demo").show(ctx, |ui| {
+                ui.checkbox(&mut self.show_triangle, "Show triangle");
+                ui.color_edit_button_rgb(&mut self.clear_color);
+                ui.add(egui::Slider::new(&mut self.rotation, -3.14..=3.14).text("Rotation"));
+                ui.label("This is drawn by egui");
+            });
+        });
+
+        // Upload egui textures and meshes
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("main encoder"),
+        });
+
+        let screen_desc = egui_wgpu::ScreenDescriptor {
+            size_in_pixels: [self.config.width, self.config.height],
+            // FIX 1: Use egui Context for ppp
+            pixels_per_point: self.egui_ctx.pixels_per_point(),
+        };
+
+        for (id, image_delta) in &egui_output.textures_delta.set {
+            self.egui_renderer.update_texture(&self.device, &self.queue, *id, image_delta);
+        }
+
+        let paint_jobs =
+            self.egui_ctx
+                .tessellate(egui_output.shapes, self.egui_ctx.pixels_per_point());
+        self.egui_renderer
+            .update_buffers(&self.device, &self.queue, &mut encoder, &paint_jobs, &screen_desc);
+
+        // 1) Clear + draw triangle (if enabled)
+        {
+            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("triangle pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    // FIX 2: New field in wgpu
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: self.clear_color[0] as f64,
+                            g: self.clear_color[1] as f64,
+                            b: self.clear_color[2] as f64,
+                            a: 1.0,
+                        }),
+                        // FIX 3: StoreOp, not bool
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+
+            if self.show_triangle {
+                rpass.set_pipeline(&self.render_pipeline);
+                rpass.set_bind_group(0, &self.bind_group, &[]);
+                rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+                rpass.draw(0..3, 0..1);
+            }
+        }
+
+        // 2) Draw egui on top (separate pass, load existing color)
+        {
+            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("egui pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+
+            let mut rpass = rpass.forget_lifetime();
+
+            // FIX 4: render into a RenderPass, not encoder+view
+            self.egui_renderer.render(&mut rpass, &paint_jobs, &screen_desc);
+        }
+
+        // Submit
+        self.queue.submit(Some(encoder.finish()));
+        output.present();
+
+        // Cleanup egui textures
+        for id in &egui_output.textures_delta.free {
+            self.egui_renderer.free_texture(id);
+        }
+
+        Ok(())
+    }
+
 }
 
 fn main() {
@@ -321,9 +440,38 @@ fn main() {
                                 },
                             ..
                         } => elwt.exit(),
+
+                        WindowEvent::Resized(size) => state.resize(size),
+
+                        // WindowEvent::ScaleFactorChanged { scale_factor: _, inner_size_writer } => {
+                        //     // On some platforms resize comes via this path
+                        //     let new_size = inner_size_writer.new_inner_size();
+                        //     state.resize(*new_size);
+                        // }
+
+                        WindowEvent::RedrawRequested => {
+                            state.update();
+                            match state.render(&*window) {
+                                Ok(()) => {}
+                                // Recreate the surface on Outdated/Lost; skip frame on Timeout
+                                Err(wgpu::SurfaceError::Lost) | Err(wgpu::SurfaceError::Outdated) => {
+                                    state.resize(state.size);
+                                }
+                                Err(wgpu::SurfaceError::OutOfMemory) => elwt.exit(),
+                                Err(wgpu::SurfaceError::Timeout) => {
+                                    // Skip frame, try next
+                                }
+                                _ => {}
+                            }
+                        }
                         _ => {}
                     }
                 }
+                
+
+            }
+            Event::AboutToWait => {
+                window.request_redraw();
             }
             _ => {}
         })
