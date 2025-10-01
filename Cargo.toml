@@ -5,6 +5,7 @@ edition = "2024"
 license-file = "LICENSE"
 
 [dependencies]
+git-version = "0.3"
 wgpu = "26.0.1"
 winit = "0.30.12"
 

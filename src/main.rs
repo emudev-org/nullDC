@@ -13,6 +13,10 @@ use std::ptr;
 use std::fs::File;
 use std::io::Read;
 
+use git_version::git_version;
+
+const GIT_HASH: &str = git_version!();
+
 // -----------------------------------------------------------------------------
 // types.h
 // -----------------------------------------------------------------------------
@@ -1162,10 +1166,7 @@ use std::sync::Arc;
 
 use wgpu::util::DeviceExt;
 use winit::{
-    event::*,
-    event_loop::EventLoop,
-    keyboard::{KeyCode, PhysicalKey},
-    window::{Window, WindowAttributes},
+    dpi::Size, event::*, event_loop::EventLoop, keyboard::{KeyCode, PhysicalKey}, window::{Window, WindowAttributes}
 };
 
 struct State {
@@ -1602,6 +1603,10 @@ fn main() {
                 .create_window(WindowAttributes::default())
                 .unwrap(),
         );
+
+    let window_title = format!("nullDC v2.0.0-pre-{}", GIT_HASH);
+    window.set_title(&window_title);
+    let _ = window.request_inner_size(winit::dpi::Size::Physical(winit::dpi::PhysicalSize::new(1024, 1024)));
 
     let mut state = pollster::block_on(State::new(window.clone()));
 
