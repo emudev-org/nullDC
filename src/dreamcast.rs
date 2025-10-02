@@ -57,7 +57,11 @@ pub union FRBank {
 pub struct Sh4Ctx {
     pub r: [u32; 16],
     pub remaining_cycles: i32,
-    pub pc: u32,
+    pub pc0: u32,
+    pub pc1: u32,
+    pub pc2: u32,
+    pub is_delayslot0: u32,
+    pub is_delayslot1: u32,
 
     pub fr: FRBank,
     pub xf: FRBank,
@@ -76,7 +80,12 @@ impl Default for Sh4Ctx {
         Self {
             r: [0; 16],
             remaining_cycles: 0,
-            pc: 0,
+            pc0: 0,
+            pc1: 2,
+            pc2: 4,
+
+            is_delayslot0: 0,
+            is_delayslot1: 0,
 
             fr: FRBank { u32s: [0; 32] },
             xf: FRBank { u32s: [0; 32] },
@@ -212,7 +221,7 @@ fn GetSImm12(str_: u16) -> i16 { (((GetImm12(str_) as u16) << 4) as i16) >> 4 }
 // -----------------------------------------------------------------------------
 
 fn i_not_implemented(dc: &mut Dreamcast, instr: u16) {
-    let pc = dc.ctx.pc;
+    let pc = dc.ctx.pc0;
     let desc_ptr = dc.OpDesc[instr as usize];
     let diss = unsafe {
         if desc_ptr.is_null() {
@@ -246,23 +255,11 @@ macro_rules! sh4op {
 
 
 // Branch helpers and delay slot execution
-fn branch_target_s8(op: u16, pc: u32) -> u32 {
-    (GetSImm8(op) as i32 as i64 * 2 + 2 + pc as i64) as u32
+fn branch_target_s8(op: u16, pc0: u32) -> u32 {
+    (GetSImm8(op) as i32 as i64 * 2 + 4 + pc0 as i64) as u32
 }
-fn branch_target_s12(op: u16, pc: u32) -> u32 {
-    (GetSImm12(op) as i32 as i64 * 2 + 2 + pc as i64) as u32
-}
-
-fn ExecuteDelayslot(dc: &mut Dreamcast) {
-    let addr = dc.ctx.pc;
-    dc.ctx.pc = dc.ctx.pc.wrapping_add(2);
-
-    let mut instr: u16 = 0;
-    let _ = read_mem::<u16>(dc, addr, &mut instr);
-    if instr != 0 {
-        let f = dc.OpPtr[instr as usize];
-        f(dc, instr);
-    }
+fn branch_target_s12(op: u16, pc0: u32) -> u32 {
+    (GetSImm12(op) as i32 as i64 * 2 + 4 + pc0 as i64) as u32
 }
 
 sh4op! {
@@ -412,30 +409,31 @@ sh4op! {
     // bf <bdisp8>
     i1000_1011_iiii_iiii(dc, instr) {
         if dc.ctx.sr_T == 0 {
-            dc.ctx.pc = branch_target_s8(instr, dc.ctx.pc);
+            dc.ctx.pc1 = branch_target_s8(instr, dc.ctx.pc0);
+            dc.ctx.pc2 = dc.ctx.pc1.wrapping_add(2);
         }
     }
 
     // bf.s <bdisp8>
     i1000_1111_iiii_iiii(dc, instr) {
         if dc.ctx.sr_T == 0 {
-            let newpc = branch_target_s8(instr, dc.ctx.pc);
-            ExecuteDelayslot(dc);
-            dc.ctx.pc = newpc;
+            let newpc = branch_target_s8(instr, dc.ctx.pc0);
+            dc.ctx.pc2 = newpc;
         }
+        dc.ctx.is_delayslot1 = 1;
     }
 
     // bra <bdisp12>
     i1010_iiii_iiii_iiii(dc, instr) {
-        let newpc = branch_target_s12(instr, dc.ctx.pc);
-        ExecuteDelayslot(dc);
-        dc.ctx.pc = newpc;
+        let newpc = branch_target_s12(instr, dc.ctx.pc0);
+        dc.ctx.pc2 = newpc;
+        dc.ctx.is_delayslot1 = 1;
     }
 
     // mova @(<disp>,PC),R0
     i1100_0111_iiii_iiii(dc, instr) {
         // ((pc+2) & ~3) + (imm8 << 2)
-        let base = (dc.ctx.pc.wrapping_add(2)) & 0xFFFFFFFC;
+        let base = (dc.ctx.pc0.wrapping_add(4)) & 0xFFFFFFFC;
         dc.ctx.r[0] = base.wrapping_add((GetImm8(instr) << 2) as u32);
     }
 
@@ -443,7 +441,7 @@ sh4op! {
     i1101_nnnn_iiii_iiii(dc, instr) {
         let n = GetN(instr) as usize;
         let disp = GetImm8(instr);
-        let addr = ((dc.ctx.pc.wrapping_add(2)) & 0xFFFFFFFC).wrapping_add((disp << 2) as u32);
+        let addr = ((dc.ctx.pc0.wrapping_add(4)) & 0xFFFFFFFC).wrapping_add((disp << 2) as u32);
         let mut tmp: u32 = 0;
         let _ = read_mem::<u32>(dc, addr, &mut tmp);
         dc.ctx.r[n] = tmp;
@@ -1132,7 +1130,9 @@ pub fn init_dreamcast(dc: &mut Dreamcast) {
     dc.memmask[0xA5] = VIDEORAM_MASK;
 
     // Set initial PC
-    dc.ctx.pc = 0x8C01_0000;
+    dc.ctx.pc0 = 0x8C01_0000;
+    dc.ctx.pc1 = 0x8C01_0000 + 2;
+    dc.ctx.pc2 = 0x8C01_0000 + 4;
 
     // Copy roto.bin from embedded ROTO_BIN
     let sysram_slice = &mut dc.sys_ram[0x10000..0x10000 + ROTO_BIN.len()];
@@ -1145,12 +1145,17 @@ pub fn run_dreamcast(dc: &mut Dreamcast) {
         let mut instr: u16 = 0;
 
         // Equivalent of: read_mem(dc, dc->ctx.pc, instr);
-        read_mem(dc, dc.ctx.pc, &mut instr);
-
-        dc.ctx.pc = dc.ctx.pc.wrapping_add(2);
+        read_mem(dc, dc.ctx.pc0, &mut instr);
 
         // Call the opcode handler
         (dc.OpPtr[instr as usize])(dc, instr);
+
+        dc.ctx.pc0 = dc.ctx.pc1;
+        dc.ctx.pc1 = dc.ctx.pc2;
+        dc.ctx.pc2 = dc.ctx.pc2.wrapping_add(2);
+
+        dc.ctx.is_delayslot0 = dc.ctx.is_delayslot1;
+        dc.ctx.is_delayslot1 = 0;
 
         // Break when remaining_cycles reaches 0
         dc.ctx.remaining_cycles -= 1;
