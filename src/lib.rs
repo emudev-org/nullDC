@@ -516,22 +516,37 @@ impl AppHandle {
 impl ApplicationHandler for AppHandle {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         
-        let window_attributes = Window::default_attributes()
-            .with_title(format!("nullDC {}", GIT_HASH))
-            .with_inner_size(winit::dpi::Size::Physical(winit::dpi::PhysicalSize::new(1024, 1024)));
+        let window_attributes = {
+            let attrs = Window::default_attributes()
+                .with_title(format!("nullDC {}", GIT_HASH));
+
+            #[cfg(target_arch = "wasm32")]
+            {
+                use winit::platform::web::WindowAttributesExtWebSys;
+                use wasm_bindgen::JsCast;
+
+                let document = web_sys::window().unwrap().document().unwrap();
+                let canvas = document
+                    .get_element_by_id("egui_canvas")
+                    .unwrap()
+                    .dyn_into::<web_sys::HtmlCanvasElement>()
+                    .unwrap();
+
+                attrs.with_canvas(Some(canvas))
+            }
+
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                attrs.with_inner_size(winit::dpi::Size::Physical(
+                    winit::dpi::PhysicalSize::new(1024, 1024),
+                ));
+            }
+        };
 
         #[cfg(target_arch = "wasm32")]
         {
-            use winit::platform::web::WindowAttributesExtWebSys;
             use web_sys::window;
-
-            let document = window().unwrap().document().unwrap();
-            let canvas = document
-                .get_element_by_id("egui_canvas")
-                .unwrap()
-                .dyn_into::<web_sys::HtmlCanvasElement>()
-                .unwrap();
-            window_attributes = window_attributes.with_canvas(Some(canvas));
+            window().unwrap().document().unwrap().set_title(format!("nullDC {}", GIT_HASH).as_str());
         }
 
         let window = Arc::new(
