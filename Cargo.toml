@@ -12,6 +12,9 @@ all-features = true
 name = "nulldc"
 crate-type = ["rlib", "cdylib"]
 
+[profile.release]
+lto = "thin"
+
 [dependencies]
 git-version = "0.3"
 wgpu = "26.0.1"

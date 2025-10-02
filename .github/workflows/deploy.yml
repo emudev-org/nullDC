@@ -150,7 +150,6 @@ jobs:
               core.warning("No preview URL captured");
               return;
             }
-            const { context } = github;
             await github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
