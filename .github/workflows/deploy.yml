@@ -53,12 +53,13 @@ jobs:
           key: ${{ matrix.target }}
           cache-on-failure: true
           cache-all-crates: true
-      - name: Cache target dir
-        uses: actions/cache@v4
-        with:
-          path: ${{ github.workspace }}/target
-          key: ${{ runner.os }}-cargo-target-${{ matrix.target }}-${{
-            hashFiles('**/Cargo.lock') }}
+      # This is needed on windows? because rust cache doesn't cache target dir?
+      # - name: Cache target dir
+      #   uses: actions/cache@v4
+      #   with:
+      #     path: ${{ github.workspace }}/target
+      #     key: ${{ runner.os }}-cargo-target-${{ matrix.target }}-${{
+      #       hashFiles('**/Cargo.lock') }}
 
       # Native targets
       - name: "Native: Run tests"
