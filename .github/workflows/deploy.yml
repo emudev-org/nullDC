@@ -1,0 +1,170 @@
+---
+name: nullDC
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: wasm32-unknown-unknown
+            publish: true
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            target: x86_64-apple-darwin
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Ensure tags are present
+        run: git fetch --force --tags --prune
+
+      - name: Export version from tags
+        shell: bash
+        run: |
+          echo "GIT_DESCRIBE=$(git describe --tags --always --dirty)" >> "$GITHUB_ENV"
+          echo "GIT_SHA=${GITHUB_SHA}" >> "$GITHUB_ENV"
+          git describe --tags --always --dirty
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: ${{ matrix.target }}
+          override: true
+          profile: minimal
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+          cache-on-failure: true
+          cache-all-crates: true
+      # This is needed on windows because rust cache doesn't cache target dir
+      - name: Cache target dir
+        if: runner.os == 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/target
+          key: ${{ runner.os }}-cargo-target-${{ matrix.target }}-${{
+            hashFiles('**/Cargo.lock') }}
+
+      # Native targets
+      - name: "Native: Run tests"
+        if: matrix.target != 'wasm32-unknown-unknown'
+        run: cargo test --target ${{ matrix.target }}
+      - name: "Native: Build release"
+        if: matrix.target != 'wasm32-unknown-unknown'
+        run: cargo build --release --target ${{ matrix.target }}
+      - name: "Native: Upload artifacts"
+        if: matrix.target != 'wasm32-unknown-unknown'
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release
+
+      # WASM targets
+      - name: "WASM: Read tool versions"
+        if: matrix.target == 'wasm32-unknown-unknown'
+        id: toolvers
+        shell: bash
+        run: |
+          while IFS='=' read -r key value; do
+            k="${key}_version"
+            echo "$k=$value" >> "$GITHUB_ENV"
+            echo "$k=$value" >> "$GITHUB_OUTPUT"
+          done < tool-versions.txt || true
+
+      - name: "WASM: Install trunk"
+        if: matrix.target == 'wasm32-unknown-unknown'
+        uses: baptiste0928/cargo-install@v3
+        with:
+          crate: trunk
+          version: ${{ steps.toolvers.outputs.trunk_version }}
+
+      - name: "WASM: Build code and site"
+        if: matrix.target == 'wasm32-unknown-unknown'
+        run: |
+          trunk build
+      - name: "WASM: Upload artifacts"
+        if: matrix.target == 'wasm32-unknown-unknown'
+        uses: actions/upload-artifact@v4
+        with:
+          name: site-dist-${{ github.sha }}
+          path: dist
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Ensure tags are present
+        run: git fetch --force --tags --prune
+
+      - name: Download built site
+        uses: actions/download-artifact@v4
+        with:
+          name: site-dist-${{ github.sha }}
+          path: dist
+
+      - name: Install Wrangler
+        run: npm install -g wrangler
+
+      - name: Publish Production to Cloudflare Pages
+        id: deploy
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          NO_COLOR: "1"
+        run: |
+          set -euo pipefail
+          output=$(wrangler pages deploy ./dist --project-name nulldc)
+          {
+            echo "wrangler_output<<EOF"
+            echo "$output"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Publish Preview to Cloudflare Pages
+        id: preview
+        if: github.event_name == 'pull_request'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          NO_COLOR: "1"
+        run: |
+          set -euo pipefail
+          output=$(wrangler pages deploy dist --project-name nulldc --branch="${{ github.head_ref }}")
+          {
+            echo "wrangler_output<<EOF"
+            echo "$output"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Comment PR with preview URL
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const body = `${{ steps.preview.outputs.wrangler_output }}`;
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body
+            });

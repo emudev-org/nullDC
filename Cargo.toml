@@ -1,0 +1,44 @@
+[package]
+name = "nullDC"
+version = "2.0.0-pre"
+edition = "2024"
+license-file = "LICENSE"
+
+[package.metadata.docs.rs]
+all-features = true
+# targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
+
+[lib]
+name = "nulldc"
+crate-type = ["rlib", "cdylib"]
+
+[profile.release]
+lto = "thin"
+
+[dependencies]
+git-version = "0.3"
+wgpu = "26.0.1"
+winit = "0.30.12"
+
+# Disable default features globally
+egui = { git = "https://github.com/emilk/egui", rev = "18ea9ff", default-features = false }
+egui-winit = { git = "https://github.com/emilk/egui", rev = "18ea9ff", default-features = false }
+egui-wgpu = { git = "https://github.com/emilk/egui", rev = "18ea9ff", default-features = false }
+
+# Utilities
+bytemuck = "1.16"
+pollster = "0.4"
+env_logger = "0.11"
+log = "0.4"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# Re-enable native-only features (clipboard, etc.)
+egui = { git = "https://github.com/emilk/egui", rev = "18ea9ff", features = ["default_fonts"    ] }
+egui-winit = { git = "https://github.com/emilk/egui", rev = "18ea9ff", features = ["clipboard"] }
+egui-wgpu = { git = "https://github.com/emilk/egui", rev = "18ea9ff" }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+console_error_panic_hook = "0.1"
+wasm-logger = "0.2"
