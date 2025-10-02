@@ -65,6 +65,7 @@ jobs:
           # Parse tool-versions.txt into env vars
           while IFS='=' read -r key value; do
             echo "${key}_version=${value}" >> "$GITHUB_ENV"
+            echo "${key}_version=${value}"
           done < tool-versions.txt
 
       - name: Run tests
