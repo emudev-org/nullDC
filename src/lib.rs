@@ -9,8 +9,6 @@ use wasm_logger;
 #[cfg(target_arch = "wasm32")]
 use console_error_panic_hook;
 #[cfg(target_arch = "wasm32")]
-use wasm_bindgen::JsCast;
-#[cfg(target_arch = "wasm32")]
 use wgpu::web_sys;
 
 use winit::{
@@ -19,7 +17,7 @@ use winit::{
     keyboard::{KeyCode, PhysicalKey},
 };
 use winit::window::Window;
-
+use winit::window::WindowAttributes;
 
 
 use git_version::git_version;
@@ -516,8 +514,8 @@ impl AppHandle {
 impl ApplicationHandler for AppHandle {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         
-        let window_attributes = {
-            let attrs = Window::default_attributes()
+        let window_attributes: WindowAttributes = {
+            let mut attrs = Window::default_attributes()
                 .with_title(format!("nullDC {}", GIT_HASH));
 
             #[cfg(target_arch = "wasm32")]
@@ -532,15 +530,17 @@ impl ApplicationHandler for AppHandle {
                     .dyn_into::<web_sys::HtmlCanvasElement>()
                     .unwrap();
 
-                attrs.with_canvas(Some(canvas))
+                attrs = attrs.with_canvas(Some(canvas))
             }
 
             #[cfg(not(target_arch = "wasm32"))]
             {
-                attrs.with_inner_size(winit::dpi::Size::Physical(
+                attrs = attrs.with_inner_size(winit::dpi::Size::Physical(
                     winit::dpi::PhysicalSize::new(1024, 1024),
                 ));
             }
+
+            attrs
         };
 
         #[cfg(target_arch = "wasm32")]
@@ -579,9 +579,7 @@ impl ApplicationHandler for AppHandle {
             spawn_local(async move {
                 if let Some(app_rc) = this.upgrade() {
                     let state = State::new(window_clone.clone()).await;
-                    if let Some(app_rc) = this.upgrade() {
-                        app_rc.borrow_mut().state = Some(state);
-                    }
+                    app_rc.borrow_mut().state = Some(state);
                     window_clone.request_redraw();
                 }
             });

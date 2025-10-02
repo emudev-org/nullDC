@@ -8,11 +8,6 @@
 use std::f32::consts::PI;
 use std::ptr;
 
-
-
-#[cfg(target_arch = "wasm32")]
-use wasm_bindgen::prelude::*;
-
 // -----------------------------------------------------------------------------
 // types.h
 // -----------------------------------------------------------------------------
@@ -230,159 +225,25 @@ fn i_not_implemented(dc: &mut Dreamcast, instr: u16) {
     println!("{:08X}: {:04X} {} [i_not_implemented]", pc, instr, diss);
 }
 
-// Helper macro to declare stubs that call i_not_implemented
+// Helper macro to declare SH-4 opcode handlers with the correct signature.
 macro_rules! sh4op {
-    ($name:ident) => {
-        fn $name(dc: &mut Dreamcast, instr: u16) { i_not_implemented(dc, instr); }
+    {
+        $(
+            $name:ident ($dc:ident, $instr:ident) { $($body:tt)* }
+        )*
+    } => {
+        $(
+            #[allow(non_snake_case)]
+            fn $name($dc: &mut Dreamcast, $instr: u16) {
+                $($body)*
+            }
+        )*
     };
 }
-
 // -----------------------------------------------------------------------------
 // Implemented handlers (as per your snippet). Unimplemented ones are stubbed.
 // -----------------------------------------------------------------------------
 
-// mul.l <REG_M>,<REG_N>
-fn i0000_nnnn_mmmm_0111(dc: &mut Dreamcast, instr: u16) {
-    let n = GetN(instr) as usize;
-    let m = GetM(instr) as usize;
-    dc.ctx.macl = ((dc.ctx.r[n] as i32 as i64) * (dc.ctx.r[m] as i32 as i64)) as u32;
-}
-
-// nop
-fn i0000_0000_0000_1001(_dc: &mut Dreamcast, _instr: u16) {
-    // no-op
-}
-
-// sts FPUL,<REG_N>
-fn i0000_nnnn_0101_1010(dc: &mut Dreamcast, instr: u16) {
-    let n = GetN(instr) as usize;
-    dc.ctx.r[n] = dc.ctx.fpul;
-}
-
-// sts MACL,<REG_N>
-fn i0000_nnnn_0001_1010(dc: &mut Dreamcast, instr: u16) {
-    let n = GetN(instr) as usize;
-    dc.ctx.r[n] = dc.ctx.macl;
-}
-
-// mov.b <REG_M>,@<REG_N>
-fn i0010_nnnn_mmmm_0000(dc: &mut Dreamcast, instr: u16) {
-    let n = GetN(instr) as usize;
-    let m = GetM(instr) as usize;
-    let _ = write_mem::<u8>(dc, dc.ctx.r[n], dc.ctx.r[m] as u8);
-}
-
-// mov.w <REG_M>,@<REG_N>
-fn i0010_nnnn_mmmm_0001(dc: &mut Dreamcast, instr: u16) {
-    let n = GetN(instr) as usize;
-    let m = GetM(instr) as usize;
-    let _ = write_mem::<u16>(dc, dc.ctx.r[n], dc.ctx.r[m] as u16);
-}
-
-// mov.l <REG_M>,@<REG_N>
-fn i0010_nnnn_mmmm_0010(dc: &mut Dreamcast, instr: u16) {
-    let n = GetN(instr) as usize;
-    let m = GetM(instr) as usize;
-    let _ = write_mem::<u32>(dc, dc.ctx.r[n], dc.ctx.r[m]);
-}
-
-// and <REG_M>,<REG_N>
-fn i0010_nnnn_mmmm_1001(dc: &mut Dreamcast, instr: u16) {
-    let n = GetN(instr) as usize;
-    let m = GetM(instr) as usize;
-    dc.ctx.r[n] &= dc.ctx.r[m];
-}
-
-// xor <REG_M>,<REG_N>
-fn i0010_nnnn_mmmm_1010(dc: &mut Dreamcast, instr: u16) {
-    let n = GetN(instr) as usize;
-    let m = GetM(instr) as usize;
-    dc.ctx.r[n] ^= dc.ctx.r[m];
-}
-
-// sub <REG_M>,<REG_N>
-fn i0011_nnnn_mmmm_1000(dc: &mut Dreamcast, instr: u16) {
-    let n = GetN(instr) as usize;
-    let m = GetM(instr) as usize;
-    dc.ctx.r[n] = dc.ctx.r[n].wrapping_sub(dc.ctx.r[m]);
-}
-
-// add <REG_M>,<REG_N>
-fn i0011_nnnn_mmmm_1100(dc: &mut Dreamcast, instr: u16) {
-    let n = GetN(instr) as usize;
-    let m = GetM(instr) as usize;
-    dc.ctx.r[n] = dc.ctx.r[n].wrapping_add(dc.ctx.r[m]);
-}
-
-// dt <REG_N>
-fn i0100_nnnn_0001_0000(dc: &mut Dreamcast, instr: u16) {
-    let n = GetN(instr) as usize;
-    dc.ctx.r[n] = dc.ctx.r[n].wrapping_sub(1);
-    dc.ctx.sr_T = if dc.ctx.r[n] == 0 { 1 } else { 0 };
-}
-
-// shlr <REG_N>
-fn i0100_nnnn_0000_0001(dc: &mut Dreamcast, instr: u16) {
-    let n = GetN(instr) as usize;
-    dc.ctx.sr_T = dc.ctx.r[n] & 1;
-    dc.ctx.r[n] >>= 1;
-}
-
-// shll8 <REG_N>
-fn i0100_nnnn_0001_1000(dc: &mut Dreamcast, instr: u16) {
-    let n = GetN(instr) as usize;
-    dc.ctx.r[n] <<= 8;
-}
-
-// shlr2 <REG_N>
-fn i0100_nnnn_0000_1001(dc: &mut Dreamcast, instr: u16) {
-    let n = GetN(instr) as usize;
-    dc.ctx.r[n] >>= 2;
-}
-
-// shlr16 <REG_N>
-fn i0100_nnnn_0010_1001(dc: &mut Dreamcast, instr: u16) {
-    let n = GetN(instr) as usize;
-    dc.ctx.r[n] >>= 16;
-}
-
-// mov.b @<REG_M>,<REG_N>
-fn i0110_nnnn_mmmm_0000(dc: &mut Dreamcast, instr: u16) {
-    let n = GetN(instr) as usize;
-    let m = GetM(instr) as usize;
-
-    let mut data: i8 = 0;
-    let _ = read_mem::<i8>(dc, dc.ctx.r[m], &mut data);
-    dc.ctx.r[n] = data as i32 as u32;
-}
-
-// mov <REG_M>,<REG_N>
-fn i0110_nnnn_mmmm_0011(dc: &mut Dreamcast, instr: u16) {
-    let n = GetN(instr) as usize;
-    let m = GetM(instr) as usize;
-    dc.ctx.r[n] = dc.ctx.r[m];
-}
-
-// neg <REG_M>,<REG_N>
-fn i0110_nnnn_mmmm_1011(dc: &mut Dreamcast, instr: u16) {
-    let n = GetN(instr) as usize;
-    let m = GetM(instr) as usize;
-    dc.ctx.r[n] = (0u32).wrapping_sub(dc.ctx.r[m]);
-}
-
-// extu.b <REG_M>,<REG_N>
-fn i0110_nnnn_mmmm_1100(dc: &mut Dreamcast, instr: u16) {
-    let n = GetN(instr) as usize;
-    let m = GetM(instr) as usize;
-    dc.ctx.r[n] = (dc.ctx.r[m] as u8) as u32;
-}
-
-// add #<imm>,<REG_N>
-fn i0111_nnnn_iiii_iiii(dc: &mut Dreamcast, instr: u16) {
-    let n = GetN(instr) as usize;
-    let stmp1 = GetSImm8(instr) as i32;
-    dc.ctx.r[n] = dc.ctx.r[n].wrapping_add(stmp1 as u32);
-}
 
 // Branch helpers and delay slot execution
 fn branch_target_s8(op: u16, pc: u32) -> u32 {
@@ -404,161 +265,306 @@ fn ExecuteDelayslot(dc: &mut Dreamcast) {
     }
 }
 
-// bf <bdisp8>
-fn i1000_1011_iiii_iiii(dc: &mut Dreamcast, instr: u16) {
-    if dc.ctx.sr_T == 0 {
-        dc.ctx.pc = branch_target_s8(instr, dc.ctx.pc);
+sh4op! {
+    // mul.l <REG_M>,<REG_N>
+    i0000_nnnn_mmmm_0111(dc, instr) {
+        let n = GetN(instr) as usize;
+        let m = GetM(instr) as usize;
+        dc.ctx.macl = ((dc.ctx.r[n] as i32 as i64) * (dc.ctx.r[m] as i32 as i64)) as u32;
     }
-}
 
-// bf.s <bdisp8>
-fn i1000_1111_iiii_iiii(dc: &mut Dreamcast, instr: u16) {
-    if dc.ctx.sr_T == 0 {
-        let newpc = branch_target_s8(instr, dc.ctx.pc);
+    // nop
+    i0000_0000_0000_1001(dc, instr) {
+        // no-op
+    }
+
+    // sts FPUL,<REG_N>
+    i0000_nnnn_0101_1010(dc, instr) {
+        let n = GetN(instr) as usize;
+        dc.ctx.r[n] = dc.ctx.fpul;
+    }
+
+    // sts MACL,<REG_N>
+    i0000_nnnn_0001_1010(dc, instr) {
+        let n = GetN(instr) as usize;
+        dc.ctx.r[n] = dc.ctx.macl;
+    }
+
+    // mov.b <REG_M>,@<REG_N>
+    i0010_nnnn_mmmm_0000(dc, instr) {
+        let n = GetN(instr) as usize;
+        let m = GetM(instr) as usize;
+        let _ = write_mem::<u8>(dc, dc.ctx.r[n], dc.ctx.r[m] as u8);
+    }
+
+    // mov.w <REG_M>,@<REG_N>
+    i0010_nnnn_mmmm_0001(dc, instr) {
+        let n = GetN(instr) as usize;
+        let m = GetM(instr) as usize;
+        let _ = write_mem::<u16>(dc, dc.ctx.r[n], dc.ctx.r[m] as u16);
+    }
+
+    // mov.l <REG_M>,@<REG_N>
+    i0010_nnnn_mmmm_0010(dc, instr) {
+        let n = GetN(instr) as usize;
+        let m = GetM(instr) as usize;
+        let _ = write_mem::<u32>(dc, dc.ctx.r[n], dc.ctx.r[m]);
+    }
+
+    // and <REG_M>,<REG_N>
+    i0010_nnnn_mmmm_1001(dc, instr) {
+        let n = GetN(instr) as usize;
+        let m = GetM(instr) as usize;
+        dc.ctx.r[n] &= dc.ctx.r[m];
+    }
+
+    // xor <REG_M>,<REG_N>
+    i0010_nnnn_mmmm_1010(dc, instr) {
+        let n = GetN(instr) as usize;
+        let m = GetM(instr) as usize;
+        dc.ctx.r[n] ^= dc.ctx.r[m];
+    }
+
+    // sub <REG_M>,<REG_N>
+    i0011_nnnn_mmmm_1000(dc, instr) {
+        let n = GetN(instr) as usize;
+        let m = GetM(instr) as usize;
+        dc.ctx.r[n] = dc.ctx.r[n].wrapping_sub(dc.ctx.r[m]);
+    }
+
+    // add <REG_M>,<REG_N>
+    i0011_nnnn_mmmm_1100(dc, instr) {
+        let n = GetN(instr) as usize;
+        let m = GetM(instr) as usize;
+        dc.ctx.r[n] = dc.ctx.r[n].wrapping_add(dc.ctx.r[m]);
+    }
+
+    // dt <REG_N>
+    i0100_nnnn_0001_0000(dc, instr) {
+        let n = GetN(instr) as usize;
+        dc.ctx.r[n] = dc.ctx.r[n].wrapping_sub(1);
+        dc.ctx.sr_T = if dc.ctx.r[n] == 0 { 1 } else { 0 };
+    }
+
+    // shlr <REG_N>
+    i0100_nnnn_0000_0001(dc, instr) {
+        let n = GetN(instr) as usize;
+        dc.ctx.sr_T = dc.ctx.r[n] & 1;
+        dc.ctx.r[n] >>= 1;
+    }
+
+    // shll8 <REG_N>
+    i0100_nnnn_0001_1000(dc, instr) {
+        let n = GetN(instr) as usize;
+        dc.ctx.r[n] <<= 8;
+    }
+
+    // shlr2 <REG_N>
+    i0100_nnnn_0000_1001(dc, instr) {
+        let n = GetN(instr) as usize;
+        dc.ctx.r[n] >>= 2;
+    }
+
+    // shlr16 <REG_N>
+    i0100_nnnn_0010_1001(dc, instr) {
+        let n = GetN(instr) as usize;
+        dc.ctx.r[n] >>= 16;
+    }
+
+    // mov.b @<REG_M>,<REG_N>
+    i0110_nnnn_mmmm_0000(dc, instr) {
+        let n = GetN(instr) as usize;
+        let m = GetM(instr) as usize;
+
+        let mut data: i8 = 0;
+        let _ = read_mem::<i8>(dc, dc.ctx.r[m], &mut data);
+        dc.ctx.r[n] = data as i32 as u32;
+    }
+
+    // mov <REG_M>,<REG_N>
+    i0110_nnnn_mmmm_0011(dc, instr) {
+        let n = GetN(instr) as usize;
+        let m = GetM(instr) as usize;
+        dc.ctx.r[n] = dc.ctx.r[m];
+    }
+
+    // neg <REG_M>,<REG_N>
+    i0110_nnnn_mmmm_1011(dc, instr) {
+        let n = GetN(instr) as usize;
+        let m = GetM(instr) as usize;
+        dc.ctx.r[n] = (0u32).wrapping_sub(dc.ctx.r[m]);
+    }
+
+    // extu.b <REG_M>,<REG_N>
+    i0110_nnnn_mmmm_1100(dc, instr) {
+        let n = GetN(instr) as usize;
+        let m = GetM(instr) as usize;
+        dc.ctx.r[n] = (dc.ctx.r[m] as u8) as u32;
+    }
+
+    // add #<imm>,<REG_N>
+    i0111_nnnn_iiii_iiii(dc, instr) {
+        let n = GetN(instr) as usize;
+        let stmp1 = GetSImm8(instr) as i32;
+        dc.ctx.r[n] = dc.ctx.r[n].wrapping_add(stmp1 as u32);
+    }
+
+    // bf <bdisp8>
+    i1000_1011_iiii_iiii(dc, instr) {
+        if dc.ctx.sr_T == 0 {
+            dc.ctx.pc = branch_target_s8(instr, dc.ctx.pc);
+        }
+    }
+
+    // bf.s <bdisp8>
+    i1000_1111_iiii_iiii(dc, instr) {
+        if dc.ctx.sr_T == 0 {
+            let newpc = branch_target_s8(instr, dc.ctx.pc);
+            ExecuteDelayslot(dc);
+            dc.ctx.pc = newpc;
+        }
+    }
+
+    // bra <bdisp12>
+    i1010_iiii_iiii_iiii(dc, instr) {
+        let newpc = branch_target_s12(instr, dc.ctx.pc);
         ExecuteDelayslot(dc);
         dc.ctx.pc = newpc;
     }
-}
 
-// bra <bdisp12>
-fn i1010_iiii_iiii_iiii(dc: &mut Dreamcast, instr: u16) {
-    let newpc = branch_target_s12(instr, dc.ctx.pc);
-    ExecuteDelayslot(dc);
-    dc.ctx.pc = newpc;
-}
-
-// mova @(<disp>,PC),R0
-fn i1100_0111_iiii_iiii(dc: &mut Dreamcast, instr: u16) {
-    // ((pc+2) & ~3) + (imm8 << 2)
-    let base = (dc.ctx.pc.wrapping_add(2)) & 0xFFFFFFFC;
-    dc.ctx.r[0] = base.wrapping_add((GetImm8(instr) << 2) as u32);
-}
-
-// mov.l @(<disp>,PC),<REG_N>
-fn i1101_nnnn_iiii_iiii(dc: &mut Dreamcast, instr: u16) {
-    let n = GetN(instr) as usize;
-    let disp = GetImm8(instr);
-    let addr = ((dc.ctx.pc.wrapping_add(2)) & 0xFFFFFFFC).wrapping_add((disp << 2) as u32);
-    let mut tmp: u32 = 0;
-    let _ = read_mem::<u32>(dc, addr, &mut tmp);
-    dc.ctx.r[n] = tmp;
-}
-
-// mov #<imm>,<REG_N>
-fn i1110_nnnn_iiii_iiii(dc: &mut Dreamcast, instr: u16) {
-    let n = GetN(instr) as usize;
-    dc.ctx.r[n] = (GetSImm8(instr) as i8) as i32 as u32;
-}
-
-// fadd <FREG_M>,<FREG_N> (single precision only)
-fn i1111_nnnn_mmmm_0000(dc: &mut Dreamcast, instr: u16) {
-    if dc.ctx.fpscr_PR == 0 {
-        let n = GetN(instr) as usize;
-        let m = GetM(instr) as usize;
-        unsafe { dc.ctx.fr.f32s[n] = dc.ctx.fr.f32s[n] + dc.ctx.fr.f32s[m] };
-    } else {
-        debug_assert!(false);
+    // mova @(<disp>,PC),R0
+    i1100_0111_iiii_iiii(dc, instr) {
+        // ((pc+2) & ~3) + (imm8 << 2)
+        let base = (dc.ctx.pc.wrapping_add(2)) & 0xFFFFFFFC;
+        dc.ctx.r[0] = base.wrapping_add((GetImm8(instr) << 2) as u32);
     }
-}
 
-// fmul <FREG_M>,<FREG_N>
-fn i1111_nnnn_mmmm_0010(dc: &mut Dreamcast, instr: u16) {
-    if dc.ctx.fpscr_PR == 0 {
+    // mov.l @(<disp>,PC),<REG_N>
+    i1101_nnnn_iiii_iiii(dc, instr) {
         let n = GetN(instr) as usize;
-        let m = GetM(instr) as usize;
-        unsafe { dc.ctx.fr.f32s[n] = dc.ctx.fr.f32s[n] * dc.ctx.fr.f32s[m]; }
-    } else {
-        debug_assert!(false);
-    }
-}
-
-// fdiv <FREG_M>,<FREG_N>
-fn i1111_nnnn_mmmm_0011(dc: &mut Dreamcast, instr: u16) {
-    if dc.ctx.fpscr_PR == 0 {
-        let n = GetN(instr) as usize;
-        let m = GetM(instr) as usize;
-        unsafe { dc.ctx.fr.f32s[n] = dc.ctx.fr.f32s[n] / dc.ctx.fr.f32s[m]; }
-    } else {
-        debug_assert!(false);
-    }
-}
-
-// fmov.s @<REG_M>,<FREG_N>
-fn i1111_nnnn_mmmm_1000(dc: &mut Dreamcast, instr: u16) {
-    if dc.ctx.fpscr_SZ == 0 {
-        let n = GetN(instr) as usize;
-        let m = GetM(instr) as usize;
+        let disp = GetImm8(instr);
+        let addr = ((dc.ctx.pc.wrapping_add(2)) & 0xFFFFFFFC).wrapping_add((disp << 2) as u32);
         let mut tmp: u32 = 0;
-        let _ = read_mem::<u32>(dc, dc.ctx.r[m], &mut tmp);
-        unsafe { dc.ctx.fr.u32s[n] = tmp; }
-    } else {
-        debug_assert!(false);
+        let _ = read_mem::<u32>(dc, addr, &mut tmp);
+        dc.ctx.r[n] = tmp;
     }
-}
 
-// fmov <FREG_M>,<FREG_N>
-fn i1111_nnnn_mmmm_1100(dc: &mut Dreamcast, instr: u16) {
-    if dc.ctx.fpscr_SZ == 0 {
+    // mov #<imm>,<REG_N>
+    i1110_nnnn_iiii_iiii(dc, instr) {
         let n = GetN(instr) as usize;
-        let m = GetM(instr) as usize;
-        unsafe { dc.ctx.fr.f32s[n] = dc.ctx.fr.f32s[m] };
-    } else {
-        debug_assert!(false);
+        dc.ctx.r[n] = (GetSImm8(instr) as i8) as i32 as u32;
     }
-}
 
-// FSCA FPUL, DRn (1111_nnn0_1111_1101)
-fn i1111_nnn0_1111_1101(dc: &mut Dreamcast, instr: u16) {
-    let n = (GetN(instr) & 0xE) as usize;
-    if dc.ctx.fpscr_PR == 0 {
-        let pi_index = dc.ctx.fpul & 0xFFFF;
-        // rads = (index / (65536/2)) * pi
-        let rads = (pi_index as f32) / (65536.0f32 / 2.0) * PI;
-        unsafe {
-            dc.ctx.fr.f32s[n + 0] = rads.sin();
-            dc.ctx.fr.f32s[n + 1] = rads.cos();
+    // fadd <FREG_M>,<FREG_N> (single precision only)
+    i1111_nnnn_mmmm_0000(dc, instr) {
+        if dc.ctx.fpscr_PR == 0 {
+            let n = GetN(instr) as usize;
+            let m = GetM(instr) as usize;
+            unsafe { dc.ctx.fr.f32s[n] = dc.ctx.fr.f32s[n] + dc.ctx.fr.f32s[m] };
+        } else {
+            debug_assert!(false);
         }
-        
-    } else {
-        debug_assert!(false);
     }
-}
 
-// float FPUL,<FREG_N>
-fn i1111_nnnn_0010_1101(dc: &mut Dreamcast, instr: u16) {
-    if dc.ctx.fpscr_PR == 0 {
-        let n = GetN(instr) as usize;
-        unsafe { dc.ctx.fr.f32s[n] = (dc.ctx.fpul as i32) as f32; }
-    } else {
-        debug_assert!(false);
+    // fmul <FREG_M>,<FREG_N>
+    i1111_nnnn_mmmm_0010(dc, instr) {
+        if dc.ctx.fpscr_PR == 0 {
+            let n = GetN(instr) as usize;
+            let m = GetM(instr) as usize;
+            unsafe { dc.ctx.fr.f32s[n] = dc.ctx.fr.f32s[n] * dc.ctx.fr.f32s[m]; }
+        } else {
+            debug_assert!(false);
+        }
     }
-}
 
-// ftrc <FREG_N>, FPUL
-fn i1111_nnnn_0011_1101(dc: &mut Dreamcast, instr: u16) {
-    if dc.ctx.fpscr_PR == 0 {
-        let n = GetN(instr) as usize;
-        // saturate to 0x7FFFFFBF as in original snippet
-        let v = unsafe { dc.ctx.fr.f32s[n] };
-        let clamped = v.min(0x7FFFFFBF as f32);
-        let mut as_i = clamped as i32 as u32;
-        if as_i == 0x80000000 {
-            if v > 0.0 {
-                as_i = as_i.wrapping_sub(1);
+    // fdiv <FREG_M>,<FREG_N>
+    i1111_nnnn_mmmm_0011(dc, instr) {
+        if dc.ctx.fpscr_PR == 0 {
+            let n = GetN(instr) as usize;
+            let m = GetM(instr) as usize;
+            unsafe { dc.ctx.fr.f32s[n] = dc.ctx.fr.f32s[n] / dc.ctx.fr.f32s[m]; }
+        } else {
+            debug_assert!(false);
+        }
+    }
+
+    // fmov.s @<REG_M>,<FREG_N>
+    i1111_nnnn_mmmm_1000(dc, instr) {
+        if dc.ctx.fpscr_SZ == 0 {
+            let n = GetN(instr) as usize;
+            let m = GetM(instr) as usize;
+            let mut tmp: u32 = 0;
+            let _ = read_mem::<u32>(dc, dc.ctx.r[m], &mut tmp);
+            unsafe { dc.ctx.fr.u32s[n] = tmp; }
+        } else {
+            debug_assert!(false);
+        }
+    }
+
+    // fmov <FREG_M>,<FREG_N>
+    i1111_nnnn_mmmm_1100(dc, instr) {
+        if dc.ctx.fpscr_SZ == 0 {
+            let n = GetN(instr) as usize;
+            let m = GetM(instr) as usize;
+            unsafe { dc.ctx.fr.f32s[n] = dc.ctx.fr.f32s[m] };
+        } else {
+            debug_assert!(false);
+        }
+    }
+
+    // FSCA FPUL, DRn (1111_nnn0_1111_1101)
+    i1111_nnn0_1111_1101(dc, instr) {
+        let n = (GetN(instr) & 0xE) as usize;
+        if dc.ctx.fpscr_PR == 0 {
+            let pi_index = dc.ctx.fpul & 0xFFFF;
+            // rads = (index / (65536/2)) * pi
+            let rads = (pi_index as f32) / (65536.0f32 / 2.0) * PI;
+            unsafe {
+                dc.ctx.fr.f32s[n + 0] = rads.sin();
+                dc.ctx.fr.f32s[n + 1] = rads.cos();
             }
+            
+        } else {
+            debug_assert!(false);
         }
-        dc.ctx.fpul = as_i;
-    } else {
-        debug_assert!(false);
     }
-}
 
-// lds <REG_N>,FPUL
-fn i0100_nnnn_0101_1010(dc: &mut Dreamcast, instr: u16) {
-    let n = GetN(instr) as usize;
-    dc.ctx.fpul = dc.ctx.r[n];
-}
+    // float FPUL,<FREG_N>
+    i1111_nnnn_0010_1101(dc, instr) {
+        if dc.ctx.fpscr_PR == 0 {
+            let n = GetN(instr) as usize;
+            unsafe { dc.ctx.fr.f32s[n] = (dc.ctx.fpul as i32) as f32; }
+        } else {
+            debug_assert!(false);
+        }
+    }
 
+    // ftrc <FREG_N>, FPUL
+    i1111_nnnn_0011_1101(dc, instr) {
+        if dc.ctx.fpscr_PR == 0 {
+            let n = GetN(instr) as usize;
+            // saturate to 0x7FFFFFBF as in original snippet
+            let v = unsafe { dc.ctx.fr.f32s[n] };
+            let clamped = v.min(0x7FFFFFBF as f32);
+            let mut as_i = clamped as i32 as u32;
+            if as_i == 0x80000000 {
+                if v > 0.0 {
+                    as_i = as_i.wrapping_sub(1);
+                }
+            }
+            dc.ctx.fpul = as_i;
+        } else {
+            debug_assert!(false);
+        }
+    }
+
+    // lds <REG_N>,FPUL
+    i0100_nnnn_0101_1010(dc, instr) {
+        let n = GetN(instr) as usize;
+        dc.ctx.fpul = dc.ctx.r[n];
+    }
+
+}
 // -----------------------------------------------------------------------------
 // Declare all unimplemented handlers as stubs (1:1 names) ---------------------
 // -----------------------------------------------------------------------------
