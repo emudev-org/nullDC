@@ -131,10 +131,8 @@ jobs:
         run: |
           set -euo pipefail
           wrangler pages deploy ./dist --project-name nulldc
-          # Optionally capture the production URL if you want it:
-          sudo apt-get update -y && sudo apt-get install -y jq
           json=$(wrangler pages deployment list --project-name nulldc --environment production --json)
-          url=$(echo "$json" | jq -r 'try .[0].url catch empty')
+          url=$(echo "$json" | jq -r 'try .result[0].url catch empty')
           echo "production_url=$url" >> "$GITHUB_OUTPUT"
 
       # Preview deploy on PR
@@ -147,11 +145,9 @@ jobs:
         run: |
           set -euo pipefail
           wrangler pages deploy dist --project-name nulldc --branch="${{ github.head_ref }}"
-          sudo apt-get update -y && sudo apt-get install -y jq
           json=$(wrangler pages deployment list --project-name nulldc --environment preview --json)
-          # Prefer alias (branch) URL when present, fall back to the deployment URL
-          alias=$(echo "$json" | jq -r 'try .[0].aliases[0] catch empty')
-          url=$(echo "$json" | jq -r 'try .[0].url catch empty')
+          alias=$(echo "$json" | jq -r 'try .result[0].aliases[0] catch empty')
+          url=$(echo "$json" | jq -r 'try .result[0].url catch empty')
           echo "preview_url=${alias:-$url}" >> "$GITHUB_OUTPUT"
 
       - name: Comment PR with preview URL
