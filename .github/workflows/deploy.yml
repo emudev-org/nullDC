@@ -1,4 +1,4 @@
-name: CI & Deploy
+name: CI & Deploy nullDC Worker
 
 on:
   push:
@@ -71,7 +71,9 @@ jobs:
       - name: Build wasm
         if: matrix.target == 'wasm32-unknown-unknown'
         run: |
-          cargo install wasm-bindgen-cli --locked
+          if ! command -v wasm-bindgen &> /dev/null; then
+            cargo install wasm-bindgen-cli --locked
+          fi
           cargo build --lib --target wasm32-unknown-unknown --release
           wasm-bindgen --target web --out-dir dist target/wasm32-unknown-unknown/release/nulldc.wasm
 
@@ -117,8 +119,16 @@ jobs:
       - name: Install Wrangler
         run: npm install -g wrangler
 
+      # Publish to Cloudflare Pages (production on main)
       - name: Publish to Cloudflare Pages
         run: wrangler pages publish dist --project-name nulldc
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
+      # Publish preview on PRs
+      - name: Publish Preview to Cloudflare Pages
+        run: wrangler pages publish dist --project-name nulldc
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        if: github.event_name == 'pull_request'
