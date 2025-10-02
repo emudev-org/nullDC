@@ -70,7 +70,7 @@ jobs:
         run: cargo build --release --target ${{ matrix.target }}
 
       # Build wasm + bindgen
-      - name: Build wasm
+      - name: Build wasm and site
         if: matrix.target == 'wasm32-unknown-unknown'
         run: |
           if ! command -v wasm-bindgen &> /dev/null; then
@@ -78,6 +78,7 @@ jobs:
           fi
           cargo build --lib --target wasm32-unknown-unknown --release
           wasm-bindgen --target web --out-dir dist target/wasm32-unknown-unknown/release/nulldc.wasm
+          cp -r site/* dist/ || true
 
       # Zip wasm dist
       - name: Zip dist
