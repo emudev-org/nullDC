@@ -57,8 +57,17 @@ jobs:
           path: ~/.cargo/bin
           key: ${{ runner.os }}-cargo-bin-${{ hashFiles('tool-versions.txt') }}
   
-      - name: Read tool versions
-        id: tools
+
+      - name: Native: Run tests
+        if: matrix.target != 'wasm32-unknown-unknown'
+        run: cargo test --target ${{ matrix.target }}
+
+      - name: Native: Build release
+        if: matrix.target != 'wasm32-unknown-unknown'
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: WASM: Read tool versions
+        if: matrix.target == 'wasm32-unknown-unknown'
         run: |
           #!/usr/bin/env bash
           set -euo pipefail
@@ -67,44 +76,35 @@ jobs:
             echo "${key}_version=${value}" >> "$GITHUB_ENV"
             echo "${key}_version=${value}"
           done < tool-versions.txt
-
-      - name: Run tests
-        if: matrix.target != 'wasm32-unknown-unknown'
-        run: cargo test --target ${{ matrix.target }}
-
-      - name: Build native release
-        if: matrix.target != 'wasm32-unknown-unknown'
-        run: cargo build --release --target ${{ matrix.target }}
-
-      - name: Install cargo-binstall if missing
+        
+      - name: WASM: Install cargo-binstall if missing
         if: matrix.target == 'wasm32-unknown-unknown'
         run: |
           if ! command -v cargo-binstall &> /dev/null; then
             cargo install cargo-binstall --version "${binstall_version}" --locked
           fi
 
-      - name: Install trunk if missing
+      - name: WASM: Install trunk if missing
         if: matrix.target == 'wasm32-unknown-unknown'
         run: |
           if ! command -v trunk &> /dev/null; then
             cargo binstall trunk --version "${trunk_version}" --locked --no-confirm
           fi
 
-      - name: Build wasm and site
+      - name: WASM: Build code and site
         if: matrix.target == 'wasm32-unknown-unknown'
         run: |
           trunk build
 
 
-      - name: Upload wasm dist
+      - name: WASM: Upload artifacts
         if: matrix.target == 'wasm32-unknown-unknown'
         uses: actions/upload-artifact@v4
         with:
           name: site-dist-${{ github.ref_name }}-${{ github.sha }}
           path: dist
 
-
-      - name: Upload native artifacts
+      - name: Native: Upload artifacts
         if: matrix.target != 'wasm32-unknown-unknown'
         uses: actions/upload-artifact@v4
         with:
