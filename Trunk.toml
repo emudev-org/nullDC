@@ -1,0 +1,4 @@
+[build]
+target = "site/index.html"
+dist   = "dist"
+release = true

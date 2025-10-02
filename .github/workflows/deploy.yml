@@ -71,7 +71,7 @@ jobs:
           if ! command -v trunk &> /dev/null; then
             cargo install trunk --locked
           fi
-          trunk build site/index.html --release --dist dist
+          trunk build
 
       - name: Zip dist
         if: matrix.target == 'wasm32-unknown-unknown'
