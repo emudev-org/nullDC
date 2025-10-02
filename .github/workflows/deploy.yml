@@ -121,11 +121,11 @@ jobs:
           NO_COLOR: "1"
         run: |
           set -euo pipefail
-          wrangler pages deploy ./dist --project-name nulldc
-          json=$(wrangler pages deployment list --project-name nulldc --environment production --json)
-          echo "$json"
-          url=$(echo "$json" | jq -r 'try .result[0].url catch empty')
-          echo "production_url=$url" >> "$GITHUB_OUTPUT"
+          output=$(wrangler pages deploy ./dist --project-name nulldc)
+          echo "$output" > wrangler_output.txt
+          echo "wrangler_output<<EOF" >> "$GITHUB_OUTPUT"
+          cat wrangler_output.txt >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
 
       - name: Publish Preview to Cloudflare Pages
         id: preview
@@ -135,12 +135,11 @@ jobs:
           NO_COLOR: "1"
         run: |
           set -euo pipefail
-          wrangler pages deploy dist --project-name nulldc --branch="${{ github.head_ref }}"
-          json=$(wrangler pages deployment list --project-name nulldc --environment preview --json)
-          echo "$json"
-          alias=$(echo "$json" | jq -r 'try .result[0].aliases[0] catch empty')
-          url=$(echo "$json" | jq -r 'try .result[0].url catch empty')
-          echo "preview_url=${alias:-$url}" >> "$GITHUB_OUTPUT"
+          output=$(wrangler pages deploy dist --project-name nulldc --branch="${{ github.head_ref }}")
+          echo "$output" > wrangler_output.txt
+          echo "wrangler_output<<EOF" >> "$GITHUB_OUTPUT"
+          cat wrangler_output.txt >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
 
       - name: Comment PR with preview URL
         if: github.event_name == 'pull_request'
@@ -148,14 +147,10 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const url = "${{ steps.preview.outputs.preview_url }}";
-            if (!url) {
-              core.warning("No preview URL captured");
-              return;
-            }
+            const body = `${{ steps.preview.outputs.wrangler_output }}`;
             await github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `Preview deployed: [${url}](${url})`
+              body
             });
