@@ -121,14 +121,14 @@ jobs:
 
       # Publish to Cloudflare Pages (production on main)
       - name: Publish to Cloudflare Pages
-        run: wrangler pages publish dist --project-name nulldc
+        run: wrangler pages deploy ./dist --project-name nulldc
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
       # Publish preview on PRs
       - name: Publish Preview to Cloudflare Pages
-        run: wrangler pages publish dist --project-name nulldc
+        run: wrangler pages deploy dist --project-name nulldc --branch=${{ github.head_ref }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         if: github.event_name == 'pull_request'
