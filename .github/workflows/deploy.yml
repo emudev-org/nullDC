@@ -123,6 +123,7 @@ jobs:
           set -euo pipefail
           wrangler pages deploy ./dist --project-name nulldc
           json=$(wrangler pages deployment list --project-name nulldc --environment production --json)
+          echo "$json"
           url=$(echo "$json" | jq -r 'try .result[0].url catch empty')
           echo "production_url=$url" >> "$GITHUB_OUTPUT"
 
@@ -136,6 +137,7 @@ jobs:
           set -euo pipefail
           wrangler pages deploy dist --project-name nulldc --branch="${{ github.head_ref }}"
           json=$(wrangler pages deployment list --project-name nulldc --environment preview --json)
+          echo "$json"
           alias=$(echo "$json" | jq -r 'try .result[0].aliases[0] catch empty')
           url=$(echo "$json" | jq -r 'try .result[0].url catch empty')
           echo "preview_url=${alias:-$url}" >> "$GITHUB_OUTPUT"
