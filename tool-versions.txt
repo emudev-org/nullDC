@@ -1,2 +1,2 @@
 trunk=0.21.14
-cargo-binstall=1.0.0
+binstall=1.0.0
