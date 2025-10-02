@@ -33,7 +33,6 @@ jobs:
           target: ${{ matrix.target }}
           override: true
 
-      # Cache Cargo deps
       - name: Cache cargo registry
         uses: actions/cache@v4
         with:
@@ -52,40 +51,32 @@ jobs:
           path: ${{ github.workspace }}/target
           key: ${{ runner.os }}-cargo-target-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
 
-      # Cache installed CLI tools
       - name: Cache cargo bin
         uses: actions/cache@v4
         with:
           path: ~/.cargo/bin
           key: ${{ runner.os }}-cargo-bin
 
-      # Run tests on native targets
       - name: Run tests
         if: matrix.target != 'wasm32-unknown-unknown'
         run: cargo test --target ${{ matrix.target }}
 
-      # Build native release
       - name: Build native release
         if: matrix.target != 'wasm32-unknown-unknown'
         run: cargo build --release --target ${{ matrix.target }}
 
-      # Build wasm + bindgen
       - name: Build wasm and site
         if: matrix.target == 'wasm32-unknown-unknown'
         run: |
-          if ! command -v wasm-bindgen &> /dev/null; then
-            cargo install wasm-bindgen-cli --locked
+          if ! command -v trunk &> /dev/null; then
+            cargo install trunk --locked
           fi
-          cargo build --lib --target wasm32-unknown-unknown --release
-          wasm-bindgen --target web --out-dir dist target/wasm32-unknown-unknown/release/nulldc.wasm
-          cp -r site/* dist/ || true
+          trunk build site/index.html --release --dist dist
 
-      # Zip wasm dist
       - name: Zip dist
         if: matrix.target == 'wasm32-unknown-unknown'
         run: zip -r dist.zip dist
 
-      # Upload artifacts
       - name: Upload wasm dist
         if: matrix.target == 'wasm32-unknown-unknown'
         uses: actions/upload-artifact@v4
@@ -122,8 +113,7 @@ jobs:
       - name: Install Wrangler
         run: npm install -g wrangler
 
-      # Production deploy on main
-      - name: Publish to Cloudflare Pages
+      - name: Publish Production to Cloudflare Pages
         id: deploy
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
@@ -136,7 +126,6 @@ jobs:
           url=$(echo "$json" | jq -r 'try .result[0].url catch empty')
           echo "production_url=$url" >> "$GITHUB_OUTPUT"
 
-      # Preview deploy on PR
       - name: Publish Preview to Cloudflare Pages
         id: preview
         if: github.event_name == 'pull_request'
