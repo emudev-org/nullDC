@@ -14,20 +14,13 @@ use wasm_bindgen::JsCast;
 use wgpu::web_sys;
 
 use winit::{
-    event::{Event, WindowEvent, KeyEvent, ElementState},
+    event::{WindowEvent, KeyEvent, ElementState},
     event_loop::{ActiveEventLoop, EventLoop},
     keyboard::{KeyCode, PhysicalKey},
-    window::WindowAttributes,
 };
 use winit::window::Window;
 
-use core::mem::MaybeUninit;
-use std::cmp::min;
-use std::f32::consts::PI;
-use std::ptr;
 
-use std::fs::File;
-use std::io::Read;
 
 use git_version::git_version;
 use wgpu::util::DeviceExt;
@@ -53,7 +46,6 @@ struct State {
     // UI state
     clear_color: [f32; 3],
     show_triangle: bool,
-    rotation: f32,
     framebuffer: egui::TextureHandle,
 }
 
@@ -351,7 +343,6 @@ impl State {
             egui_ctx,
             clear_color: [0.1, 0.2, 0.3],
             show_triangle: true,
-            rotation: 0.0,
             framebuffer,
         }
     }
@@ -364,11 +355,6 @@ impl State {
             self.surface.configure(&self.device, &self.config);
         }
     }
-
-    fn update(&mut self) {
-        // place per-frame updates here (e.g., rotation += …)
-    }
-
     
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         let output = self.surface.get_current_texture()?;
@@ -438,7 +424,7 @@ impl State {
 
         // 2) Draw egui on top (separate pass, load existing color)
         {
-            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            let rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("egui pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
@@ -515,11 +501,6 @@ use winit::window::WindowId;
 use std::rc::Rc;
 use std::cell::RefCell;
 
-impl App {
-    fn new() -> Rc<RefCell<Self>> {
-        Rc::new(RefCell::new(App { state: None, dreamcast: None }))
-    }
-}
 
 struct AppHandle(Rc<RefCell<App>>);
 
@@ -535,7 +516,7 @@ impl AppHandle {
 impl ApplicationHandler for AppHandle {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         
-        let mut window_attributes = Window::default_attributes()
+        let window_attributes = Window::default_attributes()
             .with_title(format!("nullDC {}", GIT_HASH))
             .with_inner_size(winit::dpi::Size::Physical(winit::dpi::PhysicalSize::new(1024, 1024)));
 

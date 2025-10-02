@@ -5,27 +5,13 @@
 #![allow(dead_code)]
 #![allow(unused_variables)]
 
-use core::mem::MaybeUninit;
-use std::cmp::min;
 use std::f32::consts::PI;
 use std::ptr;
 
-use std::fs::File;
-use std::io::Read;
 
-use git_version::git_version;
 
-use std::sync::Arc;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
-use wgpu::util::DeviceExt;
-use winit::{
-    event::{Event, WindowEvent, KeyEvent, ElementState},
-    event_loop::EventLoop,
-    keyboard::{KeyCode, PhysicalKey},
-    window::WindowAttributes,
-};
-use winit::window::Window;
 
 // -----------------------------------------------------------------------------
 // types.h
@@ -200,16 +186,16 @@ pub fn write_mem<T: Copy>(dc: &mut Dreamcast, addr: u32, data: T) -> bool {
 // oplist.inl helpers/macros translated to consts and inline fns
 // -----------------------------------------------------------------------------
 
-const Mask_n_m: u16 = 0xF00F;
-const Mask_n_m_imm4: u16 = 0xF000;
-const Mask_n: u16 = 0xF0FF;
-const Mask_none: u16 = 0xFFFF;
-const Mask_imm8: u16 = 0xFF00;
-const Mask_imm12: u16 = 0xF000;
-const Mask_n_imm8: u16 = 0xF000;
-const Mask_n_ml3bit: u16 = 0xF08F;
-const Mask_nh3bit: u16 = 0xF1FF;
-const Mask_nh2bit: u16 = 0xF3FF;
+const MASK_N_M: u16 = 0xF00F;
+const MASK_N_M_IMM4: u16 = 0xF000;
+const MASK_N: u16 = 0xF0FF;
+const MASK_NONE: u16 = 0xFFFF;
+const MASK_IMM8: u16 = 0xFF00;
+const MASK_IMM12: u16 = 0xF000;
+const MASK_N_IMM8: u16 = 0xF000;
+const MASK_N_ML3BIT: u16 = 0xF08F;
+const MASK_NH3BIT: u16 = 0xF1FF;
+const MASK_NH2BIT: u16 = 0xF3FF;
 
 #[inline(always)]
 fn GetN(str_: u16) -> u32 { ((str_ >> 8) & 0xF) as u32 }
@@ -678,7 +664,7 @@ declare_stubs!(
 // Opcode list (array) — translated 1:1 from your snippet
 // -----------------------------------------------------------------------------
 
-static missing_opcode: sh4_opcodelistentry = sh4_opcodelistentry {
+static MISSING_OPCODE: sh4_opcodelistentry = sh4_opcodelistentry {
     oph: i_not_implemented,
     handler_name: "i_not_implemented",
     mask: 0,
@@ -688,237 +674,237 @@ static missing_opcode: sh4_opcodelistentry = sh4_opcodelistentry {
 };
 
 pub static OPCODES: &[sh4_opcodelistentry] = &[
-    sh4_opcodelistentry { oph: i0000_nnnn_0010_0011, handler_name: "i0000_nnnn_0010_0011", mask: Mask_n, key: 0x0023, diss: "braf <REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_0000_0011, handler_name: "i0000_nnnn_0000_0011", mask: Mask_n, key: 0x0003, diss: "bsrf <REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_1100_0011, handler_name: "i0000_nnnn_1100_0011", mask: Mask_n, key: 0x00C3, diss: "movca.l R0, @<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_1001_0011, handler_name: "i0000_nnnn_1001_0011", mask: Mask_n, key: 0x0093, diss: "ocbi @<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_1010_0011, handler_name: "i0000_nnnn_1010_0011", mask: Mask_n, key: 0x00A3, diss: "ocbp @<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_1011_0011, handler_name: "i0000_nnnn_1011_0011", mask: Mask_n, key: 0x00B3, diss: "ocbwb @<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_1000_0011, handler_name: "i0000_nnnn_1000_0011", mask: Mask_n, key: 0x0083, diss: "pref @<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_mmmm_0111, handler_name: "i0000_nnnn_mmmm_0111", mask: Mask_n_m, key: 0x0007, diss: "mul.l <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_0000_0010_1000, handler_name: "i0000_0000_0010_1000", mask: Mask_none, key: 0x0028, diss: "clrmac", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_0000_0100_1000, handler_name: "i0000_0000_0100_1000", mask: Mask_none, key: 0x0048, diss: "clrs", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_0000_0000_1000, handler_name: "i0000_0000_0000_1000", mask: Mask_none, key: 0x0008, diss: "clrt", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_0000_0011_1000, handler_name: "i0000_0000_0011_1000", mask: Mask_none, key: 0x0038, diss: "ldtlb", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_0000_0101_1000, handler_name: "i0000_0000_0101_1000", mask: Mask_none, key: 0x0058, diss: "sets", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_0000_0001_1000, handler_name: "i0000_0000_0001_1000", mask: Mask_none, key: 0x0018, diss: "sett", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_0000_0001_1001, handler_name: "i0000_0000_0001_1001", mask: Mask_none, key: 0x0019, diss: "div0u", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_0010_1001, handler_name: "i0000_nnnn_0010_1001", mask: Mask_n, key: 0x0029, diss: "movt <REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_0000_0000_1001, handler_name: "i0000_0000_0000_1001", mask: Mask_none, key: 0x0009, diss: "nop", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_0000_0010_1011, handler_name: "i0000_0000_0010_1011", mask: Mask_none, key: 0x002B, diss: "rte", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_0000_0000_1011, handler_name: "i0000_0000_0000_1011", mask: Mask_none, key: 0x000B, diss: "rts", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_0000_0001_1011, handler_name: "i0000_0000_0001_1011", mask: Mask_none, key: 0x001B, diss: "sleep", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_mmmm_1111, handler_name: "i0000_nnnn_mmmm_1111", mask: Mask_n_m, key: 0x000F, diss: "mac.l @<REG_M>+,@<REG_N>+", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0010_nnnn_mmmm_0111, handler_name: "i0010_nnnn_mmmm_0111", mask: Mask_n_m, key: 0x2007, diss: "div0s <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0010_nnnn_mmmm_1000, handler_name: "i0010_nnnn_mmmm_1000", mask: Mask_n_m, key: 0x2008, diss: "tst <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0010_nnnn_mmmm_1001, handler_name: "i0010_nnnn_mmmm_1001", mask: Mask_n_m, key: 0x2009, diss: "and <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0010_nnnn_mmmm_1010, handler_name: "i0010_nnnn_mmmm_1010", mask: Mask_n_m, key: 0x200A, diss: "xor <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0010_nnnn_mmmm_1011, handler_name: "i0010_nnnn_mmmm_1011", mask: Mask_n_m, key: 0x200B, diss: "or <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0010_nnnn_mmmm_1100, handler_name: "i0010_nnnn_mmmm_1100", mask: Mask_n_m, key: 0x200C, diss: "cmp/str <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0010_nnnn_mmmm_1101, handler_name: "i0010_nnnn_mmmm_1101", mask: Mask_n_m, key: 0x200D, diss: "xtrct <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0010_nnnn_mmmm_1110, handler_name: "i0010_nnnn_mmmm_1110", mask: Mask_n_m, key: 0x200E, diss: "mulu.w <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0010_nnnn_mmmm_1111, handler_name: "i0010_nnnn_mmmm_1111", mask: Mask_n_m, key: 0x200F, diss: "muls.w <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0011_nnnn_mmmm_0000, handler_name: "i0011_nnnn_mmmm_0000", mask: Mask_n_m, key: 0x3000, diss: "cmp/eq <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0011_nnnn_mmmm_0010, handler_name: "i0011_nnnn_mmmm_0010", mask: Mask_n_m, key: 0x3002, diss: "cmp/hs <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0011_nnnn_mmmm_0011, handler_name: "i0011_nnnn_mmmm_0011", mask: Mask_n_m, key: 0x3003, diss: "cmp/ge <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0011_nnnn_mmmm_0100, handler_name: "i0011_nnnn_mmmm_0100", mask: Mask_n_m, key: 0x3004, diss: "div1 <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0011_nnnn_mmmm_0101, handler_name: "i0011_nnnn_mmmm_0101", mask: Mask_n_m, key: 0x3005, diss: "dmulu.l <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0011_nnnn_mmmm_0110, handler_name: "i0011_nnnn_mmmm_0110", mask: Mask_n_m, key: 0x3006, diss: "cmp/hi <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0011_nnnn_mmmm_0111, handler_name: "i0011_nnnn_mmmm_0111", mask: Mask_n_m, key: 0x3007, diss: "cmp/gt <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0011_nnnn_mmmm_1000, handler_name: "i0011_nnnn_mmmm_1000", mask: Mask_n_m, key: 0x3008, diss: "sub <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0011_nnnn_mmmm_1010, handler_name: "i0011_nnnn_mmmm_1010", mask: Mask_n_m, key: 0x300A, diss: "subc <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0011_nnnn_mmmm_1011, handler_name: "i0011_nnnn_mmmm_1011", mask: Mask_n_m, key: 0x300B, diss: "subv <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0011_nnnn_mmmm_1100, handler_name: "i0011_nnnn_mmmm_1100", mask: Mask_n_m, key: 0x300C, diss: "add <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0011_nnnn_mmmm_1101, handler_name: "i0011_nnnn_mmmm_1101", mask: Mask_n_m, key: 0x300D, diss: "dmuls.l <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0011_nnnn_mmmm_1110, handler_name: "i0011_nnnn_mmmm_1110", mask: Mask_n_m, key: 0x300E, diss: "addc <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0011_nnnn_mmmm_1111, handler_name: "i0011_nnnn_mmmm_1111", mask: Mask_n_m, key: 0x300F, diss: "addv <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_mmmm_0100, handler_name: "i0000_nnnn_mmmm_0100", mask: Mask_n_m, key: 0x0004, diss: "mov.b <REG_M>,@(R0,<REG_N>)", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_mmmm_0101, handler_name: "i0000_nnnn_mmmm_0101", mask: Mask_n_m, key: 0x0005, diss: "mov.w <REG_M>,@(R0,<REG_N>)", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_mmmm_0110, handler_name: "i0000_nnnn_mmmm_0110", mask: Mask_n_m, key: 0x0006, diss: "mov.l <REG_M>,@(R0,<REG_N>)", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_mmmm_1100, handler_name: "i0000_nnnn_mmmm_1100", mask: Mask_n_m, key: 0x000C, diss: "mov.b @(R0,<REG_M>),<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_mmmm_1101, handler_name: "i0000_nnnn_mmmm_1101", mask: Mask_n_m, key: 0x000D, diss: "mov.w @(R0,<REG_M>),<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_mmmm_1110, handler_name: "i0000_nnnn_mmmm_1110", mask: Mask_n_m, key: 0x000E, diss: "mov.l @(R0,<REG_M>),<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0001_nnnn_mmmm_iiii, handler_name: "i0001_nnnn_mmmm_iiii", mask: Mask_n_imm8, key: 0x1000, diss: "mov.l <REG_M>,@(<disp4dw>,<REG_N>)", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0101_nnnn_mmmm_iiii, handler_name: "i0101_nnnn_mmmm_iiii", mask: Mask_n_m_imm4, key: 0x5000, diss: "mov.l @(<disp4dw>,<REG_M>),<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0010_nnnn_mmmm_0000, handler_name: "i0010_nnnn_mmmm_0000", mask: Mask_n_m, key: 0x2000, diss: "mov.b <REG_M>,@<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0010_nnnn_mmmm_0001, handler_name: "i0010_nnnn_mmmm_0001", mask: Mask_n_m, key: 0x2001, diss: "mov.w <REG_M>,@<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0010_nnnn_mmmm_0010, handler_name: "i0010_nnnn_mmmm_0010", mask: Mask_n_m, key: 0x2002, diss: "mov.l <REG_M>,@<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_0000, handler_name: "i0110_nnnn_mmmm_0000", mask: Mask_n_m, key: 0x6000, diss: "mov.b @<REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_0001, handler_name: "i0110_nnnn_mmmm_0001", mask: Mask_n_m, key: 0x6001, diss: "mov.w @<REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_0010, handler_name: "i0110_nnnn_mmmm_0010", mask: Mask_n_m, key: 0x6002, diss: "mov.l @<REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0010_nnnn_mmmm_0100, handler_name: "i0010_nnnn_mmmm_0100", mask: Mask_n_m, key: 0x2004, diss: "mov.b <REG_M>,@-<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0010_nnnn_mmmm_0101, handler_name: "i0010_nnnn_mmmm_0101", mask: Mask_n_m, key: 0x2005, diss: "mov.w <REG_M>,@-<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0010_nnnn_mmmm_0110, handler_name: "i0010_nnnn_mmmm_0110", mask: Mask_n_m, key: 0x2006, diss: "mov.l <REG_M>,@-<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_0100, handler_name: "i0110_nnnn_mmmm_0100", mask: Mask_n_m, key: 0x6004, diss: "mov.b @<REG_M>+,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_0101, handler_name: "i0110_nnnn_mmmm_0101", mask: Mask_n_m, key: 0x6005, diss: "mov.w @<REG_M>+,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_0110, handler_name: "i0110_nnnn_mmmm_0110", mask: Mask_n_m, key: 0x6006, diss: "mov.l @<REG_M>+,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1000_0000_mmmm_iiii, handler_name: "i1000_0000_mmmm_iiii", mask: Mask_imm8, key: 0x8000, diss: "mov.b R0,@(<disp4b>,<REG_M>)", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1000_0001_mmmm_iiii, handler_name: "i1000_0001_mmmm_iiii", mask: Mask_imm8, key: 0x8100, diss: "mov.w R0,@(<disp4w>,<REG_M>)", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1000_0100_mmmm_iiii, handler_name: "i1000_0100_mmmm_iiii", mask: Mask_imm8, key: 0x8400, diss: "mov.b @(<disp4b>,<REG_M>),R0", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1000_0101_mmmm_iiii, handler_name: "i1000_0101_mmmm_iiii", mask: Mask_imm8, key: 0x8500, diss: "mov.w @(<disp4w>,<REG_M>),R0", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1001_nnnn_iiii_iiii, handler_name: "i1001_nnnn_iiii_iiii", mask: Mask_n_imm8, key: 0x9000, diss: "mov.w @(<PCdisp8w>),<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1100_0000_iiii_iiii, handler_name: "i1100_0000_iiii_iiii", mask: Mask_imm8, key: 0xC000, diss: "mov.b R0,@(<disp8b>,GBR)", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1100_0001_iiii_iiii, handler_name: "i1100_0001_iiii_iiii", mask: Mask_imm8, key: 0xC100, diss: "mov.w R0,@(<disp8w>,GBR)", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1100_0010_iiii_iiii, handler_name: "i1100_0010_iiii_iiii", mask: Mask_imm8, key: 0xC200, diss: "mov.l R0,@(<disp8dw>,GBR)", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1100_0100_iiii_iiii, handler_name: "i1100_0100_iiii_iiii", mask: Mask_imm8, key: 0xC400, diss: "mov.b @(<GBRdisp8b>),R0", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1100_0101_iiii_iiii, handler_name: "i1100_0101_iiii_iiii", mask: Mask_imm8, key: 0xC500, diss: "mov.w @(<GBRdisp8w>),R0", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1100_0110_iiii_iiii, handler_name: "i1100_0110_iiii_iiii", mask: Mask_imm8, key: 0xC600, diss: "mov.l @(<GBRdisp8dw>),R0", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1101_nnnn_iiii_iiii, handler_name: "i1101_nnnn_iiii_iiii", mask: Mask_n_imm8, key: 0xD000, diss: "mov.l @(<PCdisp8d>),<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_0011, handler_name: "i0110_nnnn_mmmm_0011", mask: Mask_n_m, key: 0x6003, diss: "mov <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1100_0111_iiii_iiii, handler_name: "i1100_0111_iiii_iiii", mask: Mask_imm8, key: 0xC700, diss: "mova @(<PCdisp8d>),R0", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1110_nnnn_iiii_iiii, handler_name: "i1110_nnnn_iiii_iiii", mask: Mask_n_imm8, key: 0xE000, diss: "mov #<simm8hex>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0101_0010, handler_name: "i0100_nnnn_0101_0010", mask: Mask_n, key: 0x4052, diss: "sts.l FPUL,@-<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0110_0010, handler_name: "i0100_nnnn_0110_0010", mask: Mask_n, key: 0x4062, diss: "sts.l FPSCR,@-<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0000_0010, handler_name: "i0100_nnnn_0000_0010", mask: Mask_n, key: 0x4002, diss: "sts.l MACH,@-<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0001_0010, handler_name: "i0100_nnnn_0001_0010", mask: Mask_n, key: 0x4012, diss: "sts.l MACL,@-<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0010_0010, handler_name: "i0100_nnnn_0010_0010", mask: Mask_n, key: 0x4022, diss: "sts.l PR,@-<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_1111_0010, handler_name: "i0100_nnnn_1111_0010", mask: Mask_n, key: 0x40F2, diss: "stc.l DBR,@-<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0011_0010, handler_name: "i0100_nnnn_0011_0010", mask: Mask_n, key: 0x4032, diss: "stc.l SGR,@-<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0000_0011, handler_name: "i0100_nnnn_0000_0011", mask: Mask_n, key: 0x4003, diss: "stc.l SR,@-<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0001_0011, handler_name: "i0100_nnnn_0001_0011", mask: Mask_n, key: 0x4013, diss: "stc.l GBR,@-<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0010_0011, handler_name: "i0100_nnnn_0010_0011", mask: Mask_n, key: 0x4023, diss: "stc.l VBR,@-<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0011_0011, handler_name: "i0100_nnnn_0011_0011", mask: Mask_n, key: 0x4033, diss: "stc.l SSR,@-<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0100_0011, handler_name: "i0100_nnnn_0100_0011", mask: Mask_n, key: 0x4043, diss: "stc.l SPC,@-<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_1mmm_0011, handler_name: "i0100_nnnn_1mmm_0011", mask: Mask_n_ml3bit, key: 0x4083, diss: "stc <RM_BANK>,@-<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0000_0110, handler_name: "i0100_nnnn_0000_0110", mask: Mask_n, key: 0x4006, diss: "lds.l @<REG_N>+,MACH", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0001_0110, handler_name: "i0100_nnnn_0001_0110", mask: Mask_n, key: 0x4016, diss: "lds.l @<REG_N>+,MACL", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0010_0110, handler_name: "i0100_nnnn_0010_0110", mask: Mask_n, key: 0x4026, diss: "lds.l @<REG_N>+,PR", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0011_0110, handler_name: "i0100_nnnn_0011_0110", mask: Mask_n, key: 0x4036, diss: "ldc.l @<REG_N>+,SGR", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0101_0110, handler_name: "i0100_nnnn_0101_0110", mask: Mask_n, key: 0x4056, diss: "lds.l @<REG_N>+,FPUL", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0110_0110, handler_name: "i0100_nnnn_0110_0110", mask: Mask_n, key: 0x4066, diss: "lds.l @<REG_N>+,FPSCR", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_1111_0110, handler_name: "i0100_nnnn_1111_0110", mask: Mask_n, key: 0x40F6, diss: "ldc.l @<REG_N>+,DBR", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0000_0111, handler_name: "i0100_nnnn_0000_0111", mask: Mask_n, key: 0x4007, diss: "ldc.l @<REG_N>+,SR", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0001_0111, handler_name: "i0100_nnnn_0001_0111", mask: Mask_n, key: 0x4017, diss: "ldc.l @<REG_N>+,GBR", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0010_0111, handler_name: "i0100_nnnn_0010_0111", mask: Mask_n, key: 0x4027, diss: "ldc.l @<REG_N>+,VBR", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0011_0111, handler_name: "i0100_nnnn_0011_0111", mask: Mask_n, key: 0x4037, diss: "ldc.l @<REG_N>+,SSR", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0100_0111, handler_name: "i0100_nnnn_0100_0111", mask: Mask_n, key: 0x4047, diss: "ldc.l @<REG_N>+,SPC", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_1mmm_0111, handler_name: "i0100_nnnn_1mmm_0111", mask: Mask_n_ml3bit, key: 0x4087, diss: "ldc.l @<REG_N>+,RM_BANK", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_0000_0010, handler_name: "i0000_nnnn_0000_0010", mask: Mask_n, key: 0x0002, diss: "stc SR,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_0001_0010, handler_name: "i0000_nnnn_0001_0010", mask: Mask_n, key: 0x0012, diss: "stc GBR,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_0010_0010, handler_name: "i0000_nnnn_0010_0010", mask: Mask_n, key: 0x0022, diss: "stc VBR,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_0011_0010, handler_name: "i0000_nnnn_0011_0010", mask: Mask_n, key: 0x0032, diss: "stc SSR,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_0100_0010, handler_name: "i0000_nnnn_0100_0010", mask: Mask_n, key: 0x0042, diss: "stc SPC,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_1mmm_0010, handler_name: "i0000_nnnn_1mmm_0010", mask: Mask_n_ml3bit, key: 0x0082, diss: "stc RM_BANK,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_0000_1010, handler_name: "i0000_nnnn_0000_1010", mask: Mask_n, key: 0x000A, diss: "sts MACH,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_0001_1010, handler_name: "i0000_nnnn_0001_1010", mask: Mask_n, key: 0x001A, diss: "sts MACL,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_0010_1010, handler_name: "i0000_nnnn_0010_1010", mask: Mask_n, key: 0x002A, diss: "sts PR,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_0011_1010, handler_name: "i0000_nnnn_0011_1010", mask: Mask_n, key: 0x003A, diss: "sts SGR,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_0101_1010, handler_name: "i0000_nnnn_0101_1010", mask: Mask_n, key: 0x005A, diss: "sts FPUL,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_0110_1010, handler_name: "i0000_nnnn_0110_1010", mask: Mask_n, key: 0x006A, diss: "sts FPSCR,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_1111_1010, handler_name: "i0000_nnnn_1111_1010", mask: Mask_n, key: 0x00FA, diss: "sts DBR,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0000_nnnn_0010_0011, handler_name: "i0000_nnnn_0010_0011", mask: MASK_N, key: 0x0023, diss: "braf <REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0000_nnnn_0000_0011, handler_name: "i0000_nnnn_0000_0011", mask: MASK_N, key: 0x0003, diss: "bsrf <REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0000_nnnn_1100_0011, handler_name: "i0000_nnnn_1100_0011", mask: MASK_N, key: 0x00C3, diss: "movca.l R0, @<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0000_nnnn_1001_0011, handler_name: "i0000_nnnn_1001_0011", mask: MASK_N, key: 0x0093, diss: "ocbi @<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0000_nnnn_1010_0011, handler_name: "i0000_nnnn_1010_0011", mask: MASK_N, key: 0x00A3, diss: "ocbp @<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0000_nnnn_1011_0011, handler_name: "i0000_nnnn_1011_0011", mask: MASK_N, key: 0x00B3, diss: "ocbwb @<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0000_nnnn_1000_0011, handler_name: "i0000_nnnn_1000_0011", mask: MASK_N, key: 0x0083, diss: "pref @<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0000_nnnn_mmmm_0111, handler_name: "i0000_nnnn_mmmm_0111", mask: MASK_N_M, key: 0x0007, diss: "mul.l <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0000_0000_0010_1000, handler_name: "i0000_0000_0010_1000", mask: MASK_NONE, key: 0x0028, diss: "clrmac", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0000_0000_0100_1000, handler_name: "i0000_0000_0100_1000", mask: MASK_NONE, key: 0x0048, diss: "clrs", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0000_0000_0000_1000, handler_name: "i0000_0000_0000_1000", mask: MASK_NONE, key: 0x0008, diss: "clrt", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0000_0000_0011_1000, handler_name: "i0000_0000_0011_1000", mask: MASK_NONE, key: 0x0038, diss: "ldtlb", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0000_0000_0101_1000, handler_name: "i0000_0000_0101_1000", mask: MASK_NONE, key: 0x0058, diss: "sets", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0000_0000_0001_1000, handler_name: "i0000_0000_0001_1000", mask: MASK_NONE, key: 0x0018, diss: "sett", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0000_0000_0001_1001, handler_name: "i0000_0000_0001_1001", mask: MASK_NONE, key: 0x0019, diss: "div0u", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0000_nnnn_0010_1001, handler_name: "i0000_nnnn_0010_1001", mask: MASK_N, key: 0x0029, diss: "movt <REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0000_0000_0000_1001, handler_name: "i0000_0000_0000_1001", mask: MASK_NONE, key: 0x0009, diss: "nop", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0000_0000_0010_1011, handler_name: "i0000_0000_0010_1011", mask: MASK_NONE, key: 0x002B, diss: "rte", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0000_0000_0000_1011, handler_name: "i0000_0000_0000_1011", mask: MASK_NONE, key: 0x000B, diss: "rts", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0000_0000_0001_1011, handler_name: "i0000_0000_0001_1011", mask: MASK_NONE, key: 0x001B, diss: "sleep", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0000_nnnn_mmmm_1111, handler_name: "i0000_nnnn_mmmm_1111", mask: MASK_N_M, key: 0x000F, diss: "mac.l @<REG_M>+,@<REG_N>+", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0010_nnnn_mmmm_0111, handler_name: "i0010_nnnn_mmmm_0111", mask: MASK_N_M, key: 0x2007, diss: "div0s <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0010_nnnn_mmmm_1000, handler_name: "i0010_nnnn_mmmm_1000", mask: MASK_N_M, key: 0x2008, diss: "tst <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0010_nnnn_mmmm_1001, handler_name: "i0010_nnnn_mmmm_1001", mask: MASK_N_M, key: 0x2009, diss: "and <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0010_nnnn_mmmm_1010, handler_name: "i0010_nnnn_mmmm_1010", mask: MASK_N_M, key: 0x200A, diss: "xor <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0010_nnnn_mmmm_1011, handler_name: "i0010_nnnn_mmmm_1011", mask: MASK_N_M, key: 0x200B, diss: "or <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0010_nnnn_mmmm_1100, handler_name: "i0010_nnnn_mmmm_1100", mask: MASK_N_M, key: 0x200C, diss: "cmp/str <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0010_nnnn_mmmm_1101, handler_name: "i0010_nnnn_mmmm_1101", mask: MASK_N_M, key: 0x200D, diss: "xtrct <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0010_nnnn_mmmm_1110, handler_name: "i0010_nnnn_mmmm_1110", mask: MASK_N_M, key: 0x200E, diss: "mulu.w <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0010_nnnn_mmmm_1111, handler_name: "i0010_nnnn_mmmm_1111", mask: MASK_N_M, key: 0x200F, diss: "muls.w <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0011_nnnn_mmmm_0000, handler_name: "i0011_nnnn_mmmm_0000", mask: MASK_N_M, key: 0x3000, diss: "cmp/eq <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0011_nnnn_mmmm_0010, handler_name: "i0011_nnnn_mmmm_0010", mask: MASK_N_M, key: 0x3002, diss: "cmp/hs <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0011_nnnn_mmmm_0011, handler_name: "i0011_nnnn_mmmm_0011", mask: MASK_N_M, key: 0x3003, diss: "cmp/ge <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0011_nnnn_mmmm_0100, handler_name: "i0011_nnnn_mmmm_0100", mask: MASK_N_M, key: 0x3004, diss: "div1 <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0011_nnnn_mmmm_0101, handler_name: "i0011_nnnn_mmmm_0101", mask: MASK_N_M, key: 0x3005, diss: "dmulu.l <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0011_nnnn_mmmm_0110, handler_name: "i0011_nnnn_mmmm_0110", mask: MASK_N_M, key: 0x3006, diss: "cmp/hi <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0011_nnnn_mmmm_0111, handler_name: "i0011_nnnn_mmmm_0111", mask: MASK_N_M, key: 0x3007, diss: "cmp/gt <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0011_nnnn_mmmm_1000, handler_name: "i0011_nnnn_mmmm_1000", mask: MASK_N_M, key: 0x3008, diss: "sub <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0011_nnnn_mmmm_1010, handler_name: "i0011_nnnn_mmmm_1010", mask: MASK_N_M, key: 0x300A, diss: "subc <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0011_nnnn_mmmm_1011, handler_name: "i0011_nnnn_mmmm_1011", mask: MASK_N_M, key: 0x300B, diss: "subv <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0011_nnnn_mmmm_1100, handler_name: "i0011_nnnn_mmmm_1100", mask: MASK_N_M, key: 0x300C, diss: "add <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0011_nnnn_mmmm_1101, handler_name: "i0011_nnnn_mmmm_1101", mask: MASK_N_M, key: 0x300D, diss: "dmuls.l <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0011_nnnn_mmmm_1110, handler_name: "i0011_nnnn_mmmm_1110", mask: MASK_N_M, key: 0x300E, diss: "addc <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0011_nnnn_mmmm_1111, handler_name: "i0011_nnnn_mmmm_1111", mask: MASK_N_M, key: 0x300F, diss: "addv <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0000_nnnn_mmmm_0100, handler_name: "i0000_nnnn_mmmm_0100", mask: MASK_N_M, key: 0x0004, diss: "mov.b <REG_M>,@(R0,<REG_N>)", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0000_nnnn_mmmm_0101, handler_name: "i0000_nnnn_mmmm_0101", mask: MASK_N_M, key: 0x0005, diss: "mov.w <REG_M>,@(R0,<REG_N>)", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0000_nnnn_mmmm_0110, handler_name: "i0000_nnnn_mmmm_0110", mask: MASK_N_M, key: 0x0006, diss: "mov.l <REG_M>,@(R0,<REG_N>)", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0000_nnnn_mmmm_1100, handler_name: "i0000_nnnn_mmmm_1100", mask: MASK_N_M, key: 0x000C, diss: "mov.b @(R0,<REG_M>),<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0000_nnnn_mmmm_1101, handler_name: "i0000_nnnn_mmmm_1101", mask: MASK_N_M, key: 0x000D, diss: "mov.w @(R0,<REG_M>),<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0000_nnnn_mmmm_1110, handler_name: "i0000_nnnn_mmmm_1110", mask: MASK_N_M, key: 0x000E, diss: "mov.l @(R0,<REG_M>),<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0001_nnnn_mmmm_iiii, handler_name: "i0001_nnnn_mmmm_iiii", mask: MASK_N_IMM8, key: 0x1000, diss: "mov.l <REG_M>,@(<disp4dw>,<REG_N>)", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0101_nnnn_mmmm_iiii, handler_name: "i0101_nnnn_mmmm_iiii", mask: MASK_N_M_IMM4, key: 0x5000, diss: "mov.l @(<disp4dw>,<REG_M>),<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0010_nnnn_mmmm_0000, handler_name: "i0010_nnnn_mmmm_0000", mask: MASK_N_M, key: 0x2000, diss: "mov.b <REG_M>,@<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0010_nnnn_mmmm_0001, handler_name: "i0010_nnnn_mmmm_0001", mask: MASK_N_M, key: 0x2001, diss: "mov.w <REG_M>,@<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0010_nnnn_mmmm_0010, handler_name: "i0010_nnnn_mmmm_0010", mask: MASK_N_M, key: 0x2002, diss: "mov.l <REG_M>,@<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_0000, handler_name: "i0110_nnnn_mmmm_0000", mask: MASK_N_M, key: 0x6000, diss: "mov.b @<REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_0001, handler_name: "i0110_nnnn_mmmm_0001", mask: MASK_N_M, key: 0x6001, diss: "mov.w @<REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_0010, handler_name: "i0110_nnnn_mmmm_0010", mask: MASK_N_M, key: 0x6002, diss: "mov.l @<REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0010_nnnn_mmmm_0100, handler_name: "i0010_nnnn_mmmm_0100", mask: MASK_N_M, key: 0x2004, diss: "mov.b <REG_M>,@-<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0010_nnnn_mmmm_0101, handler_name: "i0010_nnnn_mmmm_0101", mask: MASK_N_M, key: 0x2005, diss: "mov.w <REG_M>,@-<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0010_nnnn_mmmm_0110, handler_name: "i0010_nnnn_mmmm_0110", mask: MASK_N_M, key: 0x2006, diss: "mov.l <REG_M>,@-<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_0100, handler_name: "i0110_nnnn_mmmm_0100", mask: MASK_N_M, key: 0x6004, diss: "mov.b @<REG_M>+,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_0101, handler_name: "i0110_nnnn_mmmm_0101", mask: MASK_N_M, key: 0x6005, diss: "mov.w @<REG_M>+,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_0110, handler_name: "i0110_nnnn_mmmm_0110", mask: MASK_N_M, key: 0x6006, diss: "mov.l @<REG_M>+,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1000_0000_mmmm_iiii, handler_name: "i1000_0000_mmmm_iiii", mask: MASK_IMM8, key: 0x8000, diss: "mov.b R0,@(<disp4b>,<REG_M>)", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1000_0001_mmmm_iiii, handler_name: "i1000_0001_mmmm_iiii", mask: MASK_IMM8, key: 0x8100, diss: "mov.w R0,@(<disp4w>,<REG_M>)", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1000_0100_mmmm_iiii, handler_name: "i1000_0100_mmmm_iiii", mask: MASK_IMM8, key: 0x8400, diss: "mov.b @(<disp4b>,<REG_M>),R0", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1000_0101_mmmm_iiii, handler_name: "i1000_0101_mmmm_iiii", mask: MASK_IMM8, key: 0x8500, diss: "mov.w @(<disp4w>,<REG_M>),R0", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1001_nnnn_iiii_iiii, handler_name: "i1001_nnnn_iiii_iiii", mask: MASK_N_IMM8, key: 0x9000, diss: "mov.w @(<PCdisp8w>),<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1100_0000_iiii_iiii, handler_name: "i1100_0000_iiii_iiii", mask: MASK_IMM8, key: 0xC000, diss: "mov.b R0,@(<disp8b>,GBR)", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1100_0001_iiii_iiii, handler_name: "i1100_0001_iiii_iiii", mask: MASK_IMM8, key: 0xC100, diss: "mov.w R0,@(<disp8w>,GBR)", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1100_0010_iiii_iiii, handler_name: "i1100_0010_iiii_iiii", mask: MASK_IMM8, key: 0xC200, diss: "mov.l R0,@(<disp8dw>,GBR)", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1100_0100_iiii_iiii, handler_name: "i1100_0100_iiii_iiii", mask: MASK_IMM8, key: 0xC400, diss: "mov.b @(<GBRdisp8b>),R0", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1100_0101_iiii_iiii, handler_name: "i1100_0101_iiii_iiii", mask: MASK_IMM8, key: 0xC500, diss: "mov.w @(<GBRdisp8w>),R0", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1100_0110_iiii_iiii, handler_name: "i1100_0110_iiii_iiii", mask: MASK_IMM8, key: 0xC600, diss: "mov.l @(<GBRdisp8dw>),R0", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1101_nnnn_iiii_iiii, handler_name: "i1101_nnnn_iiii_iiii", mask: MASK_N_IMM8, key: 0xD000, diss: "mov.l @(<PCdisp8d>),<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_0011, handler_name: "i0110_nnnn_mmmm_0011", mask: MASK_N_M, key: 0x6003, diss: "mov <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1100_0111_iiii_iiii, handler_name: "i1100_0111_iiii_iiii", mask: MASK_IMM8, key: 0xC700, diss: "mova @(<PCdisp8d>),R0", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1110_nnnn_iiii_iiii, handler_name: "i1110_nnnn_iiii_iiii", mask: MASK_N_IMM8, key: 0xE000, diss: "mov #<simm8hex>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0101_0010, handler_name: "i0100_nnnn_0101_0010", mask: MASK_N, key: 0x4052, diss: "sts.l FPUL,@-<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0110_0010, handler_name: "i0100_nnnn_0110_0010", mask: MASK_N, key: 0x4062, diss: "sts.l FPSCR,@-<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0000_0010, handler_name: "i0100_nnnn_0000_0010", mask: MASK_N, key: 0x4002, diss: "sts.l MACH,@-<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0001_0010, handler_name: "i0100_nnnn_0001_0010", mask: MASK_N, key: 0x4012, diss: "sts.l MACL,@-<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0010_0010, handler_name: "i0100_nnnn_0010_0010", mask: MASK_N, key: 0x4022, diss: "sts.l PR,@-<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_1111_0010, handler_name: "i0100_nnnn_1111_0010", mask: MASK_N, key: 0x40F2, diss: "stc.l DBR,@-<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0011_0010, handler_name: "i0100_nnnn_0011_0010", mask: MASK_N, key: 0x4032, diss: "stc.l SGR,@-<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0000_0011, handler_name: "i0100_nnnn_0000_0011", mask: MASK_N, key: 0x4003, diss: "stc.l SR,@-<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0001_0011, handler_name: "i0100_nnnn_0001_0011", mask: MASK_N, key: 0x4013, diss: "stc.l GBR,@-<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0010_0011, handler_name: "i0100_nnnn_0010_0011", mask: MASK_N, key: 0x4023, diss: "stc.l VBR,@-<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0011_0011, handler_name: "i0100_nnnn_0011_0011", mask: MASK_N, key: 0x4033, diss: "stc.l SSR,@-<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0100_0011, handler_name: "i0100_nnnn_0100_0011", mask: MASK_N, key: 0x4043, diss: "stc.l SPC,@-<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_1mmm_0011, handler_name: "i0100_nnnn_1mmm_0011", mask: MASK_N_ML3BIT, key: 0x4083, diss: "stc <RM_BANK>,@-<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0000_0110, handler_name: "i0100_nnnn_0000_0110", mask: MASK_N, key: 0x4006, diss: "lds.l @<REG_N>+,MACH", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0001_0110, handler_name: "i0100_nnnn_0001_0110", mask: MASK_N, key: 0x4016, diss: "lds.l @<REG_N>+,MACL", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0010_0110, handler_name: "i0100_nnnn_0010_0110", mask: MASK_N, key: 0x4026, diss: "lds.l @<REG_N>+,PR", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0011_0110, handler_name: "i0100_nnnn_0011_0110", mask: MASK_N, key: 0x4036, diss: "ldc.l @<REG_N>+,SGR", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0101_0110, handler_name: "i0100_nnnn_0101_0110", mask: MASK_N, key: 0x4056, diss: "lds.l @<REG_N>+,FPUL", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0110_0110, handler_name: "i0100_nnnn_0110_0110", mask: MASK_N, key: 0x4066, diss: "lds.l @<REG_N>+,FPSCR", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_1111_0110, handler_name: "i0100_nnnn_1111_0110", mask: MASK_N, key: 0x40F6, diss: "ldc.l @<REG_N>+,DBR", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0000_0111, handler_name: "i0100_nnnn_0000_0111", mask: MASK_N, key: 0x4007, diss: "ldc.l @<REG_N>+,SR", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0001_0111, handler_name: "i0100_nnnn_0001_0111", mask: MASK_N, key: 0x4017, diss: "ldc.l @<REG_N>+,GBR", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0010_0111, handler_name: "i0100_nnnn_0010_0111", mask: MASK_N, key: 0x4027, diss: "ldc.l @<REG_N>+,VBR", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0011_0111, handler_name: "i0100_nnnn_0011_0111", mask: MASK_N, key: 0x4037, diss: "ldc.l @<REG_N>+,SSR", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0100_0111, handler_name: "i0100_nnnn_0100_0111", mask: MASK_N, key: 0x4047, diss: "ldc.l @<REG_N>+,SPC", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_1mmm_0111, handler_name: "i0100_nnnn_1mmm_0111", mask: MASK_N_ML3BIT, key: 0x4087, diss: "ldc.l @<REG_N>+,RM_BANK", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0000_nnnn_0000_0010, handler_name: "i0000_nnnn_0000_0010", mask: MASK_N, key: 0x0002, diss: "stc SR,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0000_nnnn_0001_0010, handler_name: "i0000_nnnn_0001_0010", mask: MASK_N, key: 0x0012, diss: "stc GBR,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0000_nnnn_0010_0010, handler_name: "i0000_nnnn_0010_0010", mask: MASK_N, key: 0x0022, diss: "stc VBR,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0000_nnnn_0011_0010, handler_name: "i0000_nnnn_0011_0010", mask: MASK_N, key: 0x0032, diss: "stc SSR,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0000_nnnn_0100_0010, handler_name: "i0000_nnnn_0100_0010", mask: MASK_N, key: 0x0042, diss: "stc SPC,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0000_nnnn_1mmm_0010, handler_name: "i0000_nnnn_1mmm_0010", mask: MASK_N_ML3BIT, key: 0x0082, diss: "stc RM_BANK,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0000_nnnn_0000_1010, handler_name: "i0000_nnnn_0000_1010", mask: MASK_N, key: 0x000A, diss: "sts MACH,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0000_nnnn_0001_1010, handler_name: "i0000_nnnn_0001_1010", mask: MASK_N, key: 0x001A, diss: "sts MACL,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0000_nnnn_0010_1010, handler_name: "i0000_nnnn_0010_1010", mask: MASK_N, key: 0x002A, diss: "sts PR,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0000_nnnn_0011_1010, handler_name: "i0000_nnnn_0011_1010", mask: MASK_N, key: 0x003A, diss: "sts SGR,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0000_nnnn_0101_1010, handler_name: "i0000_nnnn_0101_1010", mask: MASK_N, key: 0x005A, diss: "sts FPUL,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0000_nnnn_0110_1010, handler_name: "i0000_nnnn_0110_1010", mask: MASK_N, key: 0x006A, diss: "sts FPSCR,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0000_nnnn_1111_1010, handler_name: "i0000_nnnn_1111_1010", mask: MASK_N, key: 0x00FA, diss: "sts DBR,<REG_N>", is_branch: 0 },
 
-    sh4_opcodelistentry { oph: i0100_nnnn_0000_1010, handler_name: "i0100_nnnn_0000_1010", mask: Mask_n, key: 0x400A, diss: "lds <REG_N>,MACH", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0001_1010, handler_name: "i0100_nnnn_0001_1010", mask: Mask_n, key: 0x401A, diss: "lds <REG_N>,MACL", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0010_1010, handler_name: "i0100_nnnn_0010_1010", mask: Mask_n, key: 0x402A, diss: "lds <REG_N>,PR", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0011_1010, handler_name: "i0100_nnnn_0011_1010", mask: Mask_n, key: 0x403A, diss: "ldc <REG_N>,SGR", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0101_1010, handler_name: "i0100_nnnn_0101_1010", mask: Mask_n, key: 0x405A, diss: "lds <REG_N>,FPUL", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0110_1010, handler_name: "i0100_nnnn_0110_1010", mask: Mask_n, key: 0x406A, diss: "lds <REG_N>,FPSCR", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_1111_1010, handler_name: "i0100_nnnn_1111_1010", mask: Mask_n, key: 0x40FA, diss: "ldc <REG_N>,DBR", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0000_1110, handler_name: "i0100_nnnn_0000_1110", mask: Mask_n, key: 0x400E, diss: "ldc <REG_N>,SR", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0001_1110, handler_name: "i0100_nnnn_0001_1110", mask: Mask_n, key: 0x401E, diss: "ldc <REG_N>,GBR", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0010_1110, handler_name: "i0100_nnnn_0010_1110", mask: Mask_n, key: 0x402E, diss: "ldc <REG_N>,VBR", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0011_1110, handler_name: "i0100_nnnn_0011_1110", mask: Mask_n, key: 0x403E, diss: "ldc <REG_N>,SSR", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0100_1110, handler_name: "i0100_nnnn_0100_1110", mask: Mask_n, key: 0x404E, diss: "ldc <REG_N>,SPC", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_1mmm_1110, handler_name: "i0100_nnnn_1mmm_1110", mask: Mask_n_ml3bit, key: 0x408E, diss: "ldc <REG_N>,<RM_BANK>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0000_1010, handler_name: "i0100_nnnn_0000_1010", mask: MASK_N, key: 0x400A, diss: "lds <REG_N>,MACH", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0001_1010, handler_name: "i0100_nnnn_0001_1010", mask: MASK_N, key: 0x401A, diss: "lds <REG_N>,MACL", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0010_1010, handler_name: "i0100_nnnn_0010_1010", mask: MASK_N, key: 0x402A, diss: "lds <REG_N>,PR", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0011_1010, handler_name: "i0100_nnnn_0011_1010", mask: MASK_N, key: 0x403A, diss: "ldc <REG_N>,SGR", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0101_1010, handler_name: "i0100_nnnn_0101_1010", mask: MASK_N, key: 0x405A, diss: "lds <REG_N>,FPUL", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0110_1010, handler_name: "i0100_nnnn_0110_1010", mask: MASK_N, key: 0x406A, diss: "lds <REG_N>,FPSCR", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_1111_1010, handler_name: "i0100_nnnn_1111_1010", mask: MASK_N, key: 0x40FA, diss: "ldc <REG_N>,DBR", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0000_1110, handler_name: "i0100_nnnn_0000_1110", mask: MASK_N, key: 0x400E, diss: "ldc <REG_N>,SR", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0001_1110, handler_name: "i0100_nnnn_0001_1110", mask: MASK_N, key: 0x401E, diss: "ldc <REG_N>,GBR", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0010_1110, handler_name: "i0100_nnnn_0010_1110", mask: MASK_N, key: 0x402E, diss: "ldc <REG_N>,VBR", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0011_1110, handler_name: "i0100_nnnn_0011_1110", mask: MASK_N, key: 0x403E, diss: "ldc <REG_N>,SSR", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0100_1110, handler_name: "i0100_nnnn_0100_1110", mask: MASK_N, key: 0x404E, diss: "ldc <REG_N>,SPC", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_1mmm_1110, handler_name: "i0100_nnnn_1mmm_1110", mask: MASK_N_ML3BIT, key: 0x408E, diss: "ldc <REG_N>,<RM_BANK>", is_branch: 0 },
 
-    sh4_opcodelistentry { oph: i0100_nnnn_0000_0000, handler_name: "i0100_nnnn_0000_0000", mask: Mask_n, key: 0x4000, diss: "shll <REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0001_0000, handler_name: "i0100_nnnn_0001_0000", mask: Mask_n, key: 0x4010, diss: "dt <REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0010_0000, handler_name: "i0100_nnnn_0010_0000", mask: Mask_n, key: 0x4020, diss: "shal <REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0000_0001, handler_name: "i0100_nnnn_0000_0001", mask: Mask_n, key: 0x4001, diss: "shlr <REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0001_0001, handler_name: "i0100_nnnn_0001_0001", mask: Mask_n, key: 0x4011, diss: "cmp/pz <REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0010_0001, handler_name: "i0100_nnnn_0010_0001", mask: Mask_n, key: 0x4021, diss: "shar <REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0010_0100, handler_name: "i0100_nnnn_0010_0100", mask: Mask_n, key: 0x4024, diss: "rotcl <REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0000_0100, handler_name: "i0100_nnnn_0000_0100", mask: Mask_n, key: 0x4004, diss: "rotl <REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0001_0101, handler_name: "i0100_nnnn_0001_0101", mask: Mask_n, key: 0x4015, diss: "cmp/pl <REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0010_0101, handler_name: "i0100_nnnn_0010_0101", mask: Mask_n, key: 0x4025, diss: "rotcr <REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0000_0101, handler_name: "i0100_nnnn_0000_0101", mask: Mask_n, key: 0x4005, diss: "rotr <REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0000_0000, handler_name: "i0100_nnnn_0000_0000", mask: MASK_N, key: 0x4000, diss: "shll <REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0001_0000, handler_name: "i0100_nnnn_0001_0000", mask: MASK_N, key: 0x4010, diss: "dt <REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0010_0000, handler_name: "i0100_nnnn_0010_0000", mask: MASK_N, key: 0x4020, diss: "shal <REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0000_0001, handler_name: "i0100_nnnn_0000_0001", mask: MASK_N, key: 0x4001, diss: "shlr <REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0001_0001, handler_name: "i0100_nnnn_0001_0001", mask: MASK_N, key: 0x4011, diss: "cmp/pz <REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0010_0001, handler_name: "i0100_nnnn_0010_0001", mask: MASK_N, key: 0x4021, diss: "shar <REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0010_0100, handler_name: "i0100_nnnn_0010_0100", mask: MASK_N, key: 0x4024, diss: "rotcl <REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0000_0100, handler_name: "i0100_nnnn_0000_0100", mask: MASK_N, key: 0x4004, diss: "rotl <REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0001_0101, handler_name: "i0100_nnnn_0001_0101", mask: MASK_N, key: 0x4015, diss: "cmp/pl <REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0010_0101, handler_name: "i0100_nnnn_0010_0101", mask: MASK_N, key: 0x4025, diss: "rotcr <REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0000_0101, handler_name: "i0100_nnnn_0000_0101", mask: MASK_N, key: 0x4005, diss: "rotr <REG_N>", is_branch: 0 },
 
-    sh4_opcodelistentry { oph: i0100_nnnn_0000_1000, handler_name: "i0100_nnnn_0000_1000", mask: Mask_n, key: 0x4008, diss: "shll2 <REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0001_1000, handler_name: "i0100_nnnn_0001_1000", mask: Mask_n, key: 0x4018, diss: "shll8 <REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0010_1000, handler_name: "i0100_nnnn_0010_1000", mask: Mask_n, key: 0x4028, diss: "shll16 <REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0000_1001, handler_name: "i0100_nnnn_0000_1001", mask: Mask_n, key: 0x4009, diss: "shlr2 <REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0001_1001, handler_name: "i0100_nnnn_0001_1001", mask: Mask_n, key: 0x4019, diss: "shlr8 <REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0010_1001, handler_name: "i0100_nnnn_0010_1001", mask: Mask_n, key: 0x4029, diss: "shlr16 <REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0000_1000, handler_name: "i0100_nnnn_0000_1000", mask: MASK_N, key: 0x4008, diss: "shll2 <REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0001_1000, handler_name: "i0100_nnnn_0001_1000", mask: MASK_N, key: 0x4018, diss: "shll8 <REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0010_1000, handler_name: "i0100_nnnn_0010_1000", mask: MASK_N, key: 0x4028, diss: "shll16 <REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0000_1001, handler_name: "i0100_nnnn_0000_1001", mask: MASK_N, key: 0x4009, diss: "shlr2 <REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0001_1001, handler_name: "i0100_nnnn_0001_1001", mask: MASK_N, key: 0x4019, diss: "shlr8 <REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0010_1001, handler_name: "i0100_nnnn_0010_1001", mask: MASK_N, key: 0x4029, diss: "shlr16 <REG_N>", is_branch: 0 },
 
-    sh4_opcodelistentry { oph: i0100_nnnn_0010_1011, handler_name: "i0100_nnnn_0010_1011", mask: Mask_n, key: 0x402B, diss: "jmp @<REG_N>", is_branch: 1 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0000_1011, handler_name: "i0100_nnnn_0000_1011", mask: Mask_n, key: 0x400B, diss: "jsr @<REG_N>", is_branch: 1 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0001_1011, handler_name: "i0100_nnnn_0001_1011", mask: Mask_n, key: 0x401B, diss: "tas.b @<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0010_1011, handler_name: "i0100_nnnn_0010_1011", mask: MASK_N, key: 0x402B, diss: "jmp @<REG_N>", is_branch: 1 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0000_1011, handler_name: "i0100_nnnn_0000_1011", mask: MASK_N, key: 0x400B, diss: "jsr @<REG_N>", is_branch: 1 },
+    sh4_opcodelistentry { oph: i0100_nnnn_0001_1011, handler_name: "i0100_nnnn_0001_1011", mask: MASK_N, key: 0x401B, diss: "tas.b @<REG_N>", is_branch: 0 },
 
-    sh4_opcodelistentry { oph: i0100_nnnn_mmmm_1100, handler_name: "i0100_nnnn_mmmm_1100", mask: Mask_n_m, key: 0x400C, diss: "shad <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_mmmm_1101, handler_name: "i0100_nnnn_mmmm_1101", mask: Mask_n_m, key: 0x400D, diss: "shld <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_mmmm_1111, handler_name: "i0100_nnnn_mmmm_1111", mask: Mask_n_m, key: 0x400F, diss: "mac.w @<REG_M>+,@<REG_N>+", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_0111, handler_name: "i0110_nnnn_mmmm_0111", mask: Mask_n_m, key: 0x6007, diss: "not <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_1000, handler_name: "i0110_nnnn_mmmm_1000", mask: Mask_n_m, key: 0x6008, diss: "swap.b <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_1001, handler_name: "i0110_nnnn_mmmm_1001", mask: Mask_n_m, key: 0x6009, diss: "swap.w <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_1010, handler_name: "i0110_nnnn_mmmm_1010", mask: Mask_n_m, key: 0x600A, diss: "negc <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_1011, handler_name: "i0110_nnnn_mmmm_1011", mask: Mask_n_m, key: 0x600B, diss: "neg <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_1100, handler_name: "i0110_nnnn_mmmm_1100", mask: Mask_n_m, key: 0x600C, diss: "extu.b <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_1101, handler_name: "i0110_nnnn_mmmm_1101", mask: Mask_n_m, key: 0x600D, diss: "extu.w <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_1110, handler_name: "i0110_nnnn_mmmm_1110", mask: Mask_n_m, key: 0x600E, diss: "exts.b <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_1111, handler_name: "i0110_nnnn_mmmm_1111", mask: Mask_n_m, key: 0x600F, diss: "exts.w <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_mmmm_1100, handler_name: "i0100_nnnn_mmmm_1100", mask: MASK_N_M, key: 0x400C, diss: "shad <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_mmmm_1101, handler_name: "i0100_nnnn_mmmm_1101", mask: MASK_N_M, key: 0x400D, diss: "shld <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0100_nnnn_mmmm_1111, handler_name: "i0100_nnnn_mmmm_1111", mask: MASK_N_M, key: 0x400F, diss: "mac.w @<REG_M>+,@<REG_N>+", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_0111, handler_name: "i0110_nnnn_mmmm_0111", mask: MASK_N_M, key: 0x6007, diss: "not <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_1000, handler_name: "i0110_nnnn_mmmm_1000", mask: MASK_N_M, key: 0x6008, diss: "swap.b <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_1001, handler_name: "i0110_nnnn_mmmm_1001", mask: MASK_N_M, key: 0x6009, diss: "swap.w <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_1010, handler_name: "i0110_nnnn_mmmm_1010", mask: MASK_N_M, key: 0x600A, diss: "negc <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_1011, handler_name: "i0110_nnnn_mmmm_1011", mask: MASK_N_M, key: 0x600B, diss: "neg <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_1100, handler_name: "i0110_nnnn_mmmm_1100", mask: MASK_N_M, key: 0x600C, diss: "extu.b <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_1101, handler_name: "i0110_nnnn_mmmm_1101", mask: MASK_N_M, key: 0x600D, diss: "extu.w <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_1110, handler_name: "i0110_nnnn_mmmm_1110", mask: MASK_N_M, key: 0x600E, diss: "exts.b <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_1111, handler_name: "i0110_nnnn_mmmm_1111", mask: MASK_N_M, key: 0x600F, diss: "exts.w <REG_M>,<REG_N>", is_branch: 0 },
 
-    sh4_opcodelistentry { oph: i0111_nnnn_iiii_iiii, handler_name: "i0111_nnnn_iiii_iiii", mask: Mask_n_imm8, key: 0x7000, diss: "add #<simm8>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i0111_nnnn_iiii_iiii, handler_name: "i0111_nnnn_iiii_iiii", mask: MASK_N_IMM8, key: 0x7000, diss: "add #<simm8>,<REG_N>", is_branch: 0 },
 
-    sh4_opcodelistentry { oph: i1000_1011_iiii_iiii, handler_name: "i1000_1011_iiii_iiii", mask: Mask_imm8, key: 0x8B00, diss: "bf <bdisp8>", is_branch: 1 },
-    sh4_opcodelistentry { oph: i1000_1111_iiii_iiii, handler_name: "i1000_1111_iiii_iiii", mask: Mask_imm8, key: 0x8F00, diss: "bf.s <bdisp8>", is_branch: 2 },
-    sh4_opcodelistentry { oph: i1000_1001_iiii_iiii, handler_name: "i1000_1001_iiii_iiii", mask: Mask_imm8, key: 0x8900, diss: "bt <bdisp8>", is_branch: 1 },
-    sh4_opcodelistentry { oph: i1000_1101_iiii_iiii, handler_name: "i1000_1101_iiii_iiii", mask: Mask_imm8, key: 0x8D00, diss: "bt.s <bdisp8>", is_branch: 2 },
+    sh4_opcodelistentry { oph: i1000_1011_iiii_iiii, handler_name: "i1000_1011_iiii_iiii", mask: MASK_IMM8, key: 0x8B00, diss: "bf <bdisp8>", is_branch: 1 },
+    sh4_opcodelistentry { oph: i1000_1111_iiii_iiii, handler_name: "i1000_1111_iiii_iiii", mask: MASK_IMM8, key: 0x8F00, diss: "bf.s <bdisp8>", is_branch: 2 },
+    sh4_opcodelistentry { oph: i1000_1001_iiii_iiii, handler_name: "i1000_1001_iiii_iiii", mask: MASK_IMM8, key: 0x8900, diss: "bt <bdisp8>", is_branch: 1 },
+    sh4_opcodelistentry { oph: i1000_1101_iiii_iiii, handler_name: "i1000_1101_iiii_iiii", mask: MASK_IMM8, key: 0x8D00, diss: "bt.s <bdisp8>", is_branch: 2 },
 
-    sh4_opcodelistentry { oph: i1000_1000_iiii_iiii, handler_name: "i1000_1000_iiii_iiii", mask: Mask_imm8, key: 0x8800, diss: "cmp/eq #<simm8hex>,R0", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1000_1000_iiii_iiii, handler_name: "i1000_1000_iiii_iiii", mask: MASK_IMM8, key: 0x8800, diss: "cmp/eq #<simm8hex>,R0", is_branch: 0 },
 
-    sh4_opcodelistentry { oph: i1010_iiii_iiii_iiii, handler_name: "i1010_iiii_iiii_iiii", mask: Mask_n_imm8, key: 0xA000, diss: "bra <bdisp12>", is_branch: 2 },
-    sh4_opcodelistentry { oph: i1011_iiii_iiii_iiii, handler_name: "i1011_iiii_iiii_iiii", mask: Mask_n_imm8, key: 0xB000, diss: "bsr <bdisp12>", is_branch: 1 },
+    sh4_opcodelistentry { oph: i1010_iiii_iiii_iiii, handler_name: "i1010_iiii_iiii_iiii", mask: MASK_N_IMM8, key: 0xA000, diss: "bra <bdisp12>", is_branch: 2 },
+    sh4_opcodelistentry { oph: i1011_iiii_iiii_iiii, handler_name: "i1011_iiii_iiii_iiii", mask: MASK_N_IMM8, key: 0xB000, diss: "bsr <bdisp12>", is_branch: 1 },
 
-    sh4_opcodelistentry { oph: i1100_0011_iiii_iiii, handler_name: "i1100_0011_iiii_iiii", mask: Mask_imm8, key: 0xC300, diss: "trapa #<imm8>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1100_0011_iiii_iiii, handler_name: "i1100_0011_iiii_iiii", mask: MASK_IMM8, key: 0xC300, diss: "trapa #<imm8>", is_branch: 0 },
 
-    sh4_opcodelistentry { oph: i1100_1000_iiii_iiii, handler_name: "i1100_1000_iiii_iiii", mask: Mask_imm8, key: 0xC800, diss: "tst #<imm8>,R0", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1100_1001_iiii_iiii, handler_name: "i1100_1001_iiii_iiii", mask: Mask_imm8, key: 0xC900, diss: "and #<imm8>,R0", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1100_1010_iiii_iiii, handler_name: "i1100_1010_iiii_iiii", mask: Mask_imm8, key: 0xCA00, diss: "xor #<imm8>,R0", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1100_1011_iiii_iiii, handler_name: "i1100_1011_iiii_iiii", mask: Mask_imm8, key: 0xCB00, diss: "or #<imm8>,R0", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1100_1000_iiii_iiii, handler_name: "i1100_1000_iiii_iiii", mask: MASK_IMM8, key: 0xC800, diss: "tst #<imm8>,R0", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1100_1001_iiii_iiii, handler_name: "i1100_1001_iiii_iiii", mask: MASK_IMM8, key: 0xC900, diss: "and #<imm8>,R0", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1100_1010_iiii_iiii, handler_name: "i1100_1010_iiii_iiii", mask: MASK_IMM8, key: 0xCA00, diss: "xor #<imm8>,R0", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1100_1011_iiii_iiii, handler_name: "i1100_1011_iiii_iiii", mask: MASK_IMM8, key: 0xCB00, diss: "or #<imm8>,R0", is_branch: 0 },
 
-    sh4_opcodelistentry { oph: i1100_1100_iiii_iiii, handler_name: "i1100_1100_iiii_iiii", mask: Mask_imm8, key: 0xCC00, diss: "tst.b #<imm8>,@(R0,GBR)", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1100_1101_iiii_iiii, handler_name: "i1100_1101_iiii_iiii", mask: Mask_imm8, key: 0xCD00, diss: "and.b #<imm8>,@(R0,GBR)", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1100_1110_iiii_iiii, handler_name: "i1100_1110_iiii_iiii", mask: Mask_imm8, key: 0xCE00, diss: "xor.b #<imm8>,@(R0,GBR)", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1100_1111_iiii_iiii, handler_name: "i1100_1111_iiii_iiii", mask: Mask_imm8, key: 0xCF00, diss: "or.b #<imm8>,@(R0,GBR)", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1100_1100_iiii_iiii, handler_name: "i1100_1100_iiii_iiii", mask: MASK_IMM8, key: 0xCC00, diss: "tst.b #<imm8>,@(R0,GBR)", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1100_1101_iiii_iiii, handler_name: "i1100_1101_iiii_iiii", mask: MASK_IMM8, key: 0xCD00, diss: "and.b #<imm8>,@(R0,GBR)", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1100_1110_iiii_iiii, handler_name: "i1100_1110_iiii_iiii", mask: MASK_IMM8, key: 0xCE00, diss: "xor.b #<imm8>,@(R0,GBR)", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1100_1111_iiii_iiii, handler_name: "i1100_1111_iiii_iiii", mask: MASK_IMM8, key: 0xCF00, diss: "or.b #<imm8>,@(R0,GBR)", is_branch: 0 },
 
-    sh4_opcodelistentry { oph: i1111_nnnn_mmmm_0000, handler_name: "i1111_nnnn_mmmm_0000", mask: Mask_n_m, key: 0xF000, diss: "fadd <FREG_M_SD_F>,<FREG_N_SD_F>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nnnn_mmmm_0001, handler_name: "i1111_nnnn_mmmm_0001", mask: Mask_n_m, key: 0xF001, diss: "fsub <FREG_M_SD_F>,<FREG_N_SD_F>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nnnn_mmmm_0010, handler_name: "i1111_nnnn_mmmm_0010", mask: Mask_n_m, key: 0xF002, diss: "fmul <FREG_M_SD_F>,<FREG_N_SD_F>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nnnn_mmmm_0011, handler_name: "i1111_nnnn_mmmm_0011", mask: Mask_n_m, key: 0xF003, diss: "fdiv <FREG_M_SD_F>,<FREG_N_SD_F>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nnnn_mmmm_0100, handler_name: "i1111_nnnn_mmmm_0100", mask: Mask_n_m, key: 0xF004, diss: "fcmp/eq <FREG_M_SD_F>,<FREG_N_SD_F>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nnnn_mmmm_0101, handler_name: "i1111_nnnn_mmmm_0101", mask: Mask_n_m, key: 0xF005, diss: "fcmp/gt <FREG_M_SD_F>,<FREG_N_SD_F>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1111_nnnn_mmmm_0000, handler_name: "i1111_nnnn_mmmm_0000", mask: MASK_N_M, key: 0xF000, diss: "fadd <FREG_M_SD_F>,<FREG_N_SD_F>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1111_nnnn_mmmm_0001, handler_name: "i1111_nnnn_mmmm_0001", mask: MASK_N_M, key: 0xF001, diss: "fsub <FREG_M_SD_F>,<FREG_N_SD_F>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1111_nnnn_mmmm_0010, handler_name: "i1111_nnnn_mmmm_0010", mask: MASK_N_M, key: 0xF002, diss: "fmul <FREG_M_SD_F>,<FREG_N_SD_F>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1111_nnnn_mmmm_0011, handler_name: "i1111_nnnn_mmmm_0011", mask: MASK_N_M, key: 0xF003, diss: "fdiv <FREG_M_SD_F>,<FREG_N_SD_F>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1111_nnnn_mmmm_0100, handler_name: "i1111_nnnn_mmmm_0100", mask: MASK_N_M, key: 0xF004, diss: "fcmp/eq <FREG_M_SD_F>,<FREG_N_SD_F>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1111_nnnn_mmmm_0101, handler_name: "i1111_nnnn_mmmm_0101", mask: MASK_N_M, key: 0xF005, diss: "fcmp/gt <FREG_M_SD_F>,<FREG_N_SD_F>", is_branch: 0 },
 
-    sh4_opcodelistentry { oph: i1111_nnnn_mmmm_0110, handler_name: "i1111_nnnn_mmmm_0110", mask: Mask_n_m, key: 0xF006, diss: "fmov.s @(R0,<REG_M>),<FREG_N_SD_A>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nnnn_mmmm_0111, handler_name: "i1111_nnnn_mmmm_0111", mask: Mask_n_m, key: 0xF007, diss: "fmov.s <FREG_M_SD_A>,@(R0,<REG_N>)", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nnnn_mmmm_1000, handler_name: "i1111_nnnn_mmmm_1000", mask: Mask_n_m, key: 0xF008, diss: "fmov.s @<REG_M>,<FREG_N_SD_A>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nnnn_mmmm_1001, handler_name: "i1111_nnnn_mmmm_1001", mask: Mask_n_m, key: 0xF009, diss: "fmov.s @<REG_M>+,<FREG_N_SD_A>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nnnn_mmmm_1010, handler_name: "i1111_nnnn_mmmm_1010", mask: Mask_n_m, key: 0xF00A, diss: "fmov.s <FREG_M_SD_A>,@<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nnnn_mmmm_1011, handler_name: "i1111_nnnn_mmmm_1011", mask: Mask_n_m, key: 0xF00B, diss: "fmov.s <FREG_M_SD_A>,@-<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nnnn_mmmm_1100, handler_name: "i1111_nnnn_mmmm_1100", mask: Mask_n_m, key: 0xF00C, diss: "fmov <FREG_M_SD_A>,<FREG_N_SD_A>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1111_nnnn_mmmm_0110, handler_name: "i1111_nnnn_mmmm_0110", mask: MASK_N_M, key: 0xF006, diss: "fmov.s @(R0,<REG_M>),<FREG_N_SD_A>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1111_nnnn_mmmm_0111, handler_name: "i1111_nnnn_mmmm_0111", mask: MASK_N_M, key: 0xF007, diss: "fmov.s <FREG_M_SD_A>,@(R0,<REG_N>)", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1111_nnnn_mmmm_1000, handler_name: "i1111_nnnn_mmmm_1000", mask: MASK_N_M, key: 0xF008, diss: "fmov.s @<REG_M>,<FREG_N_SD_A>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1111_nnnn_mmmm_1001, handler_name: "i1111_nnnn_mmmm_1001", mask: MASK_N_M, key: 0xF009, diss: "fmov.s @<REG_M>+,<FREG_N_SD_A>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1111_nnnn_mmmm_1010, handler_name: "i1111_nnnn_mmmm_1010", mask: MASK_N_M, key: 0xF00A, diss: "fmov.s <FREG_M_SD_A>,@<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1111_nnnn_mmmm_1011, handler_name: "i1111_nnnn_mmmm_1011", mask: MASK_N_M, key: 0xF00B, diss: "fmov.s <FREG_M_SD_A>,@-<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1111_nnnn_mmmm_1100, handler_name: "i1111_nnnn_mmmm_1100", mask: MASK_N_M, key: 0xF00C, diss: "fmov <FREG_M_SD_A>,<FREG_N_SD_A>", is_branch: 0 },
 
-    sh4_opcodelistentry { oph: i1111_nnnn_0101_1101, handler_name: "i1111_nnnn_0101_1101", mask: Mask_n, key: 0xF05D, diss: "fabs <FREG_N_SD_F>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nnn0_1111_1101, handler_name: "i1111_nnn0_1111_1101", mask: Mask_nh3bit, key: 0xF0FD, diss: "fsca FPUL,<DR_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nnnn_1011_1101, handler_name: "i1111_nnnn_1011_1101", mask: Mask_n, key: 0xF0BD, diss: "fcnvds <DR_N>,FPUL", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nnnn_1010_1101, handler_name: "i1111_nnnn_1010_1101", mask: Mask_n, key: 0xF0AD, diss: "fcnvsd FPUL,<DR_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nnmm_1110_1101, handler_name: "i1111_nnmm_1110_1101", mask: Mask_n, key: 0xF0ED, diss: "fipr <FV_M>,<FV_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1111_nnnn_0101_1101, handler_name: "i1111_nnnn_0101_1101", mask: MASK_N, key: 0xF05D, diss: "fabs <FREG_N_SD_F>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1111_nnn0_1111_1101, handler_name: "i1111_nnn0_1111_1101", mask: MASK_NH3BIT, key: 0xF0FD, diss: "fsca FPUL,<DR_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1111_nnnn_1011_1101, handler_name: "i1111_nnnn_1011_1101", mask: MASK_N, key: 0xF0BD, diss: "fcnvds <DR_N>,FPUL", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1111_nnnn_1010_1101, handler_name: "i1111_nnnn_1010_1101", mask: MASK_N, key: 0xF0AD, diss: "fcnvsd FPUL,<DR_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1111_nnmm_1110_1101, handler_name: "i1111_nnmm_1110_1101", mask: MASK_N, key: 0xF0ED, diss: "fipr <FV_M>,<FV_N>", is_branch: 0 },
 
-    sh4_opcodelistentry { oph: i1111_nnnn_1000_1101, handler_name: "i1111_nnnn_1000_1101", mask: Mask_n, key: 0xF08D, diss: "fldi0 <FREG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nnnn_1001_1101, handler_name: "i1111_nnnn_1001_1101", mask: Mask_n, key: 0xF09D, diss: "fldi1 <FREG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nnnn_0001_1101, handler_name: "i1111_nnnn_0001_1101", mask: Mask_n, key: 0xF01D, diss: "flds <FREG_N>,FPUL", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nnnn_0010_1101, handler_name: "i1111_nnnn_0010_1101", mask: Mask_n, key: 0xF02D, diss: "float FPUL,<FREG_N_SD_F>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nnnn_0100_1101, handler_name: "i1111_nnnn_0100_1101", mask: Mask_n, key: 0xF04D, diss: "fneg <FREG_N_SD_F>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1111_nnnn_1000_1101, handler_name: "i1111_nnnn_1000_1101", mask: MASK_N, key: 0xF08D, diss: "fldi0 <FREG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1111_nnnn_1001_1101, handler_name: "i1111_nnnn_1001_1101", mask: MASK_N, key: 0xF09D, diss: "fldi1 <FREG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1111_nnnn_0001_1101, handler_name: "i1111_nnnn_0001_1101", mask: MASK_N, key: 0xF01D, diss: "flds <FREG_N>,FPUL", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1111_nnnn_0010_1101, handler_name: "i1111_nnnn_0010_1101", mask: MASK_N, key: 0xF02D, diss: "float FPUL,<FREG_N_SD_F>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1111_nnnn_0100_1101, handler_name: "i1111_nnnn_0100_1101", mask: MASK_N, key: 0xF04D, diss: "fneg <FREG_N_SD_F>", is_branch: 0 },
 
-    sh4_opcodelistentry { oph: i1111_1011_1111_1101, handler_name: "i1111_1011_1111_1101", mask: Mask_none, key: 0xFBFD, diss: "frchg", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_0011_1111_1101, handler_name: "i1111_0011_1111_1101", mask: Mask_none, key: 0xF3FD, diss: "fschg", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1111_1011_1111_1101, handler_name: "i1111_1011_1111_1101", mask: MASK_NONE, key: 0xFBFD, diss: "frchg", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1111_0011_1111_1101, handler_name: "i1111_0011_1111_1101", mask: MASK_NONE, key: 0xF3FD, diss: "fschg", is_branch: 0 },
 
-    sh4_opcodelistentry { oph: i1111_nnnn_0110_1101, handler_name: "i1111_nnnn_0110_1101", mask: Mask_n, key: 0xF06D, diss: "fsqrt <FREG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nnnn_0011_1101, handler_name: "i1111_nnnn_0011_1101", mask: Mask_n, key: 0xF03D, diss: "ftrc <FREG_N>,FPUL", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nnnn_0000_1101, handler_name: "i1111_nnnn_0000_1101", mask: Mask_n, key: 0xF00D, diss: "fsts FPUL,<FREG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nn01_1111_1101, handler_name: "i1111_nn01_1111_1101", mask: Mask_nh2bit, key: 0xF1FD, diss: "ftrv xmtrx,<FV_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nnnn_mmmm_1110, handler_name: "i1111_nnnn_mmmm_1110", mask: Mask_n_m, key: 0xF00E, diss: "fmac <FREG_0>,<FREG_M>,<FREG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nnnn_0111_1101, handler_name: "i1111_nnnn_0111_1101", mask: Mask_n, key: 0xF07D, diss: "fsrra <FREG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1111_nnnn_0110_1101, handler_name: "i1111_nnnn_0110_1101", mask: MASK_N, key: 0xF06D, diss: "fsqrt <FREG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1111_nnnn_0011_1101, handler_name: "i1111_nnnn_0011_1101", mask: MASK_N, key: 0xF03D, diss: "ftrc <FREG_N>,FPUL", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1111_nnnn_0000_1101, handler_name: "i1111_nnnn_0000_1101", mask: MASK_N, key: 0xF00D, diss: "fsts FPUL,<FREG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1111_nn01_1111_1101, handler_name: "i1111_nn01_1111_1101", mask: MASK_NH2BIT, key: 0xF1FD, diss: "ftrv xmtrx,<FV_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1111_nnnn_mmmm_1110, handler_name: "i1111_nnnn_mmmm_1110", mask: MASK_N_M, key: 0xF00E, diss: "fmac <FREG_0>,<FREG_M>,<FREG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: i1111_nnnn_0111_1101, handler_name: "i1111_nnnn_0111_1101", mask: MASK_N, key: 0xF07D, diss: "fsrra <FREG_N>", is_branch: 0 },
 
-    sh4_opcodelistentry { oph: i_not_implemented, handler_name: "unknown_opcode", mask: Mask_none, key: 0, diss: "unknown_opcode", is_branch: 0 },
+    sh4_opcodelistentry { oph: i_not_implemented, handler_name: "unknown_opcode", mask: MASK_NONE, key: 0, diss: "unknown_opcode", is_branch: 0 },
 ];
 
 
@@ -1080,44 +1066,43 @@ pub fn build_opcode_tables(dc: &mut Dreamcast) {
     // Initialize defaults
     for i in 0..0x10000 {
         dc.OpPtr[i] = i_not_implemented;
-        dc.OpDesc[i] = &missing_opcode;
+        dc.OpDesc[i] = &MISSING_OPCODE;
     }
 
     let mut i2 = 0;
-    unsafe {
-        loop {
-            let oph = OPCODES[i2].oph;
+    
+    loop {
+        let oph = OPCODES[i2].oph;
 
-            // Stop if we've reached the sentinel
-            if oph as usize == i_not_implemented as usize {
-                break;
-            }
-
-            let shft: u32;
-            let count: u32;
-            let mask = !(OPCODES[i2].mask as u32);
-            let base = OPCODES[i2].key as u32;
-
-            match OPCODES[i2].mask {
-                Mask_none       => { count = 1; shft = 0; }
-                Mask_n          => { count = 16; shft = 8; }
-                Mask_n_m        => { count = 256; shft = 4; }
-                Mask_n_m_imm4   => { count = 256 * 16; shft = 0; }
-                Mask_imm8       => { count = 256; shft = 0; }
-                Mask_n_ml3bit   => { count = 256; shft = 4; }
-                Mask_nh3bit     => { count = 8; shft = 9; }
-                Mask_nh2bit     => { count = 4; shft = 10; }
-                _               => panic!("Error: invalid mask"),
-            }
-
-            for i in 0..count {
-                let idx = ((i << shft) & mask) + base;
-                dc.OpPtr[idx as usize] = oph;
-                dc.OpDesc[idx as usize] = &OPCODES[i2];
-            }
-
-            i2 += 1;
+        // Stop if we've reached the sentinel
+        if oph as usize == i_not_implemented as usize {
+            break;
         }
+
+        let shft: u32;
+        let count: u32;
+        let mask = !(OPCODES[i2].mask as u32);
+        let base = OPCODES[i2].key as u32;
+
+        match OPCODES[i2].mask {
+            MASK_NONE       => { count = 1; shft = 0; }
+            MASK_N          => { count = 16; shft = 8; }
+            MASK_N_M        => { count = 256; shft = 4; }
+            MASK_N_M_IMM4   => { count = 256 * 16; shft = 0; }
+            MASK_IMM8       => { count = 256; shft = 0; }
+            MASK_N_ML3BIT   => { count = 256; shft = 4; }
+            MASK_NH3BIT     => { count = 8; shft = 9; }
+            MASK_NH2BIT     => { count = 4; shft = 10; }
+            _               => panic!("Error: invalid mask"),
+        }
+
+        for i in 0..count {
+            let idx = ((i << shft) & mask) + base;
+            dc.OpPtr[idx as usize] = oph;
+            dc.OpDesc[idx as usize] = &OPCODES[i2];
+        }
+
+        i2 += 1;
     }
 }
 
