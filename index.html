@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>nullDC (WASM)</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+      }
+      canvas {
+        display: block;
+        border: 1px solid black; /* Debug border to see canvas */
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="egui_canvas" width="1024" height="1024"></canvas>
+    <link data-trunk rel="rust" data-target-name="nulldc" />
+  </body>
+</html>
