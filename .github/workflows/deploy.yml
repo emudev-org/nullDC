@@ -1,4 +1,4 @@
-name: CI & Deploy nullDC Worker
+name: nullDC
 
 on:
   push:
@@ -119,25 +119,38 @@ jobs:
       - name: Install Wrangler
         run: npm install -g wrangler
 
-      # Deploy to Cloudflare Pages (main branch)
+      # Production deploy on main
       - name: Publish to Cloudflare Pages
         id: deploy
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: |
-          url=$(wrangler pages deploy ./dist --project-name nulldc | grep -oE 'https://[^ ]+')
-          echo "preview_url=$url" >> $GITHUB_OUTPUT
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          NO_COLOR: "1"
+        run: |
+          set -euo pipefail
+          wrangler pages deploy ./dist --project-name nulldc
+          # Optionally capture the production URL if you want it:
+          sudo apt-get update -y && sudo apt-get install -y jq
+          json=$(wrangler pages deployment list --project-name nulldc --environment production --json)
+          url=$(echo "$json" | jq -r 'try .[0].url catch empty')
+          echo "production_url=$url" >> "$GITHUB_OUTPUT"
 
-      # Deploy Preview (PRs)
+      # Preview deploy on PR
       - name: Publish Preview to Cloudflare Pages
         id: preview
         if: github.event_name == 'pull_request'
-        run: |
-          url=$(wrangler pages deploy dist --project-name nulldc --branch=${{ github.head_ref }} | grep -oE 'https://[^ ]+')
-          echo "preview_url=$url" >> $GITHUB_OUTPUT
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          NO_COLOR: "1"
+        run: |
+          set -euo pipefail
+          wrangler pages deploy dist --project-name nulldc --branch="${{ github.head_ref }}"
+          sudo apt-get update -y && sudo apt-get install -y jq
+          json=$(wrangler pages deployment list --project-name nulldc --environment preview --json)
+          # Prefer alias (branch) URL when present, fall back to the deployment URL
+          alias=$(echo "$json" | jq -r 'try .[0].aliases[0] catch empty')
+          url=$(echo "$json" | jq -r 'try .[0].url catch empty')
+          echo "preview_url=${alias:-$url}" >> "$GITHUB_OUTPUT"
 
       - name: Comment PR with preview URL
         if: github.event_name == 'pull_request'
@@ -154,5 +167,5 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `✅ Preview deployed: [${url}](${url})`
+              body: `Preview deployed: [${url}](${url})`
             });
