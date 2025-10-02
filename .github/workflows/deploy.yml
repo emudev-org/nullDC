@@ -119,17 +119,25 @@ jobs:
       - name: Install Wrangler
         run: npm install -g wrangler
 
+      # Deploy to Cloudflare Pages (main branch)
       - name: Publish to Cloudflare Pages
-        run: wrangler pages deploy ./dist --project-name nulldc
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        id: deploy
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-
-      - name: Publish Preview to Cloudflare Pages
-        run: wrangler pages deploy dist --project-name nulldc --branch=${{ github.head_ref }}
+        run: |
+          url=$(wrangler pages deploy ./dist --project-name nulldc | grep -oE 'https://[^ ]+')
+          echo "preview_url=$url" >> $GITHUB_OUTPUT
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      # Deploy Preview (PRs)
+      - name: Publish Preview to Cloudflare Pages
+        id: preview
         if: github.event_name == 'pull_request'
+        run: |
+          url=$(wrangler pages deploy dist --project-name nulldc --branch=${{ github.head_ref }} | grep -oE 'https://[^ ]+')
+          echo "preview_url=$url" >> $GITHUB_OUTPUT
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
       - name: Comment PR with preview URL
         if: github.event_name == 'pull_request'
@@ -137,7 +145,7 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const url = "${{ steps.deploy.outputs.preview_url }}";
+            const url = "${{ steps.preview.outputs.preview_url }}";
             if (!url) {
               core.warning("No preview URL captured");
               return;
