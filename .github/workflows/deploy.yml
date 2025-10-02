@@ -57,6 +57,13 @@ jobs:
       - name: "Native: Build release"
         if: matrix.target != 'wasm32-unknown-unknown'
         run: cargo build --release --target ${{ matrix.target }}
+      - name: "Native: Upload artifacts"
+        if: matrix.target != 'wasm32-unknown-unknown'
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release
+
       - name: "WASM: Read tool versions"
         if: matrix.target == 'wasm32-unknown-unknown'
         run: |
@@ -87,14 +94,8 @@ jobs:
         if: matrix.target == 'wasm32-unknown-unknown'
         uses: actions/upload-artifact@v4
         with:
-          name: site-dist-${{ github.ref_name }}-${{ github.sha }}
+          name: site-dist-${{ github.sha }}
           path: dist
-      - name: "Native: Upload artifacts"
-        if: matrix.target != 'wasm32-unknown-unknown'
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-${{ matrix.target }}
-          path: target/${{ matrix.target }}/release
   deploy:
     runs-on: ubuntu-latest
     needs: build
