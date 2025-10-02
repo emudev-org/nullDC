@@ -68,8 +68,11 @@ jobs:
       - name: Build wasm and site
         if: matrix.target == 'wasm32-unknown-unknown'
         run: |
+          if ! command -v cargo-binstall &> /dev/null; then
+            cargo install cargo-binstall --locked
+          fi
           if ! command -v trunk &> /dev/null; then
-            cargo install trunk --locked
+            cargo binstall trunk --locked
           fi
           trunk build
 
