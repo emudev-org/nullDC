@@ -1341,6 +1341,7 @@ dependencies = [
  "env_logger",
  "git-version",
  "log",
+ "paste",
  "pollster",
  "wasm-bindgen",
  "wasm-bindgen-futures",

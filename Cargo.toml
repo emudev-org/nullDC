@@ -16,6 +16,7 @@ crate-type = ["rlib", "cdylib"]
 lto = "thin"
 
 [dependencies]
+paste = "1.0"
 git-version = "0.3"
 wgpu = "26.0.1"
 winit = "0.30.12"
