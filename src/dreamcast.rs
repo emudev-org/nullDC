@@ -483,9 +483,9 @@ sh4op! {
     }
 
     (disas = "mova @(<PCdisp8d>),R0")
-    i1100_0111_iiii_iiii(dc, instr) {
+    i1100_0111_iiii_iiii(dc, pc, instr) {
         let disp8 = GetImm8(instr) as i32;
-        let addr = data_target_s8(dc.ctx.pc0, disp8);
+        let addr = data_target_s8(pc, disp8);
         backend::sh4_store32i(addr_of_mut!(dc.ctx.r[0]), addr);
     }
     (disas = "mov.b R0,@(<disp4b>,<REG_M>)")
