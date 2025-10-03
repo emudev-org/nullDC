@@ -236,17 +236,43 @@ fn i_not_implemented(dc: &mut Dreamcast, instr: u16) {
 
 // Helper macro to declare SH-4 opcode handlers with the correct signature.
 macro_rules! sh4op {
-    {
+    // Collect items; no recursion over the list.
+    (
         $(
-            $name:ident ($dc:ident, $instr:ident) { $($body:tt)* }
+            $(#[$meta:meta])*
+            $name:ident ( $($params:tt)* ) { $($body:tt)* }
         )*
-    } => {
+    ) => {
         $(
-            #[allow(non_snake_case)]
-            fn $name($dc: &mut Dreamcast, $instr: u16) {
-                $($body)*
-            }
+            sh4op!(@expand $(#[$meta])* $name ( $($params)* ) { $($body)* });
         )*
+    };
+
+    // Form 1: (dc, instr) — no pc requested
+    (@expand
+        $(#[$meta:meta])* $name:ident
+        ( $dc:ident , $instr:ident )
+        { $($body:tt)* }
+    ) => {
+        $(#[$meta])*
+        #[allow(non_snake_case)]
+        fn $name($dc: &mut Dreamcast, $instr: u16) {
+            $($body)*
+        }
+    };
+
+    // Form 2: (dc, pc, instr) — inject pc from context
+    (@expand
+        $(#[$meta:meta])* $name:ident
+        ( $dc:ident , $pc:ident , $instr:ident )
+        { $($body:tt)* }
+    ) => {
+        $(#[$meta])*
+        #[allow(non_snake_case)]
+        fn $name($dc: &mut Dreamcast, $instr: u16) {
+            let $pc: u32 = $dc.ctx.pc0; // adjust type if needed
+            $($body)*
+        }
     };
 }
 // -----------------------------------------------------------------------------
@@ -254,12 +280,14 @@ macro_rules! sh4op {
 // -----------------------------------------------------------------------------
 
 
-// Branch helpers and delay slot execution
-fn branch_target_s8(op: u16, pc0: u32) -> u32 {
-    (GetSImm8(op) as i32 as i64 * 2 + 4 + pc0 as i64) as u32
+fn data_target_s8(pc: u32, disp8: i32) -> u32 {
+    ((pc.wrapping_add(4)) & 0xFFFFFFFC).wrapping_add((disp8 << 2) as u32)
 }
-fn branch_target_s12(op: u16, pc0: u32) -> u32 {
-    (GetSImm12(op) as i32 as i64 * 2 + 4 + pc0 as i64) as u32
+fn branch_target_s8(pc: u32, disp8: i32) -> u32 {
+    (disp8 as i64 * 2 + 4 + pc as i64) as u32
+}
+fn branch_target_s12(pc: u32, disp12: i32) -> u32 {
+    (disp12 as i64 * 2 + 4 + pc as i64) as u32
 }
 
 sh4op! {
@@ -407,41 +435,44 @@ sh4op! {
     }
 
     // bf <bdisp8>
-    i1000_1011_iiii_iiii(dc, instr) {
+    i1000_1011_iiii_iiii(dc, pc, instr) {
         if dc.ctx.sr_T == 0 {
-            dc.ctx.pc1 = branch_target_s8(instr, dc.ctx.pc0);
+            let disp8 = GetSImm8(instr) as i32;
+            dc.ctx.pc1 = branch_target_s8(pc, disp8);
             dc.ctx.pc2 = dc.ctx.pc1.wrapping_add(2);
         }
     }
 
     // bf.s <bdisp8>
-    i1000_1111_iiii_iiii(dc, instr) {
+    i1000_1111_iiii_iiii(dc, pc, instr) {
         if dc.ctx.sr_T == 0 {
-            let newpc = branch_target_s8(instr, dc.ctx.pc0);
+            let disp8 = GetSImm8(instr) as i32;
+            let newpc = branch_target_s8(pc, disp8);
             dc.ctx.pc2 = newpc;
         }
         dc.ctx.is_delayslot1 = 1;
     }
 
     // bra <bdisp12>
-    i1010_iiii_iiii_iiii(dc, instr) {
-        let newpc = branch_target_s12(instr, dc.ctx.pc0);
+    i1010_iiii_iiii_iiii(dc, pc, instr) {
+        let disp12 = GetSImm12(instr) as i32;
+        let newpc = branch_target_s12(pc, disp12);
         dc.ctx.pc2 = newpc;
         dc.ctx.is_delayslot1 = 1;
     }
 
     // mova @(<disp>,PC),R0
     i1100_0111_iiii_iiii(dc, instr) {
-        // ((pc+2) & ~3) + (imm8 << 2)
-        let base = (dc.ctx.pc0.wrapping_add(4)) & 0xFFFFFFFC;
-        dc.ctx.r[0] = base.wrapping_add((GetImm8(instr) << 2) as u32);
+        let disp8 = GetImm8(instr) as i32;
+
+        dc.ctx.r[0] = data_target_s8(dc.ctx.pc0, disp8);
     }
 
     // mov.l @(<disp>,PC),<REG_N>
-    i1101_nnnn_iiii_iiii(dc, instr) {
+    i1101_nnnn_iiii_iiii(dc, pc, instr) {
         let n = GetN(instr) as usize;
-        let disp = GetImm8(instr);
-        let addr = ((dc.ctx.pc0.wrapping_add(4)) & 0xFFFFFFFC).wrapping_add((disp << 2) as u32);
+        let disp8 = GetImm8(instr) as i32;
+        let addr = data_target_s8(pc, disp8);
         let mut tmp: u32 = 0;
         let _ = read_mem::<u32>(dc, addr, &mut tmp);
         dc.ctx.r[n] = tmp;
