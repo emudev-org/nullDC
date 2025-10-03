@@ -5,29 +5,9 @@
 #![allow(dead_code)]
 #![allow(unused_variables)]
 
-use std::f32::consts::PI;
 use std::ptr;
 
-// -----------------------------------------------------------------------------
-// types.h
-// -----------------------------------------------------------------------------
-
-type u8_ = u8;
-type u16_ = u16;
-type u32_ = u32;
-type u64_ = u64;
-
-type s8_ = i8;
-type s16_ = i16;
-type s32_ = i32;
-type s64_ = i64;
-
-type f32_ = f32;
-type f64_ = f64;
-
-// -----------------------------------------------------------------------------
-// dreamcast.h
-// -----------------------------------------------------------------------------
+use std::ptr::{addr_of, addr_of_mut};
 
 const SYSRAM_SIZE: u32 = 16 * 1024 * 1024;
 const VIDEORAM_SIZE: u32 = 8 * 1024 * 1024;
@@ -202,19 +182,19 @@ const MASK_NH3BIT: u16 = 0xF1FF;
 const MASK_NH2BIT: u16 = 0xF3FF;
 
 #[inline(always)]
-fn GetN(str_: u16) -> u32 { ((str_ >> 8) & 0xF) as u32 }
+fn GetN(str_: u16) -> usize { ((str_ >> 8) & 0xF) as usize }
 #[inline(always)]
-fn GetM(str_: u16) -> u32 { ((str_ >> 4) & 0xF) as u32 }
+fn GetM(str_: u16) -> usize { ((str_ >> 4) & 0xF) as usize }
 #[inline(always)]
 fn GetImm4(str_: u16) -> u32 { (str_ & 0xF) as u32 }
 #[inline(always)]
 fn GetImm8(str_: u16) -> u32 { (str_ & 0xFF) as u32 }
 #[inline(always)]
-fn GetSImm8(str_: u16) -> i8 { (str_ & 0xFF) as i8 }
+fn GetSImm8(str_: u16) -> i32 { (str_ & 0xFF) as i8 as i32 }
 #[inline(always)]
 fn GetImm12(str_: u16) -> u32 { (str_ & 0xFFF) as u32 }
 #[inline(always)]
-fn GetSImm12(str_: u16) -> i16 { (((GetImm12(str_) as u16) << 4) as i16) >> 4 }
+fn GetSImm12(str_: u16) -> i32 { ((((GetImm12(str_) as u16) << 4) as i16) >> 4) as i32 }
 
 // -----------------------------------------------------------------------------
 // sh4impl / sh4op
@@ -235,46 +215,110 @@ fn i_not_implemented(dc: &mut Dreamcast, instr: u16) {
 }
 
 // Helper macro to declare SH-4 opcode handlers with the correct signature.
+// Replace your current `sh4op!` with this version.
+// Usage:
+// sh4op! {
+//     /* implemented ops ... */
+//
+//     stubs! { i0000_nnnn_0010_0011, /* ... */ }
+// }
+
+// Drop-in: requires a semicolon before the stubs block:  … } ; stubs! { … }
 macro_rules! sh4op {
-    // Collect items; no recursion over the list.
+    // Handlers + stubs (unambiguous because of the literal `; stubs!`)
+    (
+        $(
+            $(#[$meta:meta])*
+            $name:ident ( $($params:tt)* ) { $($body:tt)* }
+        )*
+        ; stubs! { $( $sname:ident ),* $(,)? }
+    ) => {
+        pub(crate) mod exec {
+            use super::*;
+            $(
+                sh4op!(@emit $(#[$meta])* $name ( $($params)* ) { $($body)* } ; backend = backend_exec);
+            )*
+            $(
+                sh4op!(@emit_stub $sname ; backend = backend_exec);
+            )*
+        }
+        pub(crate) mod dec {
+            use super::*;
+            $(
+                sh4op!(@emit $(#[$meta])* $name ( $($params)* ) { $($body)* } ; backend = backend_dec);
+            )*
+            $(
+                sh4op!(@emit_stub $sname ; backend = backend_dec);
+            )*
+        }
+    };
+
+    // Handlers only
     (
         $(
             $(#[$meta:meta])*
             $name:ident ( $($params:tt)* ) { $($body:tt)* }
         )*
     ) => {
-        $(
-            sh4op!(@expand $(#[$meta])* $name ( $($params)* ) { $($body)* });
-        )*
+        pub(crate) mod exec {
+            use super::*;
+            $(
+                sh4op!(@emit $(#[$meta])* $name ( $($params)* ) { $($body)* } ; backend = backend_exec);
+            )*
+        }
+        pub(crate) mod dec {
+            use super::*;
+            $(
+                sh4op!(@emit $(#[$meta])* $name ( $($params)* ) { $($body)* } ; backend = backend_dec);
+            )*
+        }
     };
 
-    // Form 1: (dc, instr) — no pc requested
-    (@expand
+    // (dc, instr)
+    (@emit
         $(#[$meta:meta])* $name:ident
         ( $dc:ident , $instr:ident )
         { $($body:tt)* }
+        ; backend = $backend:path
     ) => {
         $(#[$meta])*
         #[allow(non_snake_case)]
-        fn $name($dc: &mut Dreamcast, $instr: u16) {
-            $($body)*
+        pub(crate) fn $name($dc: &mut Dreamcast, $instr: u16) {
+            #[allow(unused_imports)]
+            use $backend as backend;
+            { $($body)* }
         }
     };
 
-    // Form 2: (dc, pc, instr) — inject pc from context
-    (@expand
+    // (dc, pc, instr)
+    (@emit
         $(#[$meta:meta])* $name:ident
         ( $dc:ident , $pc:ident , $instr:ident )
         { $($body:tt)* }
+        ; backend = $backend:path
     ) => {
         $(#[$meta])*
         #[allow(non_snake_case)]
-        fn $name($dc: &mut Dreamcast, $instr: u16) {
-            let $pc: u32 = $dc.ctx.pc0; // adjust type if needed
-            $($body)*
+        pub(crate) fn $name($dc: &mut Dreamcast, $instr: u16) {
+            #[allow(unused_imports)]
+            use $backend as backend;
+            let $pc: u32 = $dc.ctx.pc0;
+            { $($body)* }
+        }
+    };
+
+    // Stub emitter
+    (@emit_stub $name:ident ; backend = $backend:path) => {
+        #[allow(non_snake_case)]
+        pub(crate) fn $name(dc: &mut Dreamcast, instr: u16) {
+            #[allow(unused_imports)]
+            let _ = &{ use $backend as _; };
+            super::i_not_implemented(dc, instr);
         }
     };
 }
+
+
 // -----------------------------------------------------------------------------
 // Implemented handlers (as per your snippet). Unimplemented ones are stubbed.
 // -----------------------------------------------------------------------------
@@ -293,9 +337,9 @@ fn branch_target_s12(pc: u32, disp12: i32) -> u32 {
 sh4op! {
     // mul.l <REG_M>,<REG_N>
     i0000_nnnn_mmmm_0111(dc, instr) {
-        let n = GetN(instr) as usize;
-        let m = GetM(instr) as usize;
-        dc.ctx.macl = ((dc.ctx.r[n] as i32 as i64) * (dc.ctx.r[m] as i32 as i64)) as u32;
+        let n = GetN(instr);
+        let m = GetM(instr);
+        backend::sh4_muls32(addr_of_mut!(dc.ctx.macl), addr_of!(dc.ctx.r[n]), addr_of!(dc.ctx.r[m]));
     }
 
     // nop
@@ -305,191 +349,183 @@ sh4op! {
 
     // sts FPUL,<REG_N>
     i0000_nnnn_0101_1010(dc, instr) {
-        let n = GetN(instr) as usize;
-        dc.ctx.r[n] = dc.ctx.fpul;
+        let n = GetN(instr);
+        backend::sh4_store32(addr_of_mut!(dc.ctx.r[n]), addr_of!(dc.ctx.fpul));
     }
 
     // sts MACL,<REG_N>
     i0000_nnnn_0001_1010(dc, instr) {
-        let n = GetN(instr) as usize;
-        dc.ctx.r[n] = dc.ctx.macl;
+        let n = GetN(instr);
+        backend::sh4_store32(addr_of_mut!(dc.ctx.r[n]), addr_of!(dc.ctx.macl));
     }
 
     // mov.b <REG_M>,@<REG_N>
     i0010_nnnn_mmmm_0000(dc, instr) {
-        let n = GetN(instr) as usize;
-        let m = GetM(instr) as usize;
-        let _ = write_mem::<u8>(dc, dc.ctx.r[n], dc.ctx.r[m] as u8);
+        let n = GetN(instr);
+        let m = GetM(instr);
+        backend::sh4_write_mem8(addr_of_mut!(*dc), addr_of!(dc.ctx.r[n]), addr_of!(dc.ctx.r[m]));
     }
 
     // mov.w <REG_M>,@<REG_N>
     i0010_nnnn_mmmm_0001(dc, instr) {
-        let n = GetN(instr) as usize;
-        let m = GetM(instr) as usize;
-        let _ = write_mem::<u16>(dc, dc.ctx.r[n], dc.ctx.r[m] as u16);
+        let n = GetN(instr);
+        let m = GetM(instr);
+        backend::sh4_write_mem16(addr_of_mut!(*dc), addr_of!(dc.ctx.r[n]), addr_of!(dc.ctx.r[m]));
     }
 
     // mov.l <REG_M>,@<REG_N>
     i0010_nnnn_mmmm_0010(dc, instr) {
-        let n = GetN(instr) as usize;
-        let m = GetM(instr) as usize;
-        let _ = write_mem::<u32>(dc, dc.ctx.r[n], dc.ctx.r[m]);
+        let n = GetN(instr);
+        let m = GetM(instr);
+        backend::sh4_write_mem32(addr_of_mut!(*dc), addr_of!(dc.ctx.r[n]), addr_of!(dc.ctx.r[m]));
     }
 
     // and <REG_M>,<REG_N>
     i0010_nnnn_mmmm_1001(dc, instr) {
-        let n = GetN(instr) as usize;
-        let m = GetM(instr) as usize;
-        dc.ctx.r[n] &= dc.ctx.r[m];
+        let n = GetN(instr);
+        let m = GetM(instr);
+        backend::sh4_and(addr_of_mut!(dc.ctx.r[n]), addr_of!(dc.ctx.r[n]), addr_of!(dc.ctx.r[m]));
     }
 
     // xor <REG_M>,<REG_N>
     i0010_nnnn_mmmm_1010(dc, instr) {
-        let n = GetN(instr) as usize;
-        let m = GetM(instr) as usize;
-        dc.ctx.r[n] ^= dc.ctx.r[m];
+        let n = GetN(instr);
+        let m = GetM(instr);
+        backend::sh4_xor(addr_of_mut!(dc.ctx.r[n]), addr_of!(dc.ctx.r[n]), addr_of!(dc.ctx.r[m]));
     }
 
     // sub <REG_M>,<REG_N>
     i0011_nnnn_mmmm_1000(dc, instr) {
-        let n = GetN(instr) as usize;
-        let m = GetM(instr) as usize;
-        dc.ctx.r[n] = dc.ctx.r[n].wrapping_sub(dc.ctx.r[m]);
+        let n = GetN(instr);
+        let m = GetM(instr);
+        backend::sh4_sub(addr_of_mut!(dc.ctx.r[n]), addr_of!(dc.ctx.r[n]), addr_of!(dc.ctx.r[m]));
     }
 
     // add <REG_M>,<REG_N>
     i0011_nnnn_mmmm_1100(dc, instr) {
-        let n = GetN(instr) as usize;
-        let m = GetM(instr) as usize;
-        dc.ctx.r[n] = dc.ctx.r[n].wrapping_add(dc.ctx.r[m]);
+        let n = GetN(instr);
+        let m = GetM(instr);
+        backend::sh4_add(addr_of_mut!(dc.ctx.r[n]), addr_of!(dc.ctx.r[n]), addr_of!(dc.ctx.r[m]));
     }
 
     // dt <REG_N>
     i0100_nnnn_0001_0000(dc, instr) {
-        let n = GetN(instr) as usize;
-        dc.ctx.r[n] = dc.ctx.r[n].wrapping_sub(1);
-        dc.ctx.sr_T = if dc.ctx.r[n] == 0 { 1 } else { 0 };
+        let n = GetN(instr);
+        backend::sh4_dt(addr_of_mut!(dc.ctx.sr_T), addr_of_mut!(dc.ctx.r[n]));
     }
 
     // shlr <REG_N>
     i0100_nnnn_0000_0001(dc, instr) {
-        let n = GetN(instr) as usize;
-        dc.ctx.sr_T = dc.ctx.r[n] & 1;
-        dc.ctx.r[n] >>= 1;
+        let n = GetN(instr);
+        backend::sh4_shlr(addr_of_mut!(dc.ctx.sr_T), addr_of_mut!(dc.ctx.r[n]), addr_of!(dc.ctx.r[n]));
     }
 
     // shll8 <REG_N>
     i0100_nnnn_0001_1000(dc, instr) {
-        let n = GetN(instr) as usize;
-        dc.ctx.r[n] <<= 8;
+        let n = GetN(instr);
+        backend::sh4_shllf(addr_of_mut!(dc.ctx.r[n]), addr_of!(dc.ctx.r[n]), 8);
     }
 
     // shlr2 <REG_N>
     i0100_nnnn_0000_1001(dc, instr) {
-        let n = GetN(instr) as usize;
-        dc.ctx.r[n] >>= 2;
+        let n = GetN(instr);
+        backend::sh4_shlrf(addr_of_mut!(dc.ctx.r[n]), addr_of!(dc.ctx.r[n]), 2);
     }
 
     // shlr16 <REG_N>
     i0100_nnnn_0010_1001(dc, instr) {
-        let n = GetN(instr) as usize;
-        dc.ctx.r[n] >>= 16;
+        let n = GetN(instr);
+        backend::sh4_shlrf(addr_of_mut!(dc.ctx.r[n]), addr_of!(dc.ctx.r[n]), 16);
     }
 
     // mov.b @<REG_M>,<REG_N>
     i0110_nnnn_mmmm_0000(dc, instr) {
-        let n = GetN(instr) as usize;
-        let m = GetM(instr) as usize;
+        let n = GetN(instr);
+        let m = GetM(instr);
 
-        let mut data: i8 = 0;
-        let _ = read_mem::<i8>(dc, dc.ctx.r[m], &mut data);
-        dc.ctx.r[n] = data as i32 as u32;
+        backend::sh4_read_mems8(addr_of_mut!(*dc), addr_of!(dc.ctx.r[m]), addr_of_mut!(dc.ctx.r[n]));
     }
 
     // mov <REG_M>,<REG_N>
     i0110_nnnn_mmmm_0011(dc, instr) {
-        let n = GetN(instr) as usize;
-        let m = GetM(instr) as usize;
-        dc.ctx.r[n] = dc.ctx.r[m];
+        let n = GetN(instr);
+        let m = GetM(instr);
+        backend::sh4_store32(addr_of_mut!(dc.ctx.r[n]), addr_of!(dc.ctx.r[m]));
     }
 
     // neg <REG_M>,<REG_N>
     i0110_nnnn_mmmm_1011(dc, instr) {
-        let n = GetN(instr) as usize;
-        let m = GetM(instr) as usize;
-        dc.ctx.r[n] = (0u32).wrapping_sub(dc.ctx.r[m]);
+        let n = GetN(instr);
+        let m = GetM(instr);
+        backend::sh4_neg(addr_of_mut!(dc.ctx.r[n]), addr_of!(dc.ctx.r[m]));
     }
 
     // extu.b <REG_M>,<REG_N>
     i0110_nnnn_mmmm_1100(dc, instr) {
-        let n = GetN(instr) as usize;
-        let m = GetM(instr) as usize;
-        dc.ctx.r[n] = (dc.ctx.r[m] as u8) as u32;
+        let n = GetN(instr);
+        let m = GetM(instr);
+        backend::sh4_extub(addr_of_mut!(dc.ctx.r[n]), addr_of!(dc.ctx.r[m]));
     }
 
     // add #<imm>,<REG_N>
     i0111_nnnn_iiii_iiii(dc, instr) {
-        let n = GetN(instr) as usize;
-        let stmp1 = GetSImm8(instr) as i32;
-        dc.ctx.r[n] = dc.ctx.r[n].wrapping_add(stmp1 as u32);
+        let n = GetN(instr);
+        let stmp1 = GetSImm8(instr);
+        backend::sh4_addi(addr_of_mut!(dc.ctx.r[n]), addr_of!(dc.ctx.r[n]), stmp1 as u32);
     }
 
     // bf <bdisp8>
     i1000_1011_iiii_iiii(dc, pc, instr) {
-        if dc.ctx.sr_T == 0 {
-            let disp8 = GetSImm8(instr) as i32;
-            dc.ctx.pc1 = branch_target_s8(pc, disp8);
-            dc.ctx.pc2 = dc.ctx.pc1.wrapping_add(2);
-        }
+        let disp8 = GetSImm8(instr);
+        let next = pc.wrapping_add(2);
+        let target = branch_target_s8(pc, disp8);
+        backend::sh4_branch_cond(addr_of_mut!(*dc), addr_of!(dc.ctx.sr_T), 0, next, target);
     }
 
     // bf.s <bdisp8>
     i1000_1111_iiii_iiii(dc, pc, instr) {
-        if dc.ctx.sr_T == 0 {
-            let disp8 = GetSImm8(instr) as i32;
-            let newpc = branch_target_s8(pc, disp8);
-            dc.ctx.pc2 = newpc;
-        }
-        dc.ctx.is_delayslot1 = 1;
+        let disp8 = GetSImm8(instr);
+        let next = pc.wrapping_add(4);
+        let target = branch_target_s8(pc, disp8);
+        backend::sh4_branch_cond_delay(addr_of_mut!(*dc), addr_of!(dc.ctx.sr_T), 0, next, target);
     }
 
     // bra <bdisp12>
     i1010_iiii_iiii_iiii(dc, pc, instr) {
-        let disp12 = GetSImm12(instr) as i32;
-        let newpc = branch_target_s12(pc, disp12);
-        dc.ctx.pc2 = newpc;
-        dc.ctx.is_delayslot1 = 1;
+        let disp12 = GetSImm12(instr);
+        let target = branch_target_s12(pc, disp12);
+        backend::sh4_branch_delay(addr_of_mut!(*dc), target);
     }
 
     // mova @(<disp>,PC),R0
     i1100_0111_iiii_iiii(dc, instr) {
         let disp8 = GetImm8(instr) as i32;
-
-        dc.ctx.r[0] = data_target_s8(dc.ctx.pc0, disp8);
+        let addr = data_target_s8(dc.ctx.pc0, disp8);
+        backend::sh4_store32i(addr_of_mut!(dc.ctx.r[0]), addr);
     }
 
     // mov.l @(<disp>,PC),<REG_N>
     i1101_nnnn_iiii_iiii(dc, pc, instr) {
-        let n = GetN(instr) as usize;
+        let n = GetN(instr);
         let disp8 = GetImm8(instr) as i32;
         let addr = data_target_s8(pc, disp8);
-        let mut tmp: u32 = 0;
-        let _ = read_mem::<u32>(dc, addr, &mut tmp);
-        dc.ctx.r[n] = tmp;
+
+        backend::sh4_read_mem32i(dc, addr, addr_of_mut!(dc.ctx.r[n]));
     }
 
     // mov #<imm>,<REG_N>
     i1110_nnnn_iiii_iiii(dc, instr) {
-        let n = GetN(instr) as usize;
-        dc.ctx.r[n] = (GetSImm8(instr) as i8) as i32 as u32;
+        let n = GetN(instr);
+        let imm = GetSImm8(instr);
+        backend::sh4_store32i(addr_of_mut!(dc.ctx.r[n]), imm as u32);
     }
 
     // fadd <FREG_M>,<FREG_N> (single precision only)
     i1111_nnnn_mmmm_0000(dc, instr) {
         if dc.ctx.fpscr_PR == 0 {
-            let n = GetN(instr) as usize;
-            let m = GetM(instr) as usize;
-            unsafe { dc.ctx.fr.f32s[n] = dc.ctx.fr.f32s[n] + dc.ctx.fr.f32s[m] };
+            let n = GetN(instr);
+            let m = GetM(instr);
+            unsafe { backend::sh4_fadd(addr_of_mut!(dc.ctx.fr.f32s[n]), addr_of!(dc.ctx.fr.f32s[n]), addr_of!(dc.ctx.fr.f32s[m])); };
         } else {
             debug_assert!(false);
         }
@@ -498,9 +534,9 @@ sh4op! {
     // fmul <FREG_M>,<FREG_N>
     i1111_nnnn_mmmm_0010(dc, instr) {
         if dc.ctx.fpscr_PR == 0 {
-            let n = GetN(instr) as usize;
-            let m = GetM(instr) as usize;
-            unsafe { dc.ctx.fr.f32s[n] = dc.ctx.fr.f32s[n] * dc.ctx.fr.f32s[m]; }
+            let n = GetN(instr);
+            let m = GetM(instr);
+            unsafe { backend::sh4_fmul(addr_of_mut!(dc.ctx.fr.f32s[n]), addr_of!(dc.ctx.fr.f32s[n]), addr_of!(dc.ctx.fr.f32s[m])); };
         } else {
             debug_assert!(false);
         }
@@ -509,9 +545,9 @@ sh4op! {
     // fdiv <FREG_M>,<FREG_N>
     i1111_nnnn_mmmm_0011(dc, instr) {
         if dc.ctx.fpscr_PR == 0 {
-            let n = GetN(instr) as usize;
-            let m = GetM(instr) as usize;
-            unsafe { dc.ctx.fr.f32s[n] = dc.ctx.fr.f32s[n] / dc.ctx.fr.f32s[m]; }
+            let n = GetN(instr);
+            let m = GetM(instr);
+            unsafe { backend::sh4_fdiv(addr_of_mut!(dc.ctx.fr.f32s[n]), addr_of!(dc.ctx.fr.f32s[n]), addr_of!(dc.ctx.fr.f32s[m])); };
         } else {
             debug_assert!(false);
         }
@@ -520,11 +556,9 @@ sh4op! {
     // fmov.s @<REG_M>,<FREG_N>
     i1111_nnnn_mmmm_1000(dc, instr) {
         if dc.ctx.fpscr_SZ == 0 {
-            let n = GetN(instr) as usize;
-            let m = GetM(instr) as usize;
-            let mut tmp: u32 = 0;
-            let _ = read_mem::<u32>(dc, dc.ctx.r[m], &mut tmp);
-            unsafe { dc.ctx.fr.u32s[n] = tmp; }
+            let n = GetN(instr);
+            let m = GetM(instr);
+            unsafe { backend::sh4_read_mem32(dc, addr_of!(dc.ctx.r[m]), addr_of_mut!(dc.ctx.fr.u32s[n])); }
         } else {
             debug_assert!(false);
         }
@@ -533,9 +567,9 @@ sh4op! {
     // fmov <FREG_M>,<FREG_N>
     i1111_nnnn_mmmm_1100(dc, instr) {
         if dc.ctx.fpscr_SZ == 0 {
-            let n = GetN(instr) as usize;
-            let m = GetM(instr) as usize;
-            unsafe { dc.ctx.fr.f32s[n] = dc.ctx.fr.f32s[m] };
+            let n = GetN(instr);
+            let m = GetM(instr);
+            unsafe { backend::sh4_store32(addr_of_mut!(dc.ctx.fr.u32s[n]), addr_of!(dc.ctx.fr.u32s[m])); }
         } else {
             debug_assert!(false);
         }
@@ -545,13 +579,7 @@ sh4op! {
     i1111_nnn0_1111_1101(dc, instr) {
         let n = (GetN(instr) & 0xE) as usize;
         if dc.ctx.fpscr_PR == 0 {
-            let pi_index = dc.ctx.fpul & 0xFFFF;
-            // rads = (index / (65536/2)) * pi
-            let rads = (pi_index as f32) / (65536.0f32 / 2.0) * PI;
-            unsafe {
-                dc.ctx.fr.f32s[n + 0] = rads.sin();
-                dc.ctx.fr.f32s[n + 1] = rads.cos();
-            }
+            unsafe { backend::sh4_fsca(addr_of_mut!(dc.ctx.fr.f32s[n]), addr_of!(dc.ctx.fpul)); }
             
         } else {
             debug_assert!(false);
@@ -561,8 +589,8 @@ sh4op! {
     // float FPUL,<FREG_N>
     i1111_nnnn_0010_1101(dc, instr) {
         if dc.ctx.fpscr_PR == 0 {
-            let n = GetN(instr) as usize;
-            unsafe { dc.ctx.fr.f32s[n] = (dc.ctx.fpul as i32) as f32; }
+            let n = GetN(instr);
+            unsafe { backend::sh4_float(addr_of_mut!(dc.ctx.fr.f32s[n]), addr_of!(dc.ctx.fpul)); }
         } else {
             debug_assert!(false);
         }
@@ -571,17 +599,8 @@ sh4op! {
     // ftrc <FREG_N>, FPUL
     i1111_nnnn_0011_1101(dc, instr) {
         if dc.ctx.fpscr_PR == 0 {
-            let n = GetN(instr) as usize;
-            // saturate to 0x7FFFFFBF as in original snippet
-            let v = unsafe { dc.ctx.fr.f32s[n] };
-            let clamped = v.min(0x7FFFFFBF as f32);
-            let mut as_i = clamped as i32 as u32;
-            if as_i == 0x80000000 {
-                if v > 0.0 {
-                    as_i = as_i.wrapping_sub(1);
-                }
-            }
-            dc.ctx.fpul = as_i;
+            let n = GetN(instr);
+            unsafe { backend::sh4_ftrc(addr_of_mut!(dc.ctx.fpul), addr_of!(dc.ctx.fr.f32s[n])); }
         } else {
             debug_assert!(false);
         }
@@ -589,111 +608,98 @@ sh4op! {
 
     // lds <REG_N>,FPUL
     i0100_nnnn_0101_1010(dc, instr) {
-        let n = GetN(instr) as usize;
-        dc.ctx.fpul = dc.ctx.r[n];
+        let n = GetN(instr);
+        backend::sh4_store32(addr_of_mut!(dc.ctx.fpul), addr_of!(dc.ctx.r[n]));
+    }
+
+    ; stubs! {
+        // 0xxx prefix (partial list per snippet)
+        i0000_nnnn_0000_0010, i0000_nnnn_0001_0010, i0000_nnnn_0010_0010, i0000_nnnn_0011_0010,
+        i0000_nnnn_0011_1010, i0000_nnnn_0100_0010, i0000_nnnn_1mmm_0010, i0000_nnnn_0010_0011,
+        i0000_nnnn_0000_0013 /* bogus to avoid collision */,
+
+        i0000_nnnn_0000_0011, i0000_nnnn_1100_0011, i0000_nnnn_1001_0011, i0000_nnnn_1010_0011,
+        i0000_nnnn_1011_0011, i0000_nnnn_1000_0011, i0000_nnnn_mmmm_0100, i0000_nnnn_mmmm_0101,
+        i0000_nnnn_mmmm_0110,
+        i0000_0000_0010_1000, i0000_0000_0100_1000, i0000_0000_0000_1000, i0000_0000_0011_1000,
+        i0000_0000_0101_1000, i0000_0000_0001_1000, i0000_0000_0001_1001, i0000_nnnn_0010_1001,
+        // nop already implemented
+        i0000_nnnn_0110_1010, i0000_nnnn_1111_1010, i0000_nnnn_0000_1010,
+        // rtes/rts/sleep
+        i0000_0000_0010_1011, i0000_0000_0000_1011, i0000_0000_0001_1011,
+        i0000_nnnn_mmmm_1100, i0000_nnnn_mmmm_1101, i0000_nnnn_mmmm_1110, i0000_nnnn_mmmm_1111,
+        i0001_nnnn_mmmm_iiii,
+
+        // 2xxx additional
+        i0010_nnnn_mmmm_0100, i0010_nnnn_mmmm_0101, i0010_nnnn_mmmm_0110, i0010_nnnn_mmmm_0111,
+        i0010_nnnn_mmmm_1000, i0010_nnnn_mmmm_1011, i0010_nnnn_mmmm_1100, i0010_nnnn_mmmm_1101,
+        i0010_nnnn_mmmm_1110, i0010_nnnn_mmmm_1111,
+
+        // 3xxx others
+        i0011_nnnn_mmmm_0000, i0011_nnnn_mmmm_0010, i0011_nnnn_mmmm_0011, i0011_nnnn_mmmm_0100,
+        i0011_nnnn_mmmm_0101, i0011_nnnn_mmmm_0110, i0011_nnnn_mmmm_0111, i0011_nnnn_mmmm_1010,
+        i0011_nnnn_mmmm_1011, i0011_nnnn_mmmm_1101, i0011_nnnn_mmmm_1110, i0011_nnnn_mmmm_1111,
+
+        // 4xxx
+        i0100_nnnn_0101_0010, i0100_nnnn_0110_0010, i0100_nnnn_0000_0010, i0100_nnnn_0001_0010,
+        i0100_nnnn_0010_0010, i0100_nnnn_1111_0010, i0100_nnnn_0000_0011, i0100_nnnn_0001_0011,
+        i0100_nnnn_0010_0011, i0100_nnnn_0011_0011, i0100_nnnn_0011_0010, i0100_nnnn_0100_0011,
+        i0100_nnnn_1mmm_0011, i0100_nnnn_0000_0110, i0100_nnnn_0001_0110, i0100_nnnn_0010_0110,
+        i0100_nnnn_0101_0110, i0100_nnnn_0110_0110, i0100_nnnn_1111_0110, i0100_nnnn_0000_0111,
+        i0100_nnnn_0001_0111, i0100_nnnn_0010_0111, i0100_nnnn_0011_0111, i0100_nnnn_0011_0110,
+        i0100_nnnn_0100_0111, i0100_nnnn_1mmm_0111, i0100_nnnn_0000_1010, i0100_nnnn_0001_1010,
+        i0100_nnnn_0010_1010, /* i0100_nnnn_0101_1010 implemented above */ i0100_nnnn_0110_1010,
+        i0100_nnnn_1111_1010, i0100_nnnn_0000_1110, i0100_nnnn_0001_1110, i0100_nnnn_0010_1110,
+        i0100_nnnn_0011_1110, i0100_nnnn_0100_1110, i0100_nnnn_1mmm_1110, i0100_nnnn_0000_0000,
+        i0100_nnnn_0010_0000, i0100_nnnn_0001_0001, i0100_nnnn_0010_0001, i0100_nnnn_0010_0100,
+        i0100_nnnn_0000_0100, i0100_nnnn_0001_0101, i0100_nnnn_0010_0101, i0100_nnnn_0000_0101,
+        i0100_nnnn_0000_1000, /* i0100_nnnn_0001_1000 impl */ i0100_nnnn_0010_1000,
+        /* i0100_nnnn_0000_1001 impl */ i0100_nnnn_0001_1001, /* i0100_nnnn_0010_1001 impl */
+        i0100_nnnn_0010_1011, i0100_nnnn_0000_1011, i0100_nnnn_0001_1011, i0100_nnnn_mmmm_1100,
+        i0100_nnnn_mmmm_1101, i0100_nnnn_mmmm_1111,
+
+        // 5xxx
+        i0101_nnnn_mmmm_iiii,
+
+        // 6xxx
+        i0110_nnnn_mmmm_0001, i0110_nnnn_mmmm_0010, i0110_nnnn_mmmm_0100, i0110_nnnn_mmmm_0101,
+        i0110_nnnn_mmmm_0110, i0110_nnnn_mmmm_0111, i0110_nnnn_mmmm_1000, i0110_nnnn_mmmm_1001,
+        i0110_nnnn_mmmm_1010, /* i0110_nnnn_mmmm_1011 impl */ /* i0110_nnnn_mmmm_1100 impl */
+        i0110_nnnn_mmmm_1101, i0110_nnnn_mmmm_1110, i0110_nnnn_mmmm_1111,
+
+        // 8xxx
+        i1000_1001_iiii_iiii, i1000_1101_iiii_iiii, i1000_1000_iiii_iiii,
+        i1000_0000_mmmm_iiii, i1000_0001_mmmm_iiii, i1000_0100_mmmm_iiii, i1000_0101_mmmm_iiii,
+
+        // 9xxx
+        i1001_nnnn_iiii_iiii,
+
+        // Bxxx
+        i1011_iiii_iiii_iiii,
+
+        // Cxxx
+        i1100_0000_iiii_iiii, i1100_0001_iiii_iiii, i1100_0010_iiii_iiii, i1100_0011_iiii_iiii,
+        i1100_0100_iiii_iiii, i1100_0101_iiii_iiii, i1100_0110_iiii_iiii,
+        i1100_1000_iiii_iiii, i1100_1001_iiii_iiii, i1100_1010_iiii_iiii, i1100_1011_iiii_iiii,
+        i1100_1100_iiii_iiii, i1100_1101_iiii_iiii, i1100_1110_iiii_iiii, i1100_1111_iiii_iiii,
+
+        // Fxxx
+        /* i1111_nnnn_mmmm_0000 impl */ i1111_nnnn_mmmm_0001,
+        /* i1111_nnnn_mmmm_0010 impl */ /* i1111_nnnn_mmmm_0011 impl */
+        i1111_nnnn_mmmm_0100, i1111_nnnn_mmmm_0101, i1111_nnnn_mmmm_0110, i1111_nnnn_mmmm_0111,
+        /* i1111_nnnn_mmmm_1000 impl */ i1111_nnnn_mmmm_1001, i1111_nnnn_mmmm_1010,
+        i1111_nnnn_mmmm_1011, /* i1111_nnnn_mmmm_1100 impl */ i1111_nnnn_0101_1101,
+        /* i1111_nnn0_1111_1101 impl */ i1111_nnnn_1011_1101, i1111_nnnn_1010_1101,
+        i1111_nnmm_1110_1101, i1111_nnnn_1000_1101, i1111_nnnn_1001_1101, i1111_nnnn_0001_1101,
+        /* i1111_nnnn_0010_1101 impl */ i1111_nnnn_0100_1101, i1111_1011_1111_1101,
+        i1111_0011_1111_1101, i1111_nnnn_0110_1101, /* i1111_nnnn_0011_1101 impl */
+        i1111_nnnn_0000_1101, i1111_nn01_1111_1101, i1111_nnnn_1110_1110 /*typo guard*/,
+        i1111_nnnn_0111_1101, i1111_nnnn_mmmm_1110,
+
+        i0000_nnnn_0010_1010, i0100_nnnn_0011_1010,
     }
 
 }
-// -----------------------------------------------------------------------------
-// Declare all unimplemented handlers as stubs (1:1 names) ---------------------
-// -----------------------------------------------------------------------------
-
-// Macro to mass-declare stubs based on the identifiers present in your code.
-macro_rules! declare_stubs {
-    ( $( $name:ident ),* $(,)? ) => {
-        $(
-            fn $name(dc: &mut Dreamcast, instr: u16) { i_not_implemented(dc, instr); }
-        )*
-    };
-}
-
-// From your snippet (all sh4op declarations + any handlers that appear in the table but not implemented above):
-declare_stubs!(
-    // 0xxx prefix (partial list per snippet)
-    i0000_nnnn_0000_0010, i0000_nnnn_0001_0010, i0000_nnnn_0010_0010, i0000_nnnn_0011_0010,
-    i0000_nnnn_0011_1010, i0000_nnnn_0100_0010, i0000_nnnn_1mmm_0010, i0000_nnnn_0010_0011,
-    i0000_nnnn_0000_0013 /* bogus to avoid collision */,
-
-    i0000_nnnn_0000_0011, i0000_nnnn_1100_0011, i0000_nnnn_1001_0011, i0000_nnnn_1010_0011,
-    i0000_nnnn_1011_0011, i0000_nnnn_1000_0011, i0000_nnnn_mmmm_0100, i0000_nnnn_mmmm_0101,
-    i0000_nnnn_mmmm_0110,
-    i0000_0000_0010_1000, i0000_0000_0100_1000, i0000_0000_0000_1000, i0000_0000_0011_1000,
-    i0000_0000_0101_1000, i0000_0000_0001_1000, i0000_0000_0001_1001, i0000_nnnn_0010_1001,
-    // nop already implemented
-    i0000_nnnn_0110_1010, i0000_nnnn_1111_1010, i0000_nnnn_0000_1010,
-    // rtes/rts/sleep
-    i0000_0000_0010_1011, i0000_0000_0000_1011, i0000_0000_0001_1011,
-    i0000_nnnn_mmmm_1100, i0000_nnnn_mmmm_1101, i0000_nnnn_mmmm_1110, i0000_nnnn_mmmm_1111,
-    i0001_nnnn_mmmm_iiii,
-
-    // 2xxx additional
-    i0010_nnnn_mmmm_0100, i0010_nnnn_mmmm_0101, i0010_nnnn_mmmm_0110, i0010_nnnn_mmmm_0111,
-    i0010_nnnn_mmmm_1000, i0010_nnnn_mmmm_1011, i0010_nnnn_mmmm_1100, i0010_nnnn_mmmm_1101,
-    i0010_nnnn_mmmm_1110, i0010_nnnn_mmmm_1111,
-
-    // 3xxx others
-    i0011_nnnn_mmmm_0000, i0011_nnnn_mmmm_0010, i0011_nnnn_mmmm_0011, i0011_nnnn_mmmm_0100,
-    i0011_nnnn_mmmm_0101, i0011_nnnn_mmmm_0110, i0011_nnnn_mmmm_0111, i0011_nnnn_mmmm_1010,
-    i0011_nnnn_mmmm_1011, i0011_nnnn_mmmm_1101, i0011_nnnn_mmmm_1110, i0011_nnnn_mmmm_1111,
-
-    // 4xxx
-    i0100_nnnn_0101_0010, i0100_nnnn_0110_0010, i0100_nnnn_0000_0010, i0100_nnnn_0001_0010,
-    i0100_nnnn_0010_0010, i0100_nnnn_1111_0010, i0100_nnnn_0000_0011, i0100_nnnn_0001_0011,
-    i0100_nnnn_0010_0011, i0100_nnnn_0011_0011, i0100_nnnn_0011_0010, i0100_nnnn_0100_0011,
-    i0100_nnnn_1mmm_0011, i0100_nnnn_0000_0110, i0100_nnnn_0001_0110, i0100_nnnn_0010_0110,
-    i0100_nnnn_0101_0110, i0100_nnnn_0110_0110, i0100_nnnn_1111_0110, i0100_nnnn_0000_0111,
-    i0100_nnnn_0001_0111, i0100_nnnn_0010_0111, i0100_nnnn_0011_0111, i0100_nnnn_0011_0110,
-    i0100_nnnn_0100_0111, i0100_nnnn_1mmm_0111, i0100_nnnn_0000_1010, i0100_nnnn_0001_1010,
-    i0100_nnnn_0010_1010, /* i0100_nnnn_0101_1010 implemented above */ i0100_nnnn_0110_1010,
-    i0100_nnnn_1111_1010, i0100_nnnn_0000_1110, i0100_nnnn_0001_1110, i0100_nnnn_0010_1110,
-    i0100_nnnn_0011_1110, i0100_nnnn_0100_1110, i0100_nnnn_1mmm_1110, i0100_nnnn_0000_0000,
-    i0100_nnnn_0010_0000, i0100_nnnn_0001_0001, i0100_nnnn_0010_0001, i0100_nnnn_0010_0100,
-    i0100_nnnn_0000_0100, i0100_nnnn_0001_0101, i0100_nnnn_0010_0101, i0100_nnnn_0000_0101,
-    i0100_nnnn_0000_1000, /* i0100_nnnn_0001_1000 impl */ i0100_nnnn_0010_1000,
-    /* i0100_nnnn_0000_1001 impl */ i0100_nnnn_0001_1001, /* i0100_nnnn_0010_1001 impl */
-    i0100_nnnn_0010_1011, i0100_nnnn_0000_1011, i0100_nnnn_0001_1011, i0100_nnnn_mmmm_1100,
-    i0100_nnnn_mmmm_1101, i0100_nnnn_mmmm_1111,
-
-    // 5xxx
-    i0101_nnnn_mmmm_iiii,
-
-    // 6xxx
-    i0110_nnnn_mmmm_0001, i0110_nnnn_mmmm_0010, i0110_nnnn_mmmm_0100, i0110_nnnn_mmmm_0101,
-    i0110_nnnn_mmmm_0110, i0110_nnnn_mmmm_0111, i0110_nnnn_mmmm_1000, i0110_nnnn_mmmm_1001,
-    i0110_nnnn_mmmm_1010, /* i0110_nnnn_mmmm_1011 impl */ /* i0110_nnnn_mmmm_1100 impl */
-    i0110_nnnn_mmmm_1101, i0110_nnnn_mmmm_1110, i0110_nnnn_mmmm_1111,
-
-    // 8xxx
-    i1000_1001_iiii_iiii, i1000_1101_iiii_iiii, i1000_1000_iiii_iiii,
-    i1000_0000_mmmm_iiii, i1000_0001_mmmm_iiii, i1000_0100_mmmm_iiii, i1000_0101_mmmm_iiii,
-
-    // 9xxx
-    i1001_nnnn_iiii_iiii,
-
-    // Bxxx
-    i1011_iiii_iiii_iiii,
-
-    // Cxxx
-    i1100_0000_iiii_iiii, i1100_0001_iiii_iiii, i1100_0010_iiii_iiii, i1100_0011_iiii_iiii,
-    i1100_0100_iiii_iiii, i1100_0101_iiii_iiii, i1100_0110_iiii_iiii,
-    i1100_1000_iiii_iiii, i1100_1001_iiii_iiii, i1100_1010_iiii_iiii, i1100_1011_iiii_iiii,
-    i1100_1100_iiii_iiii, i1100_1101_iiii_iiii, i1100_1110_iiii_iiii, i1100_1111_iiii_iiii,
-
-    // Fxxx
-    /* i1111_nnnn_mmmm_0000 impl */ i1111_nnnn_mmmm_0001,
-    /* i1111_nnnn_mmmm_0010 impl */ /* i1111_nnnn_mmmm_0011 impl */
-    i1111_nnnn_mmmm_0100, i1111_nnnn_mmmm_0101, i1111_nnnn_mmmm_0110, i1111_nnnn_mmmm_0111,
-    /* i1111_nnnn_mmmm_1000 impl */ i1111_nnnn_mmmm_1001, i1111_nnnn_mmmm_1010,
-    i1111_nnnn_mmmm_1011, /* i1111_nnnn_mmmm_1100 impl */ i1111_nnnn_0101_1101,
-    /* i1111_nnn0_1111_1101 impl */ i1111_nnnn_1011_1101, i1111_nnnn_1010_1101,
-    i1111_nnmm_1110_1101, i1111_nnnn_1000_1101, i1111_nnnn_1001_1101, i1111_nnnn_0001_1101,
-    /* i1111_nnnn_0010_1101 impl */ i1111_nnnn_0100_1101, i1111_1011_1111_1101,
-    i1111_0011_1111_1101, i1111_nnnn_0110_1101, /* i1111_nnnn_0011_1101 impl */
-    i1111_nnnn_0000_1101, i1111_nn01_1111_1101, i1111_nnnn_1110_1110 /*typo guard*/,
-    i1111_nnnn_0111_1101, i1111_nnnn_mmmm_1110,
-
-    i0000_nnnn_0010_1010, i0100_nnnn_0011_1010,
-);
 
 // -----------------------------------------------------------------------------
 // Opcode list (array) — translated 1:1 from your snippet
@@ -708,395 +714,706 @@ static MISSING_OPCODE: sh4_opcodelistentry = sh4_opcodelistentry {
     is_branch: 0,
 };
 
-pub static OPCODES: &[sh4_opcodelistentry] = &[
-    sh4_opcodelistentry { oph: i0000_nnnn_0010_0011, handler_name: "i0000_nnnn_0010_0011", mask: MASK_N, key: 0x0023, diss: "braf <REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_0000_0011, handler_name: "i0000_nnnn_0000_0011", mask: MASK_N, key: 0x0003, diss: "bsrf <REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_1100_0011, handler_name: "i0000_nnnn_1100_0011", mask: MASK_N, key: 0x00C3, diss: "movca.l R0, @<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_1001_0011, handler_name: "i0000_nnnn_1001_0011", mask: MASK_N, key: 0x0093, diss: "ocbi @<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_1010_0011, handler_name: "i0000_nnnn_1010_0011", mask: MASK_N, key: 0x00A3, diss: "ocbp @<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_1011_0011, handler_name: "i0000_nnnn_1011_0011", mask: MASK_N, key: 0x00B3, diss: "ocbwb @<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_1000_0011, handler_name: "i0000_nnnn_1000_0011", mask: MASK_N, key: 0x0083, diss: "pref @<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_mmmm_0111, handler_name: "i0000_nnnn_mmmm_0111", mask: MASK_N_M, key: 0x0007, diss: "mul.l <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_0000_0010_1000, handler_name: "i0000_0000_0010_1000", mask: MASK_NONE, key: 0x0028, diss: "clrmac", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_0000_0100_1000, handler_name: "i0000_0000_0100_1000", mask: MASK_NONE, key: 0x0048, diss: "clrs", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_0000_0000_1000, handler_name: "i0000_0000_0000_1000", mask: MASK_NONE, key: 0x0008, diss: "clrt", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_0000_0011_1000, handler_name: "i0000_0000_0011_1000", mask: MASK_NONE, key: 0x0038, diss: "ldtlb", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_0000_0101_1000, handler_name: "i0000_0000_0101_1000", mask: MASK_NONE, key: 0x0058, diss: "sets", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_0000_0001_1000, handler_name: "i0000_0000_0001_1000", mask: MASK_NONE, key: 0x0018, diss: "sett", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_0000_0001_1001, handler_name: "i0000_0000_0001_1001", mask: MASK_NONE, key: 0x0019, diss: "div0u", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_0010_1001, handler_name: "i0000_nnnn_0010_1001", mask: MASK_N, key: 0x0029, diss: "movt <REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_0000_0000_1001, handler_name: "i0000_0000_0000_1001", mask: MASK_NONE, key: 0x0009, diss: "nop", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_0000_0010_1011, handler_name: "i0000_0000_0010_1011", mask: MASK_NONE, key: 0x002B, diss: "rte", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_0000_0000_1011, handler_name: "i0000_0000_0000_1011", mask: MASK_NONE, key: 0x000B, diss: "rts", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_0000_0001_1011, handler_name: "i0000_0000_0001_1011", mask: MASK_NONE, key: 0x001B, diss: "sleep", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_mmmm_1111, handler_name: "i0000_nnnn_mmmm_1111", mask: MASK_N_M, key: 0x000F, diss: "mac.l @<REG_M>+,@<REG_N>+", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0010_nnnn_mmmm_0111, handler_name: "i0010_nnnn_mmmm_0111", mask: MASK_N_M, key: 0x2007, diss: "div0s <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0010_nnnn_mmmm_1000, handler_name: "i0010_nnnn_mmmm_1000", mask: MASK_N_M, key: 0x2008, diss: "tst <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0010_nnnn_mmmm_1001, handler_name: "i0010_nnnn_mmmm_1001", mask: MASK_N_M, key: 0x2009, diss: "and <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0010_nnnn_mmmm_1010, handler_name: "i0010_nnnn_mmmm_1010", mask: MASK_N_M, key: 0x200A, diss: "xor <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0010_nnnn_mmmm_1011, handler_name: "i0010_nnnn_mmmm_1011", mask: MASK_N_M, key: 0x200B, diss: "or <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0010_nnnn_mmmm_1100, handler_name: "i0010_nnnn_mmmm_1100", mask: MASK_N_M, key: 0x200C, diss: "cmp/str <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0010_nnnn_mmmm_1101, handler_name: "i0010_nnnn_mmmm_1101", mask: MASK_N_M, key: 0x200D, diss: "xtrct <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0010_nnnn_mmmm_1110, handler_name: "i0010_nnnn_mmmm_1110", mask: MASK_N_M, key: 0x200E, diss: "mulu.w <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0010_nnnn_mmmm_1111, handler_name: "i0010_nnnn_mmmm_1111", mask: MASK_N_M, key: 0x200F, diss: "muls.w <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0011_nnnn_mmmm_0000, handler_name: "i0011_nnnn_mmmm_0000", mask: MASK_N_M, key: 0x3000, diss: "cmp/eq <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0011_nnnn_mmmm_0010, handler_name: "i0011_nnnn_mmmm_0010", mask: MASK_N_M, key: 0x3002, diss: "cmp/hs <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0011_nnnn_mmmm_0011, handler_name: "i0011_nnnn_mmmm_0011", mask: MASK_N_M, key: 0x3003, diss: "cmp/ge <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0011_nnnn_mmmm_0100, handler_name: "i0011_nnnn_mmmm_0100", mask: MASK_N_M, key: 0x3004, diss: "div1 <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0011_nnnn_mmmm_0101, handler_name: "i0011_nnnn_mmmm_0101", mask: MASK_N_M, key: 0x3005, diss: "dmulu.l <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0011_nnnn_mmmm_0110, handler_name: "i0011_nnnn_mmmm_0110", mask: MASK_N_M, key: 0x3006, diss: "cmp/hi <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0011_nnnn_mmmm_0111, handler_name: "i0011_nnnn_mmmm_0111", mask: MASK_N_M, key: 0x3007, diss: "cmp/gt <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0011_nnnn_mmmm_1000, handler_name: "i0011_nnnn_mmmm_1000", mask: MASK_N_M, key: 0x3008, diss: "sub <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0011_nnnn_mmmm_1010, handler_name: "i0011_nnnn_mmmm_1010", mask: MASK_N_M, key: 0x300A, diss: "subc <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0011_nnnn_mmmm_1011, handler_name: "i0011_nnnn_mmmm_1011", mask: MASK_N_M, key: 0x300B, diss: "subv <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0011_nnnn_mmmm_1100, handler_name: "i0011_nnnn_mmmm_1100", mask: MASK_N_M, key: 0x300C, diss: "add <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0011_nnnn_mmmm_1101, handler_name: "i0011_nnnn_mmmm_1101", mask: MASK_N_M, key: 0x300D, diss: "dmuls.l <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0011_nnnn_mmmm_1110, handler_name: "i0011_nnnn_mmmm_1110", mask: MASK_N_M, key: 0x300E, diss: "addc <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0011_nnnn_mmmm_1111, handler_name: "i0011_nnnn_mmmm_1111", mask: MASK_N_M, key: 0x300F, diss: "addv <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_mmmm_0100, handler_name: "i0000_nnnn_mmmm_0100", mask: MASK_N_M, key: 0x0004, diss: "mov.b <REG_M>,@(R0,<REG_N>)", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_mmmm_0101, handler_name: "i0000_nnnn_mmmm_0101", mask: MASK_N_M, key: 0x0005, diss: "mov.w <REG_M>,@(R0,<REG_N>)", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_mmmm_0110, handler_name: "i0000_nnnn_mmmm_0110", mask: MASK_N_M, key: 0x0006, diss: "mov.l <REG_M>,@(R0,<REG_N>)", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_mmmm_1100, handler_name: "i0000_nnnn_mmmm_1100", mask: MASK_N_M, key: 0x000C, diss: "mov.b @(R0,<REG_M>),<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_mmmm_1101, handler_name: "i0000_nnnn_mmmm_1101", mask: MASK_N_M, key: 0x000D, diss: "mov.w @(R0,<REG_M>),<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_mmmm_1110, handler_name: "i0000_nnnn_mmmm_1110", mask: MASK_N_M, key: 0x000E, diss: "mov.l @(R0,<REG_M>),<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0001_nnnn_mmmm_iiii, handler_name: "i0001_nnnn_mmmm_iiii", mask: MASK_N_IMM8, key: 0x1000, diss: "mov.l <REG_M>,@(<disp4dw>,<REG_N>)", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0101_nnnn_mmmm_iiii, handler_name: "i0101_nnnn_mmmm_iiii", mask: MASK_N_M_IMM4, key: 0x5000, diss: "mov.l @(<disp4dw>,<REG_M>),<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0010_nnnn_mmmm_0000, handler_name: "i0010_nnnn_mmmm_0000", mask: MASK_N_M, key: 0x2000, diss: "mov.b <REG_M>,@<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0010_nnnn_mmmm_0001, handler_name: "i0010_nnnn_mmmm_0001", mask: MASK_N_M, key: 0x2001, diss: "mov.w <REG_M>,@<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0010_nnnn_mmmm_0010, handler_name: "i0010_nnnn_mmmm_0010", mask: MASK_N_M, key: 0x2002, diss: "mov.l <REG_M>,@<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_0000, handler_name: "i0110_nnnn_mmmm_0000", mask: MASK_N_M, key: 0x6000, diss: "mov.b @<REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_0001, handler_name: "i0110_nnnn_mmmm_0001", mask: MASK_N_M, key: 0x6001, diss: "mov.w @<REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_0010, handler_name: "i0110_nnnn_mmmm_0010", mask: MASK_N_M, key: 0x6002, diss: "mov.l @<REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0010_nnnn_mmmm_0100, handler_name: "i0010_nnnn_mmmm_0100", mask: MASK_N_M, key: 0x2004, diss: "mov.b <REG_M>,@-<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0010_nnnn_mmmm_0101, handler_name: "i0010_nnnn_mmmm_0101", mask: MASK_N_M, key: 0x2005, diss: "mov.w <REG_M>,@-<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0010_nnnn_mmmm_0110, handler_name: "i0010_nnnn_mmmm_0110", mask: MASK_N_M, key: 0x2006, diss: "mov.l <REG_M>,@-<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_0100, handler_name: "i0110_nnnn_mmmm_0100", mask: MASK_N_M, key: 0x6004, diss: "mov.b @<REG_M>+,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_0101, handler_name: "i0110_nnnn_mmmm_0101", mask: MASK_N_M, key: 0x6005, diss: "mov.w @<REG_M>+,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_0110, handler_name: "i0110_nnnn_mmmm_0110", mask: MASK_N_M, key: 0x6006, diss: "mov.l @<REG_M>+,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1000_0000_mmmm_iiii, handler_name: "i1000_0000_mmmm_iiii", mask: MASK_IMM8, key: 0x8000, diss: "mov.b R0,@(<disp4b>,<REG_M>)", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1000_0001_mmmm_iiii, handler_name: "i1000_0001_mmmm_iiii", mask: MASK_IMM8, key: 0x8100, diss: "mov.w R0,@(<disp4w>,<REG_M>)", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1000_0100_mmmm_iiii, handler_name: "i1000_0100_mmmm_iiii", mask: MASK_IMM8, key: 0x8400, diss: "mov.b @(<disp4b>,<REG_M>),R0", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1000_0101_mmmm_iiii, handler_name: "i1000_0101_mmmm_iiii", mask: MASK_IMM8, key: 0x8500, diss: "mov.w @(<disp4w>,<REG_M>),R0", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1001_nnnn_iiii_iiii, handler_name: "i1001_nnnn_iiii_iiii", mask: MASK_N_IMM8, key: 0x9000, diss: "mov.w @(<PCdisp8w>),<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1100_0000_iiii_iiii, handler_name: "i1100_0000_iiii_iiii", mask: MASK_IMM8, key: 0xC000, diss: "mov.b R0,@(<disp8b>,GBR)", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1100_0001_iiii_iiii, handler_name: "i1100_0001_iiii_iiii", mask: MASK_IMM8, key: 0xC100, diss: "mov.w R0,@(<disp8w>,GBR)", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1100_0010_iiii_iiii, handler_name: "i1100_0010_iiii_iiii", mask: MASK_IMM8, key: 0xC200, diss: "mov.l R0,@(<disp8dw>,GBR)", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1100_0100_iiii_iiii, handler_name: "i1100_0100_iiii_iiii", mask: MASK_IMM8, key: 0xC400, diss: "mov.b @(<GBRdisp8b>),R0", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1100_0101_iiii_iiii, handler_name: "i1100_0101_iiii_iiii", mask: MASK_IMM8, key: 0xC500, diss: "mov.w @(<GBRdisp8w>),R0", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1100_0110_iiii_iiii, handler_name: "i1100_0110_iiii_iiii", mask: MASK_IMM8, key: 0xC600, diss: "mov.l @(<GBRdisp8dw>),R0", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1101_nnnn_iiii_iiii, handler_name: "i1101_nnnn_iiii_iiii", mask: MASK_N_IMM8, key: 0xD000, diss: "mov.l @(<PCdisp8d>),<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_0011, handler_name: "i0110_nnnn_mmmm_0011", mask: MASK_N_M, key: 0x6003, diss: "mov <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1100_0111_iiii_iiii, handler_name: "i1100_0111_iiii_iiii", mask: MASK_IMM8, key: 0xC700, diss: "mova @(<PCdisp8d>),R0", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1110_nnnn_iiii_iiii, handler_name: "i1110_nnnn_iiii_iiii", mask: MASK_N_IMM8, key: 0xE000, diss: "mov #<simm8hex>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0101_0010, handler_name: "i0100_nnnn_0101_0010", mask: MASK_N, key: 0x4052, diss: "sts.l FPUL,@-<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0110_0010, handler_name: "i0100_nnnn_0110_0010", mask: MASK_N, key: 0x4062, diss: "sts.l FPSCR,@-<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0000_0010, handler_name: "i0100_nnnn_0000_0010", mask: MASK_N, key: 0x4002, diss: "sts.l MACH,@-<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0001_0010, handler_name: "i0100_nnnn_0001_0010", mask: MASK_N, key: 0x4012, diss: "sts.l MACL,@-<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0010_0010, handler_name: "i0100_nnnn_0010_0010", mask: MASK_N, key: 0x4022, diss: "sts.l PR,@-<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_1111_0010, handler_name: "i0100_nnnn_1111_0010", mask: MASK_N, key: 0x40F2, diss: "stc.l DBR,@-<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0011_0010, handler_name: "i0100_nnnn_0011_0010", mask: MASK_N, key: 0x4032, diss: "stc.l SGR,@-<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0000_0011, handler_name: "i0100_nnnn_0000_0011", mask: MASK_N, key: 0x4003, diss: "stc.l SR,@-<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0001_0011, handler_name: "i0100_nnnn_0001_0011", mask: MASK_N, key: 0x4013, diss: "stc.l GBR,@-<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0010_0011, handler_name: "i0100_nnnn_0010_0011", mask: MASK_N, key: 0x4023, diss: "stc.l VBR,@-<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0011_0011, handler_name: "i0100_nnnn_0011_0011", mask: MASK_N, key: 0x4033, diss: "stc.l SSR,@-<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0100_0011, handler_name: "i0100_nnnn_0100_0011", mask: MASK_N, key: 0x4043, diss: "stc.l SPC,@-<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_1mmm_0011, handler_name: "i0100_nnnn_1mmm_0011", mask: MASK_N_ML3BIT, key: 0x4083, diss: "stc <RM_BANK>,@-<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0000_0110, handler_name: "i0100_nnnn_0000_0110", mask: MASK_N, key: 0x4006, diss: "lds.l @<REG_N>+,MACH", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0001_0110, handler_name: "i0100_nnnn_0001_0110", mask: MASK_N, key: 0x4016, diss: "lds.l @<REG_N>+,MACL", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0010_0110, handler_name: "i0100_nnnn_0010_0110", mask: MASK_N, key: 0x4026, diss: "lds.l @<REG_N>+,PR", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0011_0110, handler_name: "i0100_nnnn_0011_0110", mask: MASK_N, key: 0x4036, diss: "ldc.l @<REG_N>+,SGR", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0101_0110, handler_name: "i0100_nnnn_0101_0110", mask: MASK_N, key: 0x4056, diss: "lds.l @<REG_N>+,FPUL", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0110_0110, handler_name: "i0100_nnnn_0110_0110", mask: MASK_N, key: 0x4066, diss: "lds.l @<REG_N>+,FPSCR", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_1111_0110, handler_name: "i0100_nnnn_1111_0110", mask: MASK_N, key: 0x40F6, diss: "ldc.l @<REG_N>+,DBR", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0000_0111, handler_name: "i0100_nnnn_0000_0111", mask: MASK_N, key: 0x4007, diss: "ldc.l @<REG_N>+,SR", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0001_0111, handler_name: "i0100_nnnn_0001_0111", mask: MASK_N, key: 0x4017, diss: "ldc.l @<REG_N>+,GBR", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0010_0111, handler_name: "i0100_nnnn_0010_0111", mask: MASK_N, key: 0x4027, diss: "ldc.l @<REG_N>+,VBR", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0011_0111, handler_name: "i0100_nnnn_0011_0111", mask: MASK_N, key: 0x4037, diss: "ldc.l @<REG_N>+,SSR", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0100_0111, handler_name: "i0100_nnnn_0100_0111", mask: MASK_N, key: 0x4047, diss: "ldc.l @<REG_N>+,SPC", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_1mmm_0111, handler_name: "i0100_nnnn_1mmm_0111", mask: MASK_N_ML3BIT, key: 0x4087, diss: "ldc.l @<REG_N>+,RM_BANK", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_0000_0010, handler_name: "i0000_nnnn_0000_0010", mask: MASK_N, key: 0x0002, diss: "stc SR,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_0001_0010, handler_name: "i0000_nnnn_0001_0010", mask: MASK_N, key: 0x0012, diss: "stc GBR,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_0010_0010, handler_name: "i0000_nnnn_0010_0010", mask: MASK_N, key: 0x0022, diss: "stc VBR,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_0011_0010, handler_name: "i0000_nnnn_0011_0010", mask: MASK_N, key: 0x0032, diss: "stc SSR,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_0100_0010, handler_name: "i0000_nnnn_0100_0010", mask: MASK_N, key: 0x0042, diss: "stc SPC,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_1mmm_0010, handler_name: "i0000_nnnn_1mmm_0010", mask: MASK_N_ML3BIT, key: 0x0082, diss: "stc RM_BANK,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_0000_1010, handler_name: "i0000_nnnn_0000_1010", mask: MASK_N, key: 0x000A, diss: "sts MACH,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_0001_1010, handler_name: "i0000_nnnn_0001_1010", mask: MASK_N, key: 0x001A, diss: "sts MACL,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_0010_1010, handler_name: "i0000_nnnn_0010_1010", mask: MASK_N, key: 0x002A, diss: "sts PR,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_0011_1010, handler_name: "i0000_nnnn_0011_1010", mask: MASK_N, key: 0x003A, diss: "sts SGR,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_0101_1010, handler_name: "i0000_nnnn_0101_1010", mask: MASK_N, key: 0x005A, diss: "sts FPUL,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_0110_1010, handler_name: "i0000_nnnn_0110_1010", mask: MASK_N, key: 0x006A, diss: "sts FPSCR,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0000_nnnn_1111_1010, handler_name: "i0000_nnnn_1111_1010", mask: MASK_N, key: 0x00FA, diss: "sts DBR,<REG_N>", is_branch: 0 },
+static OPCODES: &[sh4_opcodelistentry] = &[
+    sh4_opcodelistentry { oph: exec::i0000_nnnn_0010_0011, handler_name: "i0000_nnnn_0010_0011", mask: MASK_N, key: 0x0023, diss: "braf <REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0000_nnnn_0000_0011, handler_name: "i0000_nnnn_0000_0011", mask: MASK_N, key: 0x0003, diss: "bsrf <REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0000_nnnn_1100_0011, handler_name: "i0000_nnnn_1100_0011", mask: MASK_N, key: 0x00C3, diss: "movca.l R0, @<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0000_nnnn_1001_0011, handler_name: "i0000_nnnn_1001_0011", mask: MASK_N, key: 0x0093, diss: "ocbi @<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0000_nnnn_1010_0011, handler_name: "i0000_nnnn_1010_0011", mask: MASK_N, key: 0x00A3, diss: "ocbp @<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0000_nnnn_1011_0011, handler_name: "i0000_nnnn_1011_0011", mask: MASK_N, key: 0x00B3, diss: "ocbwb @<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0000_nnnn_1000_0011, handler_name: "i0000_nnnn_1000_0011", mask: MASK_N, key: 0x0083, diss: "pref @<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0000_nnnn_mmmm_0111, handler_name: "i0000_nnnn_mmmm_0111", mask: MASK_N_M, key: 0x0007, diss: "mul.l <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0000_0000_0010_1000, handler_name: "i0000_0000_0010_1000", mask: MASK_NONE, key: 0x0028, diss: "clrmac", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0000_0000_0100_1000, handler_name: "i0000_0000_0100_1000", mask: MASK_NONE, key: 0x0048, diss: "clrs", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0000_0000_0000_1000, handler_name: "i0000_0000_0000_1000", mask: MASK_NONE, key: 0x0008, diss: "clrt", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0000_0000_0011_1000, handler_name: "i0000_0000_0011_1000", mask: MASK_NONE, key: 0x0038, diss: "ldtlb", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0000_0000_0101_1000, handler_name: "i0000_0000_0101_1000", mask: MASK_NONE, key: 0x0058, diss: "sets", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0000_0000_0001_1000, handler_name: "i0000_0000_0001_1000", mask: MASK_NONE, key: 0x0018, diss: "sett", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0000_0000_0001_1001, handler_name: "i0000_0000_0001_1001", mask: MASK_NONE, key: 0x0019, diss: "div0u", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0000_nnnn_0010_1001, handler_name: "i0000_nnnn_0010_1001", mask: MASK_N, key: 0x0029, diss: "movt <REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0000_0000_0000_1001, handler_name: "i0000_0000_0000_1001", mask: MASK_NONE, key: 0x0009, diss: "nop", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0000_0000_0010_1011, handler_name: "i0000_0000_0010_1011", mask: MASK_NONE, key: 0x002B, diss: "rte", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0000_0000_0000_1011, handler_name: "i0000_0000_0000_1011", mask: MASK_NONE, key: 0x000B, diss: "rts", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0000_0000_0001_1011, handler_name: "i0000_0000_0001_1011", mask: MASK_NONE, key: 0x001B, diss: "sleep", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0000_nnnn_mmmm_1111, handler_name: "i0000_nnnn_mmmm_1111", mask: MASK_N_M, key: 0x000F, diss: "mac.l @<REG_M>+,@<REG_N>+", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0010_nnnn_mmmm_0111, handler_name: "i0010_nnnn_mmmm_0111", mask: MASK_N_M, key: 0x2007, diss: "div0s <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0010_nnnn_mmmm_1000, handler_name: "i0010_nnnn_mmmm_1000", mask: MASK_N_M, key: 0x2008, diss: "tst <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0010_nnnn_mmmm_1001, handler_name: "i0010_nnnn_mmmm_1001", mask: MASK_N_M, key: 0x2009, diss: "and <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0010_nnnn_mmmm_1010, handler_name: "i0010_nnnn_mmmm_1010", mask: MASK_N_M, key: 0x200A, diss: "xor <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0010_nnnn_mmmm_1011, handler_name: "i0010_nnnn_mmmm_1011", mask: MASK_N_M, key: 0x200B, diss: "or <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0010_nnnn_mmmm_1100, handler_name: "i0010_nnnn_mmmm_1100", mask: MASK_N_M, key: 0x200C, diss: "cmp/str <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0010_nnnn_mmmm_1101, handler_name: "i0010_nnnn_mmmm_1101", mask: MASK_N_M, key: 0x200D, diss: "xtrct <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0010_nnnn_mmmm_1110, handler_name: "i0010_nnnn_mmmm_1110", mask: MASK_N_M, key: 0x200E, diss: "mulu.w <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0010_nnnn_mmmm_1111, handler_name: "i0010_nnnn_mmmm_1111", mask: MASK_N_M, key: 0x200F, diss: "muls.w <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0011_nnnn_mmmm_0000, handler_name: "i0011_nnnn_mmmm_0000", mask: MASK_N_M, key: 0x3000, diss: "cmp/eq <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0011_nnnn_mmmm_0010, handler_name: "i0011_nnnn_mmmm_0010", mask: MASK_N_M, key: 0x3002, diss: "cmp/hs <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0011_nnnn_mmmm_0011, handler_name: "i0011_nnnn_mmmm_0011", mask: MASK_N_M, key: 0x3003, diss: "cmp/ge <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0011_nnnn_mmmm_0100, handler_name: "i0011_nnnn_mmmm_0100", mask: MASK_N_M, key: 0x3004, diss: "div1 <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0011_nnnn_mmmm_0101, handler_name: "i0011_nnnn_mmmm_0101", mask: MASK_N_M, key: 0x3005, diss: "dmulu.l <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0011_nnnn_mmmm_0110, handler_name: "i0011_nnnn_mmmm_0110", mask: MASK_N_M, key: 0x3006, diss: "cmp/hi <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0011_nnnn_mmmm_0111, handler_name: "i0011_nnnn_mmmm_0111", mask: MASK_N_M, key: 0x3007, diss: "cmp/gt <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0011_nnnn_mmmm_1000, handler_name: "i0011_nnnn_mmmm_1000", mask: MASK_N_M, key: 0x3008, diss: "sub <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0011_nnnn_mmmm_1010, handler_name: "i0011_nnnn_mmmm_1010", mask: MASK_N_M, key: 0x300A, diss: "subc <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0011_nnnn_mmmm_1011, handler_name: "i0011_nnnn_mmmm_1011", mask: MASK_N_M, key: 0x300B, diss: "subv <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0011_nnnn_mmmm_1100, handler_name: "i0011_nnnn_mmmm_1100", mask: MASK_N_M, key: 0x300C, diss: "add <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0011_nnnn_mmmm_1101, handler_name: "i0011_nnnn_mmmm_1101", mask: MASK_N_M, key: 0x300D, diss: "dmuls.l <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0011_nnnn_mmmm_1110, handler_name: "i0011_nnnn_mmmm_1110", mask: MASK_N_M, key: 0x300E, diss: "addc <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0011_nnnn_mmmm_1111, handler_name: "i0011_nnnn_mmmm_1111", mask: MASK_N_M, key: 0x300F, diss: "addv <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0000_nnnn_mmmm_0100, handler_name: "i0000_nnnn_mmmm_0100", mask: MASK_N_M, key: 0x0004, diss: "mov.b <REG_M>,@(R0,<REG_N>)", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0000_nnnn_mmmm_0101, handler_name: "i0000_nnnn_mmmm_0101", mask: MASK_N_M, key: 0x0005, diss: "mov.w <REG_M>,@(R0,<REG_N>)", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0000_nnnn_mmmm_0110, handler_name: "i0000_nnnn_mmmm_0110", mask: MASK_N_M, key: 0x0006, diss: "mov.l <REG_M>,@(R0,<REG_N>)", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0000_nnnn_mmmm_1100, handler_name: "i0000_nnnn_mmmm_1100", mask: MASK_N_M, key: 0x000C, diss: "mov.b @(R0,<REG_M>),<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0000_nnnn_mmmm_1101, handler_name: "i0000_nnnn_mmmm_1101", mask: MASK_N_M, key: 0x000D, diss: "mov.w @(R0,<REG_M>),<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0000_nnnn_mmmm_1110, handler_name: "i0000_nnnn_mmmm_1110", mask: MASK_N_M, key: 0x000E, diss: "mov.l @(R0,<REG_M>),<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0001_nnnn_mmmm_iiii, handler_name: "i0001_nnnn_mmmm_iiii", mask: MASK_N_IMM8, key: 0x1000, diss: "mov.l <REG_M>,@(<disp4dw>,<REG_N>)", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0101_nnnn_mmmm_iiii, handler_name: "i0101_nnnn_mmmm_iiii", mask: MASK_N_M_IMM4, key: 0x5000, diss: "mov.l @(<disp4dw>,<REG_M>),<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0010_nnnn_mmmm_0000, handler_name: "i0010_nnnn_mmmm_0000", mask: MASK_N_M, key: 0x2000, diss: "mov.b <REG_M>,@<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0010_nnnn_mmmm_0001, handler_name: "i0010_nnnn_mmmm_0001", mask: MASK_N_M, key: 0x2001, diss: "mov.w <REG_M>,@<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0010_nnnn_mmmm_0010, handler_name: "i0010_nnnn_mmmm_0010", mask: MASK_N_M, key: 0x2002, diss: "mov.l <REG_M>,@<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0110_nnnn_mmmm_0000, handler_name: "i0110_nnnn_mmmm_0000", mask: MASK_N_M, key: 0x6000, diss: "mov.b @<REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0110_nnnn_mmmm_0001, handler_name: "i0110_nnnn_mmmm_0001", mask: MASK_N_M, key: 0x6001, diss: "mov.w @<REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0110_nnnn_mmmm_0010, handler_name: "i0110_nnnn_mmmm_0010", mask: MASK_N_M, key: 0x6002, diss: "mov.l @<REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0010_nnnn_mmmm_0100, handler_name: "i0010_nnnn_mmmm_0100", mask: MASK_N_M, key: 0x2004, diss: "mov.b <REG_M>,@-<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0010_nnnn_mmmm_0101, handler_name: "i0010_nnnn_mmmm_0101", mask: MASK_N_M, key: 0x2005, diss: "mov.w <REG_M>,@-<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0010_nnnn_mmmm_0110, handler_name: "i0010_nnnn_mmmm_0110", mask: MASK_N_M, key: 0x2006, diss: "mov.l <REG_M>,@-<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0110_nnnn_mmmm_0100, handler_name: "i0110_nnnn_mmmm_0100", mask: MASK_N_M, key: 0x6004, diss: "mov.b @<REG_M>+,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0110_nnnn_mmmm_0101, handler_name: "i0110_nnnn_mmmm_0101", mask: MASK_N_M, key: 0x6005, diss: "mov.w @<REG_M>+,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0110_nnnn_mmmm_0110, handler_name: "i0110_nnnn_mmmm_0110", mask: MASK_N_M, key: 0x6006, diss: "mov.l @<REG_M>+,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1000_0000_mmmm_iiii, handler_name: "i1000_0000_mmmm_iiii", mask: MASK_IMM8, key: 0x8000, diss: "mov.b R0,@(<disp4b>,<REG_M>)", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1000_0001_mmmm_iiii, handler_name: "i1000_0001_mmmm_iiii", mask: MASK_IMM8, key: 0x8100, diss: "mov.w R0,@(<disp4w>,<REG_M>)", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1000_0100_mmmm_iiii, handler_name: "i1000_0100_mmmm_iiii", mask: MASK_IMM8, key: 0x8400, diss: "mov.b @(<disp4b>,<REG_M>),R0", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1000_0101_mmmm_iiii, handler_name: "i1000_0101_mmmm_iiii", mask: MASK_IMM8, key: 0x8500, diss: "mov.w @(<disp4w>,<REG_M>),R0", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1001_nnnn_iiii_iiii, handler_name: "i1001_nnnn_iiii_iiii", mask: MASK_N_IMM8, key: 0x9000, diss: "mov.w @(<PCdisp8w>),<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1100_0000_iiii_iiii, handler_name: "i1100_0000_iiii_iiii", mask: MASK_IMM8, key: 0xC000, diss: "mov.b R0,@(<disp8b>,GBR)", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1100_0001_iiii_iiii, handler_name: "i1100_0001_iiii_iiii", mask: MASK_IMM8, key: 0xC100, diss: "mov.w R0,@(<disp8w>,GBR)", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1100_0010_iiii_iiii, handler_name: "i1100_0010_iiii_iiii", mask: MASK_IMM8, key: 0xC200, diss: "mov.l R0,@(<disp8dw>,GBR)", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1100_0100_iiii_iiii, handler_name: "i1100_0100_iiii_iiii", mask: MASK_IMM8, key: 0xC400, diss: "mov.b @(<GBRdisp8b>),R0", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1100_0101_iiii_iiii, handler_name: "i1100_0101_iiii_iiii", mask: MASK_IMM8, key: 0xC500, diss: "mov.w @(<GBRdisp8w>),R0", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1100_0110_iiii_iiii, handler_name: "i1100_0110_iiii_iiii", mask: MASK_IMM8, key: 0xC600, diss: "mov.l @(<GBRdisp8dw>),R0", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1101_nnnn_iiii_iiii, handler_name: "i1101_nnnn_iiii_iiii", mask: MASK_N_IMM8, key: 0xD000, diss: "mov.l @(<PCdisp8d>),<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0110_nnnn_mmmm_0011, handler_name: "i0110_nnnn_mmmm_0011", mask: MASK_N_M, key: 0x6003, diss: "mov <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1100_0111_iiii_iiii, handler_name: "i1100_0111_iiii_iiii", mask: MASK_IMM8, key: 0xC700, diss: "mova @(<PCdisp8d>),R0", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1110_nnnn_iiii_iiii, handler_name: "i1110_nnnn_iiii_iiii", mask: MASK_N_IMM8, key: 0xE000, diss: "mov #<simm8hex>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0101_0010, handler_name: "i0100_nnnn_0101_0010", mask: MASK_N, key: 0x4052, diss: "sts.l FPUL,@-<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0110_0010, handler_name: "i0100_nnnn_0110_0010", mask: MASK_N, key: 0x4062, diss: "sts.l FPSCR,@-<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0000_0010, handler_name: "i0100_nnnn_0000_0010", mask: MASK_N, key: 0x4002, diss: "sts.l MACH,@-<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0001_0010, handler_name: "i0100_nnnn_0001_0010", mask: MASK_N, key: 0x4012, diss: "sts.l MACL,@-<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0010_0010, handler_name: "i0100_nnnn_0010_0010", mask: MASK_N, key: 0x4022, diss: "sts.l PR,@-<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_1111_0010, handler_name: "i0100_nnnn_1111_0010", mask: MASK_N, key: 0x40F2, diss: "stc.l DBR,@-<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0011_0010, handler_name: "i0100_nnnn_0011_0010", mask: MASK_N, key: 0x4032, diss: "stc.l SGR,@-<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0000_0011, handler_name: "i0100_nnnn_0000_0011", mask: MASK_N, key: 0x4003, diss: "stc.l SR,@-<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0001_0011, handler_name: "i0100_nnnn_0001_0011", mask: MASK_N, key: 0x4013, diss: "stc.l GBR,@-<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0010_0011, handler_name: "i0100_nnnn_0010_0011", mask: MASK_N, key: 0x4023, diss: "stc.l VBR,@-<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0011_0011, handler_name: "i0100_nnnn_0011_0011", mask: MASK_N, key: 0x4033, diss: "stc.l SSR,@-<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0100_0011, handler_name: "i0100_nnnn_0100_0011", mask: MASK_N, key: 0x4043, diss: "stc.l SPC,@-<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_1mmm_0011, handler_name: "i0100_nnnn_1mmm_0011", mask: MASK_N_ML3BIT, key: 0x4083, diss: "stc <RM_BANK>,@-<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0000_0110, handler_name: "i0100_nnnn_0000_0110", mask: MASK_N, key: 0x4006, diss: "lds.l @<REG_N>+,MACH", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0001_0110, handler_name: "i0100_nnnn_0001_0110", mask: MASK_N, key: 0x4016, diss: "lds.l @<REG_N>+,MACL", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0010_0110, handler_name: "i0100_nnnn_0010_0110", mask: MASK_N, key: 0x4026, diss: "lds.l @<REG_N>+,PR", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0011_0110, handler_name: "i0100_nnnn_0011_0110", mask: MASK_N, key: 0x4036, diss: "ldc.l @<REG_N>+,SGR", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0101_0110, handler_name: "i0100_nnnn_0101_0110", mask: MASK_N, key: 0x4056, diss: "lds.l @<REG_N>+,FPUL", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0110_0110, handler_name: "i0100_nnnn_0110_0110", mask: MASK_N, key: 0x4066, diss: "lds.l @<REG_N>+,FPSCR", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_1111_0110, handler_name: "i0100_nnnn_1111_0110", mask: MASK_N, key: 0x40F6, diss: "ldc.l @<REG_N>+,DBR", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0000_0111, handler_name: "i0100_nnnn_0000_0111", mask: MASK_N, key: 0x4007, diss: "ldc.l @<REG_N>+,SR", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0001_0111, handler_name: "i0100_nnnn_0001_0111", mask: MASK_N, key: 0x4017, diss: "ldc.l @<REG_N>+,GBR", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0010_0111, handler_name: "i0100_nnnn_0010_0111", mask: MASK_N, key: 0x4027, diss: "ldc.l @<REG_N>+,VBR", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0011_0111, handler_name: "i0100_nnnn_0011_0111", mask: MASK_N, key: 0x4037, diss: "ldc.l @<REG_N>+,SSR", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0100_0111, handler_name: "i0100_nnnn_0100_0111", mask: MASK_N, key: 0x4047, diss: "ldc.l @<REG_N>+,SPC", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_1mmm_0111, handler_name: "i0100_nnnn_1mmm_0111", mask: MASK_N_ML3BIT, key: 0x4087, diss: "ldc.l @<REG_N>+,RM_BANK", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0000_nnnn_0000_0010, handler_name: "i0000_nnnn_0000_0010", mask: MASK_N, key: 0x0002, diss: "stc SR,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0000_nnnn_0001_0010, handler_name: "i0000_nnnn_0001_0010", mask: MASK_N, key: 0x0012, diss: "stc GBR,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0000_nnnn_0010_0010, handler_name: "i0000_nnnn_0010_0010", mask: MASK_N, key: 0x0022, diss: "stc VBR,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0000_nnnn_0011_0010, handler_name: "i0000_nnnn_0011_0010", mask: MASK_N, key: 0x0032, diss: "stc SSR,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0000_nnnn_0100_0010, handler_name: "i0000_nnnn_0100_0010", mask: MASK_N, key: 0x0042, diss: "stc SPC,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0000_nnnn_1mmm_0010, handler_name: "i0000_nnnn_1mmm_0010", mask: MASK_N_ML3BIT, key: 0x0082, diss: "stc RM_BANK,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0000_nnnn_0000_1010, handler_name: "i0000_nnnn_0000_1010", mask: MASK_N, key: 0x000A, diss: "sts MACH,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0000_nnnn_0001_1010, handler_name: "i0000_nnnn_0001_1010", mask: MASK_N, key: 0x001A, diss: "sts MACL,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0000_nnnn_0010_1010, handler_name: "i0000_nnnn_0010_1010", mask: MASK_N, key: 0x002A, diss: "sts PR,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0000_nnnn_0011_1010, handler_name: "i0000_nnnn_0011_1010", mask: MASK_N, key: 0x003A, diss: "sts SGR,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0000_nnnn_0101_1010, handler_name: "i0000_nnnn_0101_1010", mask: MASK_N, key: 0x005A, diss: "sts FPUL,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0000_nnnn_0110_1010, handler_name: "i0000_nnnn_0110_1010", mask: MASK_N, key: 0x006A, diss: "sts FPSCR,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0000_nnnn_1111_1010, handler_name: "i0000_nnnn_1111_1010", mask: MASK_N, key: 0x00FA, diss: "sts DBR,<REG_N>", is_branch: 0 },
 
-    sh4_opcodelistentry { oph: i0100_nnnn_0000_1010, handler_name: "i0100_nnnn_0000_1010", mask: MASK_N, key: 0x400A, diss: "lds <REG_N>,MACH", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0001_1010, handler_name: "i0100_nnnn_0001_1010", mask: MASK_N, key: 0x401A, diss: "lds <REG_N>,MACL", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0010_1010, handler_name: "i0100_nnnn_0010_1010", mask: MASK_N, key: 0x402A, diss: "lds <REG_N>,PR", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0011_1010, handler_name: "i0100_nnnn_0011_1010", mask: MASK_N, key: 0x403A, diss: "ldc <REG_N>,SGR", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0101_1010, handler_name: "i0100_nnnn_0101_1010", mask: MASK_N, key: 0x405A, diss: "lds <REG_N>,FPUL", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0110_1010, handler_name: "i0100_nnnn_0110_1010", mask: MASK_N, key: 0x406A, diss: "lds <REG_N>,FPSCR", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_1111_1010, handler_name: "i0100_nnnn_1111_1010", mask: MASK_N, key: 0x40FA, diss: "ldc <REG_N>,DBR", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0000_1110, handler_name: "i0100_nnnn_0000_1110", mask: MASK_N, key: 0x400E, diss: "ldc <REG_N>,SR", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0001_1110, handler_name: "i0100_nnnn_0001_1110", mask: MASK_N, key: 0x401E, diss: "ldc <REG_N>,GBR", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0010_1110, handler_name: "i0100_nnnn_0010_1110", mask: MASK_N, key: 0x402E, diss: "ldc <REG_N>,VBR", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0011_1110, handler_name: "i0100_nnnn_0011_1110", mask: MASK_N, key: 0x403E, diss: "ldc <REG_N>,SSR", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0100_1110, handler_name: "i0100_nnnn_0100_1110", mask: MASK_N, key: 0x404E, diss: "ldc <REG_N>,SPC", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_1mmm_1110, handler_name: "i0100_nnnn_1mmm_1110", mask: MASK_N_ML3BIT, key: 0x408E, diss: "ldc <REG_N>,<RM_BANK>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0000_1010, handler_name: "i0100_nnnn_0000_1010", mask: MASK_N, key: 0x400A, diss: "lds <REG_N>,MACH", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0001_1010, handler_name: "i0100_nnnn_0001_1010", mask: MASK_N, key: 0x401A, diss: "lds <REG_N>,MACL", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0010_1010, handler_name: "i0100_nnnn_0010_1010", mask: MASK_N, key: 0x402A, diss: "lds <REG_N>,PR", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0011_1010, handler_name: "i0100_nnnn_0011_1010", mask: MASK_N, key: 0x403A, diss: "ldc <REG_N>,SGR", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0101_1010, handler_name: "i0100_nnnn_0101_1010", mask: MASK_N, key: 0x405A, diss: "lds <REG_N>,FPUL", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0110_1010, handler_name: "i0100_nnnn_0110_1010", mask: MASK_N, key: 0x406A, diss: "lds <REG_N>,FPSCR", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_1111_1010, handler_name: "i0100_nnnn_1111_1010", mask: MASK_N, key: 0x40FA, diss: "ldc <REG_N>,DBR", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0000_1110, handler_name: "i0100_nnnn_0000_1110", mask: MASK_N, key: 0x400E, diss: "ldc <REG_N>,SR", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0001_1110, handler_name: "i0100_nnnn_0001_1110", mask: MASK_N, key: 0x401E, diss: "ldc <REG_N>,GBR", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0010_1110, handler_name: "i0100_nnnn_0010_1110", mask: MASK_N, key: 0x402E, diss: "ldc <REG_N>,VBR", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0011_1110, handler_name: "i0100_nnnn_0011_1110", mask: MASK_N, key: 0x403E, diss: "ldc <REG_N>,SSR", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0100_1110, handler_name: "i0100_nnnn_0100_1110", mask: MASK_N, key: 0x404E, diss: "ldc <REG_N>,SPC", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_1mmm_1110, handler_name: "i0100_nnnn_1mmm_1110", mask: MASK_N_ML3BIT, key: 0x408E, diss: "ldc <REG_N>,<RM_BANK>", is_branch: 0 },
 
-    sh4_opcodelistentry { oph: i0100_nnnn_0000_0000, handler_name: "i0100_nnnn_0000_0000", mask: MASK_N, key: 0x4000, diss: "shll <REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0001_0000, handler_name: "i0100_nnnn_0001_0000", mask: MASK_N, key: 0x4010, diss: "dt <REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0010_0000, handler_name: "i0100_nnnn_0010_0000", mask: MASK_N, key: 0x4020, diss: "shal <REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0000_0001, handler_name: "i0100_nnnn_0000_0001", mask: MASK_N, key: 0x4001, diss: "shlr <REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0001_0001, handler_name: "i0100_nnnn_0001_0001", mask: MASK_N, key: 0x4011, diss: "cmp/pz <REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0010_0001, handler_name: "i0100_nnnn_0010_0001", mask: MASK_N, key: 0x4021, diss: "shar <REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0010_0100, handler_name: "i0100_nnnn_0010_0100", mask: MASK_N, key: 0x4024, diss: "rotcl <REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0000_0100, handler_name: "i0100_nnnn_0000_0100", mask: MASK_N, key: 0x4004, diss: "rotl <REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0001_0101, handler_name: "i0100_nnnn_0001_0101", mask: MASK_N, key: 0x4015, diss: "cmp/pl <REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0010_0101, handler_name: "i0100_nnnn_0010_0101", mask: MASK_N, key: 0x4025, diss: "rotcr <REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0000_0101, handler_name: "i0100_nnnn_0000_0101", mask: MASK_N, key: 0x4005, diss: "rotr <REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0000_0000, handler_name: "i0100_nnnn_0000_0000", mask: MASK_N, key: 0x4000, diss: "shll <REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0001_0000, handler_name: "i0100_nnnn_0001_0000", mask: MASK_N, key: 0x4010, diss: "dt <REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0010_0000, handler_name: "i0100_nnnn_0010_0000", mask: MASK_N, key: 0x4020, diss: "shal <REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0000_0001, handler_name: "i0100_nnnn_0000_0001", mask: MASK_N, key: 0x4001, diss: "shlr <REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0001_0001, handler_name: "i0100_nnnn_0001_0001", mask: MASK_N, key: 0x4011, diss: "cmp/pz <REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0010_0001, handler_name: "i0100_nnnn_0010_0001", mask: MASK_N, key: 0x4021, diss: "shar <REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0010_0100, handler_name: "i0100_nnnn_0010_0100", mask: MASK_N, key: 0x4024, diss: "rotcl <REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0000_0100, handler_name: "i0100_nnnn_0000_0100", mask: MASK_N, key: 0x4004, diss: "rotl <REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0001_0101, handler_name: "i0100_nnnn_0001_0101", mask: MASK_N, key: 0x4015, diss: "cmp/pl <REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0010_0101, handler_name: "i0100_nnnn_0010_0101", mask: MASK_N, key: 0x4025, diss: "rotcr <REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0000_0101, handler_name: "i0100_nnnn_0000_0101", mask: MASK_N, key: 0x4005, diss: "rotr <REG_N>", is_branch: 0 },
 
-    sh4_opcodelistentry { oph: i0100_nnnn_0000_1000, handler_name: "i0100_nnnn_0000_1000", mask: MASK_N, key: 0x4008, diss: "shll2 <REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0001_1000, handler_name: "i0100_nnnn_0001_1000", mask: MASK_N, key: 0x4018, diss: "shll8 <REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0010_1000, handler_name: "i0100_nnnn_0010_1000", mask: MASK_N, key: 0x4028, diss: "shll16 <REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0000_1001, handler_name: "i0100_nnnn_0000_1001", mask: MASK_N, key: 0x4009, diss: "shlr2 <REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0001_1001, handler_name: "i0100_nnnn_0001_1001", mask: MASK_N, key: 0x4019, diss: "shlr8 <REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0010_1001, handler_name: "i0100_nnnn_0010_1001", mask: MASK_N, key: 0x4029, diss: "shlr16 <REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0000_1000, handler_name: "i0100_nnnn_0000_1000", mask: MASK_N, key: 0x4008, diss: "shll2 <REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0001_1000, handler_name: "i0100_nnnn_0001_1000", mask: MASK_N, key: 0x4018, diss: "shll8 <REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0010_1000, handler_name: "i0100_nnnn_0010_1000", mask: MASK_N, key: 0x4028, diss: "shll16 <REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0000_1001, handler_name: "i0100_nnnn_0000_1001", mask: MASK_N, key: 0x4009, diss: "shlr2 <REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0001_1001, handler_name: "i0100_nnnn_0001_1001", mask: MASK_N, key: 0x4019, diss: "shlr8 <REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0010_1001, handler_name: "i0100_nnnn_0010_1001", mask: MASK_N, key: 0x4029, diss: "shlr16 <REG_N>", is_branch: 0 },
 
-    sh4_opcodelistentry { oph: i0100_nnnn_0010_1011, handler_name: "i0100_nnnn_0010_1011", mask: MASK_N, key: 0x402B, diss: "jmp @<REG_N>", is_branch: 1 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0000_1011, handler_name: "i0100_nnnn_0000_1011", mask: MASK_N, key: 0x400B, diss: "jsr @<REG_N>", is_branch: 1 },
-    sh4_opcodelistentry { oph: i0100_nnnn_0001_1011, handler_name: "i0100_nnnn_0001_1011", mask: MASK_N, key: 0x401B, diss: "tas.b @<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0010_1011, handler_name: "i0100_nnnn_0010_1011", mask: MASK_N, key: 0x402B, diss: "jmp @<REG_N>", is_branch: 1 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0000_1011, handler_name: "i0100_nnnn_0000_1011", mask: MASK_N, key: 0x400B, diss: "jsr @<REG_N>", is_branch: 1 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_0001_1011, handler_name: "i0100_nnnn_0001_1011", mask: MASK_N, key: 0x401B, diss: "tas.b @<REG_N>", is_branch: 0 },
 
-    sh4_opcodelistentry { oph: i0100_nnnn_mmmm_1100, handler_name: "i0100_nnnn_mmmm_1100", mask: MASK_N_M, key: 0x400C, diss: "shad <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_mmmm_1101, handler_name: "i0100_nnnn_mmmm_1101", mask: MASK_N_M, key: 0x400D, diss: "shld <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0100_nnnn_mmmm_1111, handler_name: "i0100_nnnn_mmmm_1111", mask: MASK_N_M, key: 0x400F, diss: "mac.w @<REG_M>+,@<REG_N>+", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_0111, handler_name: "i0110_nnnn_mmmm_0111", mask: MASK_N_M, key: 0x6007, diss: "not <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_1000, handler_name: "i0110_nnnn_mmmm_1000", mask: MASK_N_M, key: 0x6008, diss: "swap.b <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_1001, handler_name: "i0110_nnnn_mmmm_1001", mask: MASK_N_M, key: 0x6009, diss: "swap.w <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_1010, handler_name: "i0110_nnnn_mmmm_1010", mask: MASK_N_M, key: 0x600A, diss: "negc <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_1011, handler_name: "i0110_nnnn_mmmm_1011", mask: MASK_N_M, key: 0x600B, diss: "neg <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_1100, handler_name: "i0110_nnnn_mmmm_1100", mask: MASK_N_M, key: 0x600C, diss: "extu.b <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_1101, handler_name: "i0110_nnnn_mmmm_1101", mask: MASK_N_M, key: 0x600D, diss: "extu.w <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_1110, handler_name: "i0110_nnnn_mmmm_1110", mask: MASK_N_M, key: 0x600E, diss: "exts.b <REG_M>,<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i0110_nnnn_mmmm_1111, handler_name: "i0110_nnnn_mmmm_1111", mask: MASK_N_M, key: 0x600F, diss: "exts.w <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_mmmm_1100, handler_name: "i0100_nnnn_mmmm_1100", mask: MASK_N_M, key: 0x400C, diss: "shad <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_mmmm_1101, handler_name: "i0100_nnnn_mmmm_1101", mask: MASK_N_M, key: 0x400D, diss: "shld <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0100_nnnn_mmmm_1111, handler_name: "i0100_nnnn_mmmm_1111", mask: MASK_N_M, key: 0x400F, diss: "mac.w @<REG_M>+,@<REG_N>+", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0110_nnnn_mmmm_0111, handler_name: "i0110_nnnn_mmmm_0111", mask: MASK_N_M, key: 0x6007, diss: "not <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0110_nnnn_mmmm_1000, handler_name: "i0110_nnnn_mmmm_1000", mask: MASK_N_M, key: 0x6008, diss: "swap.b <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0110_nnnn_mmmm_1001, handler_name: "i0110_nnnn_mmmm_1001", mask: MASK_N_M, key: 0x6009, diss: "swap.w <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0110_nnnn_mmmm_1010, handler_name: "i0110_nnnn_mmmm_1010", mask: MASK_N_M, key: 0x600A, diss: "negc <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0110_nnnn_mmmm_1011, handler_name: "i0110_nnnn_mmmm_1011", mask: MASK_N_M, key: 0x600B, diss: "neg <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0110_nnnn_mmmm_1100, handler_name: "i0110_nnnn_mmmm_1100", mask: MASK_N_M, key: 0x600C, diss: "extu.b <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0110_nnnn_mmmm_1101, handler_name: "i0110_nnnn_mmmm_1101", mask: MASK_N_M, key: 0x600D, diss: "extu.w <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0110_nnnn_mmmm_1110, handler_name: "i0110_nnnn_mmmm_1110", mask: MASK_N_M, key: 0x600E, diss: "exts.b <REG_M>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0110_nnnn_mmmm_1111, handler_name: "i0110_nnnn_mmmm_1111", mask: MASK_N_M, key: 0x600F, diss: "exts.w <REG_M>,<REG_N>", is_branch: 0 },
 
-    sh4_opcodelistentry { oph: i0111_nnnn_iiii_iiii, handler_name: "i0111_nnnn_iiii_iiii", mask: MASK_N_IMM8, key: 0x7000, diss: "add #<simm8>,<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i0111_nnnn_iiii_iiii, handler_name: "i0111_nnnn_iiii_iiii", mask: MASK_N_IMM8, key: 0x7000, diss: "add #<simm8>,<REG_N>", is_branch: 0 },
 
-    sh4_opcodelistentry { oph: i1000_1011_iiii_iiii, handler_name: "i1000_1011_iiii_iiii", mask: MASK_IMM8, key: 0x8B00, diss: "bf <bdisp8>", is_branch: 1 },
-    sh4_opcodelistentry { oph: i1000_1111_iiii_iiii, handler_name: "i1000_1111_iiii_iiii", mask: MASK_IMM8, key: 0x8F00, diss: "bf.s <bdisp8>", is_branch: 2 },
-    sh4_opcodelistentry { oph: i1000_1001_iiii_iiii, handler_name: "i1000_1001_iiii_iiii", mask: MASK_IMM8, key: 0x8900, diss: "bt <bdisp8>", is_branch: 1 },
-    sh4_opcodelistentry { oph: i1000_1101_iiii_iiii, handler_name: "i1000_1101_iiii_iiii", mask: MASK_IMM8, key: 0x8D00, diss: "bt.s <bdisp8>", is_branch: 2 },
+    sh4_opcodelistentry { oph: exec::i1000_1011_iiii_iiii, handler_name: "i1000_1011_iiii_iiii", mask: MASK_IMM8, key: 0x8B00, diss: "bf <bdisp8>", is_branch: 1 },
+    sh4_opcodelistentry { oph: exec::i1000_1111_iiii_iiii, handler_name: "i1000_1111_iiii_iiii", mask: MASK_IMM8, key: 0x8F00, diss: "bf.s <bdisp8>", is_branch: 2 },
+    sh4_opcodelistentry { oph: exec::i1000_1001_iiii_iiii, handler_name: "i1000_1001_iiii_iiii", mask: MASK_IMM8, key: 0x8900, diss: "bt <bdisp8>", is_branch: 1 },
+    sh4_opcodelistentry { oph: exec::i1000_1101_iiii_iiii, handler_name: "i1000_1101_iiii_iiii", mask: MASK_IMM8, key: 0x8D00, diss: "bt.s <bdisp8>", is_branch: 2 },
 
-    sh4_opcodelistentry { oph: i1000_1000_iiii_iiii, handler_name: "i1000_1000_iiii_iiii", mask: MASK_IMM8, key: 0x8800, diss: "cmp/eq #<simm8hex>,R0", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1000_1000_iiii_iiii, handler_name: "i1000_1000_iiii_iiii", mask: MASK_IMM8, key: 0x8800, diss: "cmp/eq #<simm8hex>,R0", is_branch: 0 },
 
-    sh4_opcodelistentry { oph: i1010_iiii_iiii_iiii, handler_name: "i1010_iiii_iiii_iiii", mask: MASK_N_IMM8, key: 0xA000, diss: "bra <bdisp12>", is_branch: 2 },
-    sh4_opcodelistentry { oph: i1011_iiii_iiii_iiii, handler_name: "i1011_iiii_iiii_iiii", mask: MASK_N_IMM8, key: 0xB000, diss: "bsr <bdisp12>", is_branch: 1 },
+    sh4_opcodelistentry { oph: exec::i1010_iiii_iiii_iiii, handler_name: "i1010_iiii_iiii_iiii", mask: MASK_N_IMM8, key: 0xA000, diss: "bra <bdisp12>", is_branch: 2 },
+    sh4_opcodelistentry { oph: exec::i1011_iiii_iiii_iiii, handler_name: "i1011_iiii_iiii_iiii", mask: MASK_N_IMM8, key: 0xB000, diss: "bsr <bdisp12>", is_branch: 1 },
 
-    sh4_opcodelistentry { oph: i1100_0011_iiii_iiii, handler_name: "i1100_0011_iiii_iiii", mask: MASK_IMM8, key: 0xC300, diss: "trapa #<imm8>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1100_0011_iiii_iiii, handler_name: "i1100_0011_iiii_iiii", mask: MASK_IMM8, key: 0xC300, diss: "trapa #<imm8>", is_branch: 0 },
 
-    sh4_opcodelistentry { oph: i1100_1000_iiii_iiii, handler_name: "i1100_1000_iiii_iiii", mask: MASK_IMM8, key: 0xC800, diss: "tst #<imm8>,R0", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1100_1001_iiii_iiii, handler_name: "i1100_1001_iiii_iiii", mask: MASK_IMM8, key: 0xC900, diss: "and #<imm8>,R0", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1100_1010_iiii_iiii, handler_name: "i1100_1010_iiii_iiii", mask: MASK_IMM8, key: 0xCA00, diss: "xor #<imm8>,R0", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1100_1011_iiii_iiii, handler_name: "i1100_1011_iiii_iiii", mask: MASK_IMM8, key: 0xCB00, diss: "or #<imm8>,R0", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1100_1000_iiii_iiii, handler_name: "i1100_1000_iiii_iiii", mask: MASK_IMM8, key: 0xC800, diss: "tst #<imm8>,R0", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1100_1001_iiii_iiii, handler_name: "i1100_1001_iiii_iiii", mask: MASK_IMM8, key: 0xC900, diss: "and #<imm8>,R0", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1100_1010_iiii_iiii, handler_name: "i1100_1010_iiii_iiii", mask: MASK_IMM8, key: 0xCA00, diss: "xor #<imm8>,R0", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1100_1011_iiii_iiii, handler_name: "i1100_1011_iiii_iiii", mask: MASK_IMM8, key: 0xCB00, diss: "or #<imm8>,R0", is_branch: 0 },
 
-    sh4_opcodelistentry { oph: i1100_1100_iiii_iiii, handler_name: "i1100_1100_iiii_iiii", mask: MASK_IMM8, key: 0xCC00, diss: "tst.b #<imm8>,@(R0,GBR)", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1100_1101_iiii_iiii, handler_name: "i1100_1101_iiii_iiii", mask: MASK_IMM8, key: 0xCD00, diss: "and.b #<imm8>,@(R0,GBR)", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1100_1110_iiii_iiii, handler_name: "i1100_1110_iiii_iiii", mask: MASK_IMM8, key: 0xCE00, diss: "xor.b #<imm8>,@(R0,GBR)", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1100_1111_iiii_iiii, handler_name: "i1100_1111_iiii_iiii", mask: MASK_IMM8, key: 0xCF00, diss: "or.b #<imm8>,@(R0,GBR)", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1100_1100_iiii_iiii, handler_name: "i1100_1100_iiii_iiii", mask: MASK_IMM8, key: 0xCC00, diss: "tst.b #<imm8>,@(R0,GBR)", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1100_1101_iiii_iiii, handler_name: "i1100_1101_iiii_iiii", mask: MASK_IMM8, key: 0xCD00, diss: "and.b #<imm8>,@(R0,GBR)", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1100_1110_iiii_iiii, handler_name: "i1100_1110_iiii_iiii", mask: MASK_IMM8, key: 0xCE00, diss: "xor.b #<imm8>,@(R0,GBR)", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1100_1111_iiii_iiii, handler_name: "i1100_1111_iiii_iiii", mask: MASK_IMM8, key: 0xCF00, diss: "or.b #<imm8>,@(R0,GBR)", is_branch: 0 },
 
-    sh4_opcodelistentry { oph: i1111_nnnn_mmmm_0000, handler_name: "i1111_nnnn_mmmm_0000", mask: MASK_N_M, key: 0xF000, diss: "fadd <FREG_M_SD_F>,<FREG_N_SD_F>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nnnn_mmmm_0001, handler_name: "i1111_nnnn_mmmm_0001", mask: MASK_N_M, key: 0xF001, diss: "fsub <FREG_M_SD_F>,<FREG_N_SD_F>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nnnn_mmmm_0010, handler_name: "i1111_nnnn_mmmm_0010", mask: MASK_N_M, key: 0xF002, diss: "fmul <FREG_M_SD_F>,<FREG_N_SD_F>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nnnn_mmmm_0011, handler_name: "i1111_nnnn_mmmm_0011", mask: MASK_N_M, key: 0xF003, diss: "fdiv <FREG_M_SD_F>,<FREG_N_SD_F>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nnnn_mmmm_0100, handler_name: "i1111_nnnn_mmmm_0100", mask: MASK_N_M, key: 0xF004, diss: "fcmp/eq <FREG_M_SD_F>,<FREG_N_SD_F>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nnnn_mmmm_0101, handler_name: "i1111_nnnn_mmmm_0101", mask: MASK_N_M, key: 0xF005, diss: "fcmp/gt <FREG_M_SD_F>,<FREG_N_SD_F>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1111_nnnn_mmmm_0000, handler_name: "i1111_nnnn_mmmm_0000", mask: MASK_N_M, key: 0xF000, diss: "fadd <FREG_M_SD_F>,<FREG_N_SD_F>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1111_nnnn_mmmm_0001, handler_name: "i1111_nnnn_mmmm_0001", mask: MASK_N_M, key: 0xF001, diss: "fsub <FREG_M_SD_F>,<FREG_N_SD_F>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1111_nnnn_mmmm_0010, handler_name: "i1111_nnnn_mmmm_0010", mask: MASK_N_M, key: 0xF002, diss: "fmul <FREG_M_SD_F>,<FREG_N_SD_F>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1111_nnnn_mmmm_0011, handler_name: "i1111_nnnn_mmmm_0011", mask: MASK_N_M, key: 0xF003, diss: "fdiv <FREG_M_SD_F>,<FREG_N_SD_F>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1111_nnnn_mmmm_0100, handler_name: "i1111_nnnn_mmmm_0100", mask: MASK_N_M, key: 0xF004, diss: "fcmp/eq <FREG_M_SD_F>,<FREG_N_SD_F>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1111_nnnn_mmmm_0101, handler_name: "i1111_nnnn_mmmm_0101", mask: MASK_N_M, key: 0xF005, diss: "fcmp/gt <FREG_M_SD_F>,<FREG_N_SD_F>", is_branch: 0 },
 
-    sh4_opcodelistentry { oph: i1111_nnnn_mmmm_0110, handler_name: "i1111_nnnn_mmmm_0110", mask: MASK_N_M, key: 0xF006, diss: "fmov.s @(R0,<REG_M>),<FREG_N_SD_A>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nnnn_mmmm_0111, handler_name: "i1111_nnnn_mmmm_0111", mask: MASK_N_M, key: 0xF007, diss: "fmov.s <FREG_M_SD_A>,@(R0,<REG_N>)", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nnnn_mmmm_1000, handler_name: "i1111_nnnn_mmmm_1000", mask: MASK_N_M, key: 0xF008, diss: "fmov.s @<REG_M>,<FREG_N_SD_A>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nnnn_mmmm_1001, handler_name: "i1111_nnnn_mmmm_1001", mask: MASK_N_M, key: 0xF009, diss: "fmov.s @<REG_M>+,<FREG_N_SD_A>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nnnn_mmmm_1010, handler_name: "i1111_nnnn_mmmm_1010", mask: MASK_N_M, key: 0xF00A, diss: "fmov.s <FREG_M_SD_A>,@<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nnnn_mmmm_1011, handler_name: "i1111_nnnn_mmmm_1011", mask: MASK_N_M, key: 0xF00B, diss: "fmov.s <FREG_M_SD_A>,@-<REG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nnnn_mmmm_1100, handler_name: "i1111_nnnn_mmmm_1100", mask: MASK_N_M, key: 0xF00C, diss: "fmov <FREG_M_SD_A>,<FREG_N_SD_A>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1111_nnnn_mmmm_0110, handler_name: "i1111_nnnn_mmmm_0110", mask: MASK_N_M, key: 0xF006, diss: "fmov.s @(R0,<REG_M>),<FREG_N_SD_A>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1111_nnnn_mmmm_0111, handler_name: "i1111_nnnn_mmmm_0111", mask: MASK_N_M, key: 0xF007, diss: "fmov.s <FREG_M_SD_A>,@(R0,<REG_N>)", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1111_nnnn_mmmm_1000, handler_name: "i1111_nnnn_mmmm_1000", mask: MASK_N_M, key: 0xF008, diss: "fmov.s @<REG_M>,<FREG_N_SD_A>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1111_nnnn_mmmm_1001, handler_name: "i1111_nnnn_mmmm_1001", mask: MASK_N_M, key: 0xF009, diss: "fmov.s @<REG_M>+,<FREG_N_SD_A>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1111_nnnn_mmmm_1010, handler_name: "i1111_nnnn_mmmm_1010", mask: MASK_N_M, key: 0xF00A, diss: "fmov.s <FREG_M_SD_A>,@<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1111_nnnn_mmmm_1011, handler_name: "i1111_nnnn_mmmm_1011", mask: MASK_N_M, key: 0xF00B, diss: "fmov.s <FREG_M_SD_A>,@-<REG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1111_nnnn_mmmm_1100, handler_name: "i1111_nnnn_mmmm_1100", mask: MASK_N_M, key: 0xF00C, diss: "fmov <FREG_M_SD_A>,<FREG_N_SD_A>", is_branch: 0 },
 
-    sh4_opcodelistentry { oph: i1111_nnnn_0101_1101, handler_name: "i1111_nnnn_0101_1101", mask: MASK_N, key: 0xF05D, diss: "fabs <FREG_N_SD_F>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nnn0_1111_1101, handler_name: "i1111_nnn0_1111_1101", mask: MASK_NH3BIT, key: 0xF0FD, diss: "fsca FPUL,<DR_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nnnn_1011_1101, handler_name: "i1111_nnnn_1011_1101", mask: MASK_N, key: 0xF0BD, diss: "fcnvds <DR_N>,FPUL", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nnnn_1010_1101, handler_name: "i1111_nnnn_1010_1101", mask: MASK_N, key: 0xF0AD, diss: "fcnvsd FPUL,<DR_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nnmm_1110_1101, handler_name: "i1111_nnmm_1110_1101", mask: MASK_N, key: 0xF0ED, diss: "fipr <FV_M>,<FV_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1111_nnnn_0101_1101, handler_name: "i1111_nnnn_0101_1101", mask: MASK_N, key: 0xF05D, diss: "fabs <FREG_N_SD_F>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1111_nnn0_1111_1101, handler_name: "i1111_nnn0_1111_1101", mask: MASK_NH3BIT, key: 0xF0FD, diss: "fsca FPUL,<DR_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1111_nnnn_1011_1101, handler_name: "i1111_nnnn_1011_1101", mask: MASK_N, key: 0xF0BD, diss: "fcnvds <DR_N>,FPUL", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1111_nnnn_1010_1101, handler_name: "i1111_nnnn_1010_1101", mask: MASK_N, key: 0xF0AD, diss: "fcnvsd FPUL,<DR_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1111_nnmm_1110_1101, handler_name: "i1111_nnmm_1110_1101", mask: MASK_N, key: 0xF0ED, diss: "fipr <FV_M>,<FV_N>", is_branch: 0 },
 
-    sh4_opcodelistentry { oph: i1111_nnnn_1000_1101, handler_name: "i1111_nnnn_1000_1101", mask: MASK_N, key: 0xF08D, diss: "fldi0 <FREG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nnnn_1001_1101, handler_name: "i1111_nnnn_1001_1101", mask: MASK_N, key: 0xF09D, diss: "fldi1 <FREG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nnnn_0001_1101, handler_name: "i1111_nnnn_0001_1101", mask: MASK_N, key: 0xF01D, diss: "flds <FREG_N>,FPUL", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nnnn_0010_1101, handler_name: "i1111_nnnn_0010_1101", mask: MASK_N, key: 0xF02D, diss: "float FPUL,<FREG_N_SD_F>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nnnn_0100_1101, handler_name: "i1111_nnnn_0100_1101", mask: MASK_N, key: 0xF04D, diss: "fneg <FREG_N_SD_F>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1111_nnnn_1000_1101, handler_name: "i1111_nnnn_1000_1101", mask: MASK_N, key: 0xF08D, diss: "fldi0 <FREG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1111_nnnn_1001_1101, handler_name: "i1111_nnnn_1001_1101", mask: MASK_N, key: 0xF09D, diss: "fldi1 <FREG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1111_nnnn_0001_1101, handler_name: "i1111_nnnn_0001_1101", mask: MASK_N, key: 0xF01D, diss: "flds <FREG_N>,FPUL", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1111_nnnn_0010_1101, handler_name: "i1111_nnnn_0010_1101", mask: MASK_N, key: 0xF02D, diss: "float FPUL,<FREG_N_SD_F>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1111_nnnn_0100_1101, handler_name: "i1111_nnnn_0100_1101", mask: MASK_N, key: 0xF04D, diss: "fneg <FREG_N_SD_F>", is_branch: 0 },
 
-    sh4_opcodelistentry { oph: i1111_1011_1111_1101, handler_name: "i1111_1011_1111_1101", mask: MASK_NONE, key: 0xFBFD, diss: "frchg", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_0011_1111_1101, handler_name: "i1111_0011_1111_1101", mask: MASK_NONE, key: 0xF3FD, diss: "fschg", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1111_1011_1111_1101, handler_name: "i1111_1011_1111_1101", mask: MASK_NONE, key: 0xFBFD, diss: "frchg", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1111_0011_1111_1101, handler_name: "i1111_0011_1111_1101", mask: MASK_NONE, key: 0xF3FD, diss: "fschg", is_branch: 0 },
 
-    sh4_opcodelistentry { oph: i1111_nnnn_0110_1101, handler_name: "i1111_nnnn_0110_1101", mask: MASK_N, key: 0xF06D, diss: "fsqrt <FREG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nnnn_0011_1101, handler_name: "i1111_nnnn_0011_1101", mask: MASK_N, key: 0xF03D, diss: "ftrc <FREG_N>,FPUL", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nnnn_0000_1101, handler_name: "i1111_nnnn_0000_1101", mask: MASK_N, key: 0xF00D, diss: "fsts FPUL,<FREG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nn01_1111_1101, handler_name: "i1111_nn01_1111_1101", mask: MASK_NH2BIT, key: 0xF1FD, diss: "ftrv xmtrx,<FV_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nnnn_mmmm_1110, handler_name: "i1111_nnnn_mmmm_1110", mask: MASK_N_M, key: 0xF00E, diss: "fmac <FREG_0>,<FREG_M>,<FREG_N>", is_branch: 0 },
-    sh4_opcodelistentry { oph: i1111_nnnn_0111_1101, handler_name: "i1111_nnnn_0111_1101", mask: MASK_N, key: 0xF07D, diss: "fsrra <FREG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1111_nnnn_0110_1101, handler_name: "i1111_nnnn_0110_1101", mask: MASK_N, key: 0xF06D, diss: "fsqrt <FREG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1111_nnnn_0011_1101, handler_name: "i1111_nnnn_0011_1101", mask: MASK_N, key: 0xF03D, diss: "ftrc <FREG_N>,FPUL", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1111_nnnn_0000_1101, handler_name: "i1111_nnnn_0000_1101", mask: MASK_N, key: 0xF00D, diss: "fsts FPUL,<FREG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1111_nn01_1111_1101, handler_name: "i1111_nn01_1111_1101", mask: MASK_NH2BIT, key: 0xF1FD, diss: "ftrv xmtrx,<FV_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1111_nnnn_mmmm_1110, handler_name: "i1111_nnnn_mmmm_1110", mask: MASK_N_M, key: 0xF00E, diss: "fmac <FREG_0>,<FREG_M>,<FREG_N>", is_branch: 0 },
+    sh4_opcodelistentry { oph: exec::i1111_nnnn_0111_1101, handler_name: "i1111_nnnn_0111_1101", mask: MASK_N, key: 0xF07D, diss: "fsrra <FREG_N>", is_branch: 0 },
 
     sh4_opcodelistentry { oph: i_not_implemented, handler_name: "unknown_opcode", mask: MASK_NONE, key: 0, diss: "unknown_opcode", is_branch: 0 },
 ];
 
+// Executes the operation using raw pointers.
+// Safe API; unsafety is contained inside.
+pub mod backend_exec {
+    #[inline(always)]
+    pub fn sh4_muls32(dst: *mut u32, src_n: *const u32, src_m: *const u32) {
+        unsafe {
+            let a = (*src_n) as i32;
+            let b = (*src_m) as i32;
+            *dst = a.wrapping_mul(b) as u32;
+        }
+    }
+
+    #[inline(always)]
+    pub fn sh4_store32(dst: *mut u32, src: *const u32) {
+        unsafe {
+            *dst = *src;
+        }
+    }
+
+    #[inline(always)]
+    pub fn sh4_store32i(dst: *mut u32, imm: u32) {
+        unsafe {
+            *dst = imm;
+        }
+    }
+
+    #[inline(always)]
+    pub fn sh4_and(dst: *mut u32, src_n: *const u32, src_m: *const u32) {
+        unsafe {
+            *dst = *src_n & *src_m;
+        }
+    }
+
+    #[inline(always)]
+    pub fn sh4_xor(dst: *mut u32, src_n: *const u32, src_m: *const u32) {
+        unsafe {
+            *dst = *src_n ^ *src_m;
+        }
+    }
+    
+    #[inline(always)]
+    pub fn sh4_sub(dst: *mut u32, src_n: *const u32, src_m: *const u32) {
+        unsafe {
+            *dst = (*src_n).wrapping_sub(*src_m);
+        }
+    }
+
+    #[inline(always)]
+    pub fn sh4_add(dst: *mut u32, src_n: *const u32, src_m: *const u32) {
+        unsafe {
+            *dst = (*src_n).wrapping_add(*src_m);
+        }
+    }
+
+    #[inline(always)]
+    pub fn sh4_addi(dst: *mut u32, src_n: *const u32, imm: u32) {
+        unsafe {
+            *dst = (*src_n).wrapping_add(imm);
+        }
+    }
+
+    #[inline(always)]
+    pub fn sh4_neg(dst: *mut u32, src_n: *const u32) {
+        unsafe {
+            *dst = (*src_n).wrapping_neg();
+        }
+    }
+
+    #[inline(always)]
+    pub fn sh4_extub(dst: *mut u32, src: *const u32) {
+        unsafe {
+            *dst = *src as u8 as u32;
+        }
+    }
+
+    #[inline(always)]
+    pub fn sh4_dt(sr_T: *mut u32, dst: *mut u32) {
+        unsafe {
+            *dst = (*dst).wrapping_sub(1);
+            *sr_T = if *dst == 0 { 1 } else { 0 };
+        }
+    }
+
+    #[inline(always)]
+    pub fn sh4_shlr(sr_T: *mut u32, dst: *mut u32, src_n: *const u32) {
+        unsafe {
+            *sr_T = *src_n & 1; 
+            *dst = *src_n >> 1;
+        }
+    }
+
+    #[inline(always)]
+    pub fn sh4_shllf(dst: *mut u32, src_n: *const u32, amt: u32) {
+        unsafe {
+            *dst = *src_n << amt;
+        }
+    }
+
+    #[inline(always)]
+    pub fn sh4_shlrf(dst: *mut u32, src_n: *const u32, amt: u32) {
+        unsafe {
+            *dst = *src_n >> amt;
+        }
+    }
+
+    #[inline(always)]
+    pub fn sh4_write_mem8(dc: *mut super::Dreamcast, addr: *const u32, data: *const u32) {
+        unsafe {
+            let _ = super::write_mem::<u8>(&mut *dc, *addr, *data as u8);
+        }
+    }
+
+    #[inline(always)]
+    pub fn sh4_write_mem16(dc: *mut super::Dreamcast, addr: *const u32, data: *const u32) {
+        unsafe {
+            let _ = super::write_mem::<u16>(&mut *dc, *addr, *data as u16);
+        }
+    }
+
+    #[inline(always)]
+    pub fn sh4_write_mem32(dc: *mut super::Dreamcast, addr: *const u32, data: *const u32) {
+        unsafe {
+            let _ = super::write_mem::<u32>(&mut *dc, *addr, *data);
+        }
+    }
+
+    #[inline(always)]
+    pub fn sh4_write_mem64(dc: *mut super::Dreamcast, addr: *const u32, data: *const u64) {
+        unsafe {
+            let _ = super::write_mem::<u64>(&mut *dc, *addr, *data);
+        }
+    }
+
+    #[inline(always)]
+    pub fn sh4_read_mems8(dc: *mut super::Dreamcast, addr: *const u32, data: *mut u32) {
+        unsafe {
+            let mut read: i8 = 0;
+            let _ = super::read_mem::<i8>(&mut *dc, *addr, &mut read);
+            *data = read as i32 as u32;
+        }
+    }
+
+    #[inline(always)]
+    pub fn sh4_read_mems16(dc: *mut super::Dreamcast, addr: *const u32, data: *mut u32) {
+        unsafe {
+            let mut read: i16 = 0;
+            let _ = super::read_mem::<i16>(&mut *dc, *addr, &mut read);
+            *data = read as i32 as u32;
+        }
+    }
+
+    #[inline(always)]
+    pub fn sh4_read_mem32(dc: *mut super::Dreamcast, addr: *const u32, data: *mut u32) {
+        unsafe {
+            let _ = super::read_mem::<u32>(&mut *dc, *addr, &mut *data);
+        }
+    }
+
+    #[inline(always)]
+    pub fn sh4_read_mem64(dc: *mut super::Dreamcast, addr: *const u32, data: *mut u64) {
+        unsafe {
+            let _ = super::read_mem::<u64>(&mut *dc, *addr, &mut *data);
+        }
+    }
 
 
-// static opcodes: &[sh4_opcodelistentry] = &[
-//     // CPU
-//     sh4_opcodelistentry{ oph:i0000_nnnn_0010_0011, handler_name:"i0000_nnnn_0010_0011", mask:Mask_n, key:0x0023, diss:"braf <REG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0000_nnnn_0000_0011, handler_name:"i0000_nnnn_0000_0011", mask:Mask_n, key:0x0003, diss:"bsrf <REG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0000_nnnn_1100_0011, handler_name:"i0000_nnnn_1100_0011", mask:Mask_n, key:0x00C3, diss:"movca.l R0, @<REG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0000_nnnn_1001_0011, handler_name:"i0000_nnnn_1001_0011", mask:Mask_n, key:0x0093, diss:"ocbi @<REG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0000_nnnn_1010_0011, handler_name:"i0000_nnnn_1010_0011", mask:Mask_n, key:0x00A3, diss:"ocbp @<REG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0000_nnnn_1011_0011, handler_name:"i0000_nnnn_1011_0011", mask:Mask_n, key:0x00B3, diss:"ocbwb @<REG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0000_nnnn_1000_0011, handler_name:"i0000_nnnn_1000_0011", mask:Mask_n, key:0x0083, diss:"pref @<REG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0000_nnnn_mmmm_0111, handler_name:"i0000_nnnn_mmmm_0111", mask:Mask_n_m, key:0x0007, diss:"mul.l <REG_M>,<REG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0000_0000_0010_1000, handler_name:"i0000_0000_0010_1000", mask:Mask_none, key:0x0028, diss:"clrmac", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0000_0000_0100_1000, handler_name:"i0000_0000_0100_1000", mask:Mask_none, key:0x0048, diss:"clrs", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0000_0000_0000_1000, handler_name:"i0000_0000_0000_1000", mask:Mask_none, key:0x0008, diss:"clrt", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0000_0000_0011_1000, handler_name:"i0000_0000_0011_1000", mask:Mask_none, key:0x0038, diss:"ldtlb", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0000_0000_0101_1000, handler_name:"i0000_0000_0101_1000", mask:Mask_none, key:0x0058, diss:"sets", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0000_0000_0001_1000, handler_name:"i0000_0000_0001_1000", mask:Mask_none, key:0x0018, diss:"sett", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0000_0000_0001_1001, handler_name:"i0000_0000_0001_1001", mask:Mask_none, key:0x0019, diss:"div0u", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0000_nnnn_0010_1001, handler_name:"i0000_nnnn_0010_1001", mask:Mask_n, key:0x0029, diss:"movt <REG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0000_0000_0000_1001, handler_name:"i0000_0000_0000_1001", mask:Mask_none, key:0x0009, diss:"nop", is_branch:0},
+    #[inline(always)]
+    pub fn sh4_read_mem32i(dc: *mut super::Dreamcast, addr: u32, data: *mut u32) {
+        unsafe {
+            let _ = super::read_mem::<u32>(&mut *dc, addr, &mut *data);
+        }
+    }
 
-//     sh4_opcodelistentry{ oph:i0000_0000_0010_1011, handler_name:"i0000_0000_0010_1011", mask:Mask_none, key:0x002B, diss:"rte", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0000_0000_0000_1011, handler_name:"i0000_0000_0000_1011", mask:Mask_none, key:0x000B, diss:"rts", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0000_0000_0001_1011, handler_name:"i0000_0000_0001_1011", mask:Mask_none, key:0x001B, diss:"sleep", is_branch:0},
+    #[inline(always)]
+    pub fn sh4_fadd(dst: *mut f32, src_n: *const f32, src_m: *const f32) {
+        unsafe {
+            *dst = *src_n + *src_m;
+        }
+    }
 
-//     sh4_opcodelistentry{ oph:i0000_nnnn_mmmm_1111, handler_name:"i0000_nnnn_mmmm_1111", mask:Mask_n_m, key:0x000F, diss:"mac.l @<REG_M>+,@<REG_N>+", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0010_nnnn_mmmm_0111, handler_name:"i0010_nnnn_mmmm_0117", mask:Mask_n_m, key:0x2007, diss:"div0s <REG_M>,<REG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0010_nnnn_mmmm_1000, handler_name:"i0010_nnnn_mmmm_1000", mask:Mask_n_m, key:0x2008, diss:"tst <REG_M>,<REG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0010_nnnn_mmmm_1001, handler_name:"i0010_nnnn_mmmm_1001", mask:Mask_n_m, key:0x2009, diss:"and <REG_M>,<REG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0010_nnnn_mmmm_1010, handler_name:"i0010_nnnn_mmmm_1010", mask:Mask_n_m, key:0x200A, diss:"xor <REG_M>,<REG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0010_nnnn_mmmm_1011, handler_name:"i0010_nnnn_mmmm_1011", mask:Mask_n_m, key:0x200B, diss:"or <REG_M>,<REG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0010_nnnn_mmmm_1100, handler_name:"i0010_nnnn_mmmm_1100", mask:Mask_n_m, key:0x200C, diss:"cmp/str <REG_M>,<REG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0010_nnnn_mmmm_1101, handler_name:"i0010_nnnn_mmmm_1101", mask:Mask_n_m, key:0x200D, diss:"xtrct <REG_M>,<REG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0010_nnnn_mmmm_1110, handler_name:"i0010_nnnn_mmmm_1110", mask:Mask_n_m, key:0x200E, diss:"mulu.w <REG_M>,<REG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0010_nnnn_mmmm_1111, handler_name:"i0010_nnnn_mmmm_1111", mask:Mask_n_m, key:0x200F, diss:"muls.w <REG_M>,<REG_N>", is_branch:0},
+    #[inline(always)]
+    pub fn sh4_fmul(dst: *mut f32, src_n: *const f32, src_m: *const f32) {
+        unsafe {
+            *dst = *src_n * *src_m;
+        }
+    }
+    
+    #[inline(always)]
+    pub fn sh4_fdiv(dst: *mut f32, src_n: *const f32, src_m: *const f32) {
+        unsafe {
+            *dst = *src_n / *src_m;
+        }
+    }
 
-//     sh4_opcodelistentry{ oph:i0011_nnnn_mmmm_0000, handler_name:"i0011_nnnn_mmmm_0000", mask:Mask_n_m, key:0x3000, diss:"cmp/eq <REG_M>,<REG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0011_nnnn_mmmm_0010, handler_name:"i0011_nnnn_mmmm_0010", mask:Mask_n_m, key:0x3002, diss:"cmp/hs <REG_M>,<REG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0011_nnnn_mmmm_0011, handler_name:"i0011_nnnn_mmmm_0011", mask:Mask_n_m, key:0x3003, diss:"cmp/ge <REG_M>,<REG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0011_nnnn_mmmm_0100, handler_name:"i0011_nnnn_mmmm_0100", mask:Mask_n_m, key:0x3004, diss:"div1 <REG_M>,<REG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0011_nnnn_mmmm_0101, handler_name:"i0011_nnnn_mmmm_0101", mask:Mask_n_m, key:0x3005, diss:"dmulu.l <REG_M>,<REG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0011_nnnn_mmmm_0110, handler_name:"i0011_nnnn_mmmm_0110", mask:Mask_n_m, key:0x3006, diss:"cmp/hi <REG_M>,<REG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0011_nnnn_mmmm_0111, handler_name:"i0011_nnnn_mmmm_0111", mask:Mask_n_m, key:0x3007, diss:"cmp/gt <REG_M>,<REG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0011_nnnn_mmmm_1000, handler_name:"i0011_nnnn_mmmm_1000", mask:Mask_n_m, key:0x3008, diss:"sub <REG_M>,<REG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0011_nnnn_mmmm_1010, handler_name:"i0011_nnnn_mmmm_1010", mask:Mask_n_m, key:0x300A, diss:"subc <REG_M>,<REG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0011_nnnn_mmmm_1011, handler_name:"i0011_nnnn_mmmm_1011", mask:Mask_n_m, key:0x300B, diss:"subv <REG_M>,<REG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0011_nnnn_mmmm_1100, handler_name:"i0011_nnnn_mmmm_1100", mask:Mask_n_m, key:0x300C, diss:"add <REG_M>,<REG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0011_nnnn_mmmm_1101, handler_name:"i0011_nnnn_mmmm_1101", mask:Mask_n_m, key:0x300D, diss:"dmuls.l <REG_M>,<REG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0011_nnnn_mmmm_1110, handler_name:"i0011_nnnn_mmmm_1110", mask:Mask_n_m, key:0x300E, diss:"addc <REG_M>,<REG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0011_nnnn_mmmm_1111, handler_name:"i0011_nnnn_mmmm_1111", mask:Mask_n_m, key:0x300F, diss:"addv <REG_M>,<REG_N>", is_branch:0},
+    #[inline(always)]
+    pub fn sh4_fsca(dst: *mut f32, index: *const u32) {
+        unsafe {
+            let pi_index = *index & 0xFFFF;
+            // rads = (index / (65536/2)) * pi
+            let rads = (pi_index as f32) / (65536.0f32 / 2.0f32) * std::f32::consts::PI;
 
-//     // Normal readm/writem
-//     sh4_opcodelistentry{ oph:i0000_nnnn_mmmm_0100, handler_name:"i0000_nnnn_mmmm_0100", mask:Mask_n_m, key:0x0004, diss:"mov.b <REG_M>,@(R0,<REG_N>)", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0000_nnnn_mmmm_0101, handler_name:"i0000_nnnn_mmmm_0101", mask:Mask_n_m, key:0x0005, diss:"mov.w <REG_M>,@(R0,<REG_N>)", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0000_nnnn_mmmm_0110, handler_name:"i0000_nnnn_mmmm_0110", mask:Mask_n_m, key:0x0006, diss:"mov.l <REG_M>,@(R0,<REG_N>)", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0000_nnnn_mmmm_1100, handler_name:"i0000_nnnn_mmmm_1100", mask:Mask_n_m, key:0x000C, diss:"mov.b @(R0,<REG_M>),<REG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0000_nnnn_mmmm_1101, handler_name:"i0000_nnnn_mmmm_1101", mask:Mask_n_m, key:0x000D, diss:"mov.w @(R0,<REG_M>),<REG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0000_nnnn_mmmm_1110, handler_name:"i0000_nnnn_mmmm_1110", mask:Mask_n_m, key:0x000E, diss:"mov.l @(R0,<REG_M>),<REG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0001_nnnn_mmmm_iiii, handler_name:"i0001_nnnn_mmmm_iiii", mask:Mask_n_imm8, key:0x1000, diss:"mov.l <REG_M>,@(<disp4dw>,<REG_N>)", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0101_nnnn_mmmm_iiii, handler_name:"i0101_nnnn_mmmm_iiii", mask:Mask_n_m_imm4, key:0x5000, diss:"mov.l @(<disp4dw>,<REG_M>),<REG_N>", is_branch:0},
+            *dst.add(0) = rads.sin();
+            *dst.add(1) = rads.cos();
+        }
+    }
 
-//     sh4_opcodelistentry{ oph:i0010_nnnn_mmmm_0000, handler_name:"i0010_nnnn_mmmm_0000", mask:Mask_n_m, key:0x2000, diss:"mov.b <REG_M>,@<REG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0010_nnnn_mmmm_0001, handler_name:"i0010_nnnn_mmmm_0001", mask:Mask_n_m, key:0x2001, diss:"mov.w <REG_M>,@<REG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0010_nnnn_mmmm_0010, handler_name:"i0010_nnnn_mmmm_0010", mask:Mask_n_m, key:0x2002, diss:"mov.l <REG_M>,@<REG_N>", is_branch:0},
+    #[inline(always)]
+    pub fn sh4_float(dst: *mut f32, src: *const u32) {
+        unsafe {
+            *dst = *src as i32 as f32;
+        }
+    }
 
-//     sh4_opcodelistentry{ oph:i0110_nnnn_mmmm_0000, handler_name:"i0110_nnnn_mmmm_0000", mask:Mask_n_m, key:0x6000, diss:"mov.b @<REG_M>,<REG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0110_nnnn_mmmm_0001, handler_name:"i0110_nnnn_mmmm_0001", mask:Mask_n_m, key:0x6001, diss:"mov.w @<REG_M>,<REG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0110_nnnn_mmmm_0010, handler_name:"i0110_nnnn_mmmm_0010", mask:Mask_n_m, key:0x6002, diss:"mov.l @<REG_M>,<REG_N>", is_branch:0},
+    #[inline(always)]
+    pub fn sh4_ftrc(dst: *mut u32, src: *const f32) {
+        unsafe {
+            let clamped = (*src).min(0x7FFFFFBF as f32);
+            let mut as_i = clamped as i32 as u32;
+            if as_i == 0x80000000 {
+                if (*src) > 0.0 {
+                    as_i = as_i.wrapping_sub(1);
+                }
+            }
+            *dst = as_i;
+        }
+    }
 
-//     sh4_opcodelistentry{ oph:i0010_nnnn_mmmm_0100, handler_name:"i0010_nnnn_mmmm_0100", mask:Mask_n_m, key:0x2004, diss:"mov.b <REG_M>,@-<REG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0010_nnnn_mmmm_0101, handler_name:"i0010_nnnn_mmmm_0101", mask:Mask_n_m, key:0x2005, diss:"mov.w <REG_M>,@-<REG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0010_nnnn_mmmm_0110, handler_name:"i0010_nnnn_mmmm_0110", mask:Mask_n_m, key:0x2006, diss:"mov.l <REG_M>,@-<REG_N>", is_branch:0},
+    #[inline(always)]
+    pub fn sh4_branch_cond(dc: *mut super::Dreamcast, T: *const u32, condition: u32, next: u32, target: u32) {
+        unsafe {
+            if *T == condition {
+                (*dc).ctx.pc1 = target;
+                (*dc).ctx.pc2 = target.wrapping_add(2);
+            } else {
+                // these are calcualted by the pipeline logic in the main loop, no need to do it here
+                // but it is done anyway for validation purposes
+                (*dc).ctx.pc1 = next;
+                (*dc).ctx.pc2 = next.wrapping_add(2);
+            }
+        }
+    }
 
-//     sh4_opcodelistentry{ oph:i0110_nnnn_mmmm_0100, handler_name:"i0110_nnnn_mmmm_0100", mask:Mask_n_m, key:0x6004, diss:"mov.b @<REG_M>+,<REG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0110_nnnn_mmmm_0101, handler_name:"i0110_nnnn_mmmm_0101", mask:Mask_n_m, key:0x6005, diss:"mov.w @<REG_M>+,<REG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i0110_nnnn_mmmm_0110, handler_name:"i0110_nnnn_mmmm_0110", mask:Mask_n_m, key:0x6006, diss:"mov.l @<REG_M>+,<REG_N>", is_branch:0},
+    #[inline(always)]
+    pub fn sh4_branch_cond_delay(dc: *mut super::Dreamcast, T: *const u32, condition: u32, next: u32, target: u32) {
+        unsafe {
+            if *T == condition {
+                (*dc).ctx.pc2 = target;
+            } else {
+                // this is calcualted by the pipeline logic in the main loop, no need to do it here
+                // but it is done anyway for validation purposes
+                (*dc).ctx.pc2 = next;
+            }
+            (*dc).ctx.is_delayslot1 = 1;
+        }
+    }
 
-//     sh4_opcodelistentry{ oph:i1000_0000_mmmm_iiii, handler_name:"i1000_0000_mmmm_iiii", mask:Mask_imm8, key:0x8000, diss:"mov.b R0,@(<disp4b>,<REG_M>)", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1000_0001_mmmm_iiii, handler_name:"i1000_0001_mmmm_iiii", mask:Mask_imm8, key:0x8100, diss:"mov.w R0,@(<disp4w>,<REG_M>)", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1000_0100_mmmm_iiii, handler_name:"i1000_0100_mmmm_iiii", mask:Mask_imm8, key:0x8400, diss:"mov.b @(<disp4b>,<REG_M>),R0", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1000_0101_mmmm_iiii, handler_name:"i1000_0101_mmmm_iiii", mask:Mask_imm8, key:0x8500, diss:"mov.w @(<disp4w>,<REG_M>),R0", is_branch:0},
+    #[inline(always)]
+    pub fn sh4_branch_delay(dc: *mut super::Dreamcast, target: u32) {
+        unsafe {
+            (*dc).ctx.pc2 = target;
+            (*dc).ctx.is_delayslot1 = 1;
+        }
+    }
+}
 
-//     sh4_opcodelistentry{ oph:i1001_nnnn_iiii_iiii, handler_name:"i1001_nnnn_iiii_iiii", mask:Mask_n_imm8, key:0x9000, diss:"mov.w @(<PCdisp8w>),<REG_N>", is_branch:0},
+// Decoder/recording backend: stores stable pointers to records (no pc/a/b).
+pub mod backend_dec {
+    use std::{cell::RefCell, ptr::NonNull};
 
-//     sh4_opcodelistentry{ oph:i1100_0000_iiii_iiii, handler_name:"i1100_0000_iiii_iiii", mask:Mask_imm8, key:0xC000, diss:"mov.b R0,@(<disp8b>,GBR)", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1100_0001_iiii_iiii, handler_name:"i1100_0001_iiii_iiii", mask:Mask_imm8, key:0xC100, diss:"mov.w R0,@(<disp8w>,GBR)", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1100_0010_iiii_iiii, handler_name:"i1100_0010_iiii_iiii", mask:Mask_imm8, key:0xC200, diss:"mov.l R0,@(<disp8dw>,GBR)", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1100_0100_iiii_iiii, handler_name:"i1100_0100_iiii_iiii", mask:Mask_imm8, key:0xC400, diss:"mov.b @(<GBRdisp8b>),R0", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1100_0101_iiii_iiii, handler_name:"i1100_0101_iiii_iiii", mask:Mask_imm8, key:0xC500, diss:"mov.w @(<GBRdisp8w>),R0", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1100_0110_iiii_iiii, handler_name:"i1100_0110_iiii_iiii", mask:Mask_imm8, key:0xC600, diss:"mov.l @(<GBRdisp8dw>),R0", is_branch:0},
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct MulRec {
+        pub dst:   *mut u32,
+        pub src_n: *const u32,
+        pub src_m: *const u32,
+    }
 
-//     // normal mov
-//     sh4_opcodelistentry{ oph:i0110_nnnn_mmmm_0011, handler_name:"i0110_nnnn_mmmm_0011", mask:Mask_n_m, key:0x6003, diss:"mov <REG_M>,<REG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1100_0111_iiii_iiii, handler_name:"i1100_0111_iiii_iiii", mask:Mask_imm8, key:0xC700, diss:"mova @(<PCdisp8d>),R0", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1110_nnnn_iiii_iiii, handler_name:"i1110_nnnn_iiii_iiii", mask:Mask_n_imm8, key:0xE000, diss:"mov #<simm8hex>,<REG_N>", is_branch:0},
+    thread_local! {
+        // Owns storage so pointers remain valid until `clear`.
+        static ARENA: RefCell<Vec<Box<MulRec>>> = RefCell::new(Vec::with_capacity(1 << 16));
+        // Compact list of stable pointers into ARENA.
+        static PTRS:  RefCell<Vec<NonNull<MulRec>>> = RefCell::new(Vec::with_capacity(1 << 16));
+    }
 
-//     // (… the rest of your table entries for 4xxx, 5xxx, 6xxx, 7xxx, 8xxx, 9xxx, Axxx, Bxxx, Cxxx, Fxxx as shown …)
-//     // To keep this single message within limits, the remainder of the table follows the exact pattern above,
-//     // directly mirroring each row in your snippet, mapping the same handler name to the same mask/key/diss/is_branch.
+    #[inline(always)]
+    pub fn sh4_muls32(dst: *mut u32, src_n: *const u32, src_m: *const u32) {
+        ARENA.with(|arena| PTRS.with(|ptrs| {
+            let mut arena = arena.borrow_mut();
+            let mut ptrs  = ptrs.borrow_mut();
 
-//     // Branches
-//     sh4_opcodelistentry{ oph:i1000_1011_iiii_iiii, handler_name:"i1000_1011_iiii_iiii", mask:Mask_imm8, key:0x8B00, diss:"bf <bdisp8>", is_branch:1},
-//     sh4_opcodelistentry{ oph:i1000_1111_iiii_iiii, handler_name:"i1000_1111_iiii_iiii", mask:Mask_imm8, key:0x8F00, diss:"bf.s <bdisp8>", is_branch:2},
-//     sh4_opcodelistentry{ oph:i1000_1001_iiii_iiii, handler_name:"i1000_1001_iiii_iiii", mask:Mask_imm8, key:0x8900, diss:"bt <bdisp8>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1000_1101_iiii_iiii, handler_name:"i1000_1101_iiii_iiii", mask:Mask_imm8, key:0x8D00, diss:"bt.s <bdisp8>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1000_1000_iiii_iiii, handler_name:"i1000_1000_iiii_iiii", mask:Mask_imm8, key:0x8800, diss:"cmp/eq #<simm8hex>,R0", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1010_iiii_iiii_iiii, handler_name:"i1010_iiii_iiii_iiii", mask:Mask_n_imm8, key:0xA000, diss:"bra <bdisp12>", is_branch:2},
-//     sh4_opcodelistentry{ oph:i1011_iiii_iiii_iiii, handler_name:"i1011_iiii_iiii_iiii", mask:Mask_n_imm8, key:0xB000, diss:"bsr <bdisp12>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1100_0011_iiii_iiii, handler_name:"i1100_0011_iiii_iiii", mask:Mask_imm8, key:0xC300, diss:"trapa #<imm8>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1100_1000_iiii_iiii, handler_name:"i1100_1000_iiii_iiii", mask:Mask_imm8, key:0xC800, diss:"tst #<imm8>,R0", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1100_1001_iiii_iiii, handler_name:"i1100_1001_iiii_iiii", mask:Mask_imm8, key:0xC900, diss:"and #<imm8>,R0", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1100_1010_iiii_iiii, handler_name:"i1100_1010_iiii_iiii", mask:Mask_imm8, key:0xCA00, diss:"xor #<imm8>,R0", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1100_1011_iiii_iiii, handler_name:"i1100_1011_iiii_iiii", mask:Mask_imm8, key:0xCB00, diss:"or #<imm8>,R0", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1100_1100_iiii_iiii, handler_name:"i1100_1100_iiii_iiii", mask:Mask_imm8, key:0xCC00, diss:"tst.b #<imm8>,@(R0,GBR)", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1100_1101_iiii_iiii, handler_name:"i1100_1101_iiii_iiii", mask:Mask_imm8, key:0xCD00, diss:"and.b #<imm8>,@(R0,GBR)", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1100_1110_iiii_iiii, handler_name:"i1100_1110_iiii_iiii", mask:Mask_imm8, key:0xCE00, diss:"xor.b #<imm8>,@(R0,GBR)", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1100_1111_iiii_iiii, handler_name:"i1100_1111_iiii_iiii", mask:Mask_imm8, key:0xCF00, diss:"or.b #<imm8>,@(R0,GBR)", is_branch:0},
+            let mut rec = Box::new(MulRec { dst, src_n, src_m });
+            let nn = NonNull::from(rec.as_mut());
 
-//     // FPU ops (subset implemented above; entries mirror your snippet)
-//     sh4_opcodelistentry{ oph:i1111_nnnn_mmmm_0000, handler_name:"i1111_nnnn_mmmm_0000", mask:Mask_n_m, key:0xF000, diss:"fadd <FREG_M_SD_F>,<FREG_N_SD_F>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1111_nnnn_mmmm_0001, handler_name:"i1111_nnnn_mmmm_0001", mask:Mask_n_m, key:0xF001, diss:"fsub <FREG_M_SD_F>,<FREG_N_SD_F>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1111_nnnn_mmmm_0010, handler_name:"i1111_nnnn_mmmm_0010", mask:Mask_n_m, key:0xF002, diss:"fmul <FREG_M_SD_F>,<FREG_N_SD_F>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1111_nnnn_mmmm_0011, handler_name:"i1111_nnnn_mmmm_0011", mask:Mask_n_m, key:0xF003, diss:"fdiv <FREG_M_SD_F>,<FREG_N_SD_F>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1111_nnnn_mmmm_0100, handler_name:"i1111_nnnn_mmmm_0100", mask:Mask_n_m, key:0xF004, diss:"fcmp/eq <FREG_M_SD_F>,<FREG_N>_SD_F", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1111_nnnn_mmmm_0101, handler_name:"i1111_nnnn_mmmm_0101", mask:Mask_n_m, key:0xF005, diss:"fcmp/gt <FREG_M_SD_F>,<FREG_N_SD_F>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1111_nnnn_mmmm_0110, handler_name:"i1111_nnnn_mmmm_0110", mask:Mask_n_m, key:0xF006, diss:"fmov.s @(R0,<REG_M>),<FREG_N_SD_A>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1111_nnnn_mmmm_0111, handler_name:"i1111_nnnn_mmmm_0111", mask:Mask_n_m, key:0xF007, diss:"fmov.s <FREG_M_SD_A>,@(R0,<REG_N>)", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1111_nnnn_mmmm_1000, handler_name:"i1111_nnnn_mmmm_1000", mask:Mask_n_m, key:0xF008, diss:"fmov.s @<REG_M>,<FREG_N_SD_A>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1111_nnnn_mmmm_1001, handler_name:"i1111_nnnn_mmmm_1001", mask:Mask_n_m, key:0xF009, diss:"fmov.s @<REG_M>+,<FREG_N_SD_A>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1111_nnnn_mmmm_1010, handler_name:"i1111_nnnn_mmmm_1010", mask:Mask_n_m, key:0xF00A, diss:"fmov.s <FREG_M_SD_A>,@<REG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1111_nnnn_mmmm_1011, handler_name:"i1111_nnnn_mmmm_1011", mask:Mask_n_m, key:0xF00B, diss:"fmov.s <FREG_M_SD_A>,@-<REG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1111_nnnn_mmmm_1100, handler_name:"i1111_nnnn_mmmm_1100", mask:Mask_n_m, key:0xF00C, diss:"fmov <FREG_M_SD_A>,<FREG_N_SD_A>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1111_nnnn_0101_1101, handler_name:"i1111_nnnn_0105_1101", mask:Mask_n, key:0xF05D, diss:"fabs <FREG_N_SD_F>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1111_nnn0_1111_1101, handler_name:"i1111_nnn0_1111_1101", mask:Mask_nh3bit, key:0xF0FD, diss:"fsca FPUL, <DR_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1111_nnnn_1011_1101, handler_name:"i1111_nnnn_1011_1101", mask:Mask_n, key:0xF0BD, diss:"fcnvds <DR_N>,FPUL", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1111_nnnn_1010_1101, handler_name:"i1111_nnnn_1010_1101", mask:Mask_n, key:0xF0AD, diss:"fcnvsd FPUL,<DR_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1111_nnmm_1110_1101, handler_name:"i1111_nnmm_1110_1101", mask:Mask_n, key:0xF0ED, diss:"fipr <FV_M>,<FV_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1111_nnnn_1000_1101, handler_name:"i1111_nnnn_1000_1101", mask:Mask_n, key:0xF08D, diss:"fldi0 <FREG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1111_nnnn_1001_1101, handler_name:"i1111_nnnn_1001_1101", mask:Mask_n, key:0xF09D, diss:"fldi1 <FREG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1111_nnnn_0001_1101, handler_name:"i1111_nnnn_0001_1101", mask:Mask_n, key:0xF01D, diss:"flds <FREG_N>,FPUL", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1111_nnnn_0010_1101, handler_name:"i1111_nnnn_0010_1101", mask:Mask_n, key:0xF02D, diss:"float FPUL,<FREG_N_SD_F>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1111_nnnn_0100_1101, handler_name:"i1111_nnnn_0100_1101", mask:Mask_n, key:0xF04D, diss:"fneg <FREG_N_SD_F>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1111_1011_1111_1101, handler_name:"i1111_1011_1111_1101", mask:Mask_none, key:0xFBFD, diss:"frchg", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1111_0011_1111_1101, handler_name:"i1111_0011_1111_1101", mask:Mask_none, key:0xF3FD, diss:"fschg", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1111_nnnn_0110_1101, handler_name:"i1111_nnnn_0110_1101", mask:Mask_n, key:0xF06D, diss:"fsqrt <FREG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1111_nnnn_0011_1101, handler_name:"i1111_nnnn_0011_1101", mask:Mask_n, key:0xF03D, diss:"ftrc <FREG_N>, FPUL", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1111_nnnn_0000_1101, handler_name:"i1111_nnnn_0000_1101", mask:Mask_n, key:0xF00D, diss:"fsts FPUL,<FREG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1111_nn01_1111_1101, handler_name:"i1111_nn01_1111_1101", mask:Mask_nh2bit, key:0xF1FD, diss:"ftrv xmtrx,<FV_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1111_nnnn_mmmm_1110, handler_name:"i1111_nnnn_mmmm_1110", mask:Mask_n_m, key:0xF00E, diss:"fmac <FREG_0>,<FREG_M>,<FREG_N>", is_branch:0},
-//     sh4_opcodelistentry{ oph:i1111_nnnn_0111_1101, handler_name:"i1111_nnnn_0111_1101", mask:Mask_n, key:0xF07D, diss:"fsrra <FREG_N>", is_branch:0},
+            arena.push(rec);
+            ptrs.push(nn);
+        }));
+    }
 
-//     // End marker
-//     sh4_opcodelistentry{ oph:i_not_implemented, handler_name:"unknown", mask:0, key:0, diss:"unknown_opcode", is_branch:0 },
-// ];
+    #[inline(always)]
+    pub fn sh4_store32(dst: *mut u32, src: *const u32) {
+        panic!("sh4_store32 is not implemented in backend_dec");
+    }
+
+    #[inline(always)]
+    pub fn sh4_store32i(dst: *mut u32, imm: u32) {
+        panic!("sh4_store32i is not implemented in backend_dec");
+    }
+
+    #[inline(always)]
+    pub fn sh4_and(dst: *mut u32, src_n: *const u32, src_m: *const u32) {
+        panic!("sh4_and is not implemented in backend_dec");
+    }
+
+    #[inline(always)]
+    pub fn sh4_xor(dst: *mut u32, src_n: *const u32, src_m: *const u32) {
+        panic!("sh4_xor is not implemented in backend_dec");
+    }
+    
+    #[inline(always)]
+    pub fn sh4_sub(dst: *mut u32, src_n: *const u32, src_m: *const u32) {
+        panic!("sh4_sub is not implemented in backend_dec");
+    }
+
+    #[inline(always)]
+    pub fn sh4_add(dst: *mut u32, src_n: *const u32, src_m: *const u32) {
+        panic!("sh4_add is not implemented in backend_dec");
+    }
+
+    #[inline(always)]
+    pub fn sh4_addi(dst: *mut u32, src_n: *const u32, imm: u32) {
+        panic!("sh4_addi is not implemented in backend_dec");
+    }
+
+    #[inline(always)]
+    pub fn sh4_neg(dst: *mut u32, src_n: *const u32) {
+        panic!("sh4_neg is not implemented in backend_dec");
+    }
+
+    #[inline(always)]
+    pub fn sh4_extub(dst: *mut u32, src: *const u32) {
+        panic!("sh4_extub is not implemented in backend_dec");
+    }
+
+    #[inline(always)]
+    pub fn sh4_dt(sr_T: *mut u32, dst: *mut u32) {
+        panic!("sh4_dt is not implemented in backend_dec");
+    }
+    
+    #[inline(always)]
+    pub fn sh4_shlr(sr_T: *mut u32, dst: *mut u32, src_n: *const u32) {
+        panic!("sh4_shlr is not implemented in backend_dec");
+    }
+
+    #[inline(always)]
+    pub fn sh4_shllf(dst: *mut u32, src_n: *const u32, amt: u32) {
+        panic!("sh4_shllf is not implemented in backend_dec");
+    }
+
+    #[inline(always)]
+    pub fn sh4_shlrf(dst: *mut u32, src_n: *const u32, amt: u32) {
+        panic!("sh4_shlrf is not implemented in backend_dec");
+    }
+
+    
+    #[inline(always)]
+    pub fn sh4_write_mem8(dc: *mut super::Dreamcast, addr: *const u32, data: *const u32) {
+        panic!("sh4_write_mem8 is not implemented in backend_dec");
+    }
+
+    #[inline(always)]
+    pub fn sh4_write_mem16(dc: *mut super::Dreamcast, addr: *const u32, data: *const u32) {
+        panic!("sh4_write_mem16 is not implemented in backend_dec");
+    }
+
+    #[inline(always)]
+    pub fn sh4_write_mem32(dc: *mut super::Dreamcast, addr: *const u32, data: *const u32) {
+        panic!("sh4_write_mem32 is not implemented in backend_dec");
+    }
+
+    #[inline(always)]
+    pub fn sh4_write_mem64(dc: *mut super::Dreamcast, addr: *const u32, data: *const u64) {
+        panic!("sh4_write_mem64 is not implemented in backend_dec");
+    }
+
+    #[inline(always)]
+    pub fn sh4_read_mems8(dc: *mut super::Dreamcast, addr: *const u32, data: *mut u32) {
+        panic!("sh4_read_mems8 is not implemented in backend_dec");
+    }
+
+    #[inline(always)]
+    pub fn sh4_read_mems16(dc: *mut super::Dreamcast, addr: *const u32, data: *mut u32) {
+        panic!("sh4_read_mems16 is not implemented in backend_dec");
+    }
+
+    #[inline(always)]
+    pub fn sh4_read_mem32(dc: *mut super::Dreamcast, addr: *const u32, data: *mut u32) {
+        panic!("sh4_read_mems32 is not implemented in backend_dec");
+    }
+
+    #[inline(always)]
+    pub fn sh4_read_mem64(dc: *mut super::Dreamcast, addr: *const u32, data: *mut u64) {
+        panic!("sh4_read_mems64 is not implemented in backend_dec");
+    }
+
+    pub fn sh4_read_mem32i(dc: *mut super::Dreamcast, addr: u32, data: *mut u32) {
+        panic!("sh4_read_mem32i is not implemented in backend_dec");
+    }
+    
+    #[inline(always)]
+    pub fn sh4_fadd(dst: *mut f32, src_n: *const f32, src_m: *const f32) {
+        panic!("sh4_fadd is not implemented in backend_dec");
+    }
+
+    #[inline(always)]
+    pub fn sh4_fmul(dst: *mut f32, src_n: *const f32, src_m: *const f32) {
+        panic!("sh4_fmul is not implemented in backend_dec");
+    }
+    
+    #[inline(always)]
+    pub fn sh4_fdiv(dst: *mut f32, src_n: *const f32, src_m: *const f32) {
+        panic!("sh4_fdiv is not implemented in backend_dec");
+    }
+
+    #[inline(always)]
+    pub fn sh4_fsca(dst: *mut f32, index: *const u32) {
+        panic!("sh4_fsca is not implemented in backend_dec");
+    }
+
+    #[inline(always)]
+    pub fn sh4_float(dst: *mut f32, src: *const u32) {
+        panic!("sh4_float is not implemented in backend_dec");
+    }
+
+    #[inline(always)]
+    pub fn sh4_ftrc(dst: *mut u32, src: *const f32) {
+        panic!("sh4_ftrc is not implemented in backend_dec");
+    }
+
+    
+    #[inline(always)]
+    pub fn sh4_branch_cond(dc: *mut super::Dreamcast, T: *const u32, condition: u32, next: u32, target: u32) {
+        panic!("sh4_branch_cond is not implemented in backend_dec");
+    }
+
+    #[inline(always)]
+    pub fn sh4_branch_cond_delay(dc: *mut super::Dreamcast, T: *const u32, condition: u32, next: u32, target: u32) {
+        panic!("sh4_branch_cond_delay is not implemented in backend_dec");
+    }
+
+    #[inline(always)]
+    pub fn sh4_branch_delay(dc: *mut super::Dreamcast, target: u32) {
+        panic!("sh4_branch_delay is not implemented in backend_dec");
+    }
+
+    #[inline]
+    pub fn ptrs_snapshot() -> Vec<NonNull<MulRec>> {
+        PTRS.with(|p| p.borrow().iter().copied().collect())
+    }
+
+    #[inline]
+    pub fn clear() {
+        ARENA.with(|a| a.borrow_mut().clear());
+        PTRS.with(|p| p.borrow_mut().clear());
+    }
+}
+
 pub fn build_opcode_tables(dc: &mut Dreamcast) {
     // Initialize defaults
     for i in 0..0x10000 {
