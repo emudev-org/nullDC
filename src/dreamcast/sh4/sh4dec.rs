@@ -1,19 +1,14 @@
-//! dreamcast_sh4.rs — 1:1 Rust translation of the provided C++/C code snippet.
+// src/sh4dec.rs
 
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 #![allow(dead_code)]
 #![allow(unused_variables)]
 
-use std::ptr;
-
 use std::ptr::{addr_of, addr_of_mut};
 
-const SYSRAM_SIZE: u32 = 16 * 1024 * 1024;
-const VIDEORAM_SIZE: u32 = 8 * 1024 * 1024;
-
-const SYSRAM_MASK: u32 = SYSRAM_SIZE - 1;
-const VIDEORAM_MASK: u32 = VIDEORAM_SIZE - 1;
+// Pull in the machine types and backends from the parent module.
+use crate::dreamcast::Dreamcast;
 
 #[derive(Copy, Clone)]
 pub struct sh4_opcodelistentry {
@@ -24,240 +19,48 @@ pub struct sh4_opcodelistentry {
     pub diss: &'static str,
 }
 
-#[repr(C)]
-pub union FRBank {
-    pub f32s: [f32; 32],
-    pub u32s: [u32; 32],
-    pub u64s: [u64; 16],
-}
-
-#[repr(C)]
-pub struct Sh4Ctx {
-    pub r: [u32; 16],
-    pub remaining_cycles: i32,
-    pub pc0: u32,
-    pub pc1: u32,
-    pub pc2: u32,
-    pub is_delayslot0: u32,
-    pub is_delayslot1: u32,
-
-    pub fr: FRBank,
-    pub xf: FRBank,
-
-    pub sr_T: u32,
-    pub sr: u32,
-    pub macl: u32,
-    pub mach: u32,
-    pub fpul: u32,
-    pub fpscr_PR: u32,
-    pub fpscr_SZ: u32,
-}
-
-impl Default for Sh4Ctx {
-    fn default() -> Self {
-        Self {
-            r: [0; 16],
-            remaining_cycles: 0,
-            pc0: 0,
-            pc1: 2,
-            pc2: 4,
-
-            is_delayslot0: 0,
-            is_delayslot1: 0,
-
-            fr: FRBank { u32s: [0; 32] },
-            xf: FRBank { u32s: [0; 32] },
-
-            sr_T: 0,
-            sr: 0,
-            macl: 0,
-            mach: 0,
-            fpul: 0,
-            fpscr_PR: 0,
-            fpscr_SZ: 0,
-        }
-    }
-}
-
-
-pub struct Dreamcast {
-    pub ctx: Sh4Ctx,
-    pub memmap: [*mut u8; 256],
-    pub memmask: [u32; 256],
-
-    pub sys_ram: Box<[u8; SYSRAM_SIZE as usize]>,
-    pub video_ram: Box<[u8; VIDEORAM_SIZE as usize]>,
-}
-
-impl Default for Dreamcast {
-    fn default() -> Self {
-
-        let sys_ram = {
-            let v = vec![0u8; SYSRAM_SIZE as usize];
-            v.into_boxed_slice().try_into().expect("len matches")
-        };
-        let video_ram = {
-            let v = vec![0u8; VIDEORAM_SIZE as usize];
-            v.into_boxed_slice().try_into().expect("len matches")
-        };
-
-        Self {
-            ctx: Sh4Ctx::default(),
-            memmap: [ptr::null_mut(); 256],
-            memmask: [0; 256],
-            sys_ram,
-            video_ram,
-        }
-    }
-}
-
-
-// -----------------------------------------------------------------------------
-// mem.h — generic read/write declarations; we keep them as stubs, matching
-// your snippet (only declarations there). Handlers that depend on memory will
-// compile; the stub can be replaced with a real bus implementation later.
-// -----------------------------------------------------------------------------
-pub fn read_mem<T: Copy>(dc: &mut Dreamcast, addr: u32, out: &mut T) -> bool {
-    let region = (addr >> 24) as usize;
-    let offset = (addr & dc.memmask[region]) as usize;
-
-    unsafe {
-        let base = dc.memmap[region];
-        if base.is_null() {
-            return false;
-        }
-        // pointer to T
-        let ptr = base.add(offset) as *const T;
-        *out = *ptr;
-    }
-
-    true
-}
-
-pub fn write_mem<T: Copy>(dc: &mut Dreamcast, addr: u32, data: T) -> bool {
-    let region = (addr >> 24) as usize;
-    let offset = (addr & dc.memmask[region]) as usize;
-
-    unsafe {
-        let base = dc.memmap[region];
-        if base.is_null() {
-            return false;
-        }
-        let ptr = base.add(offset) as *mut T;
-        *ptr = data;
-    }
-
-    true
-}
-
-
-// -----------------------------------------------------------------------------
-// oplist.inl helpers/macros translated to consts and inline fns
-// -----------------------------------------------------------------------------
-
-const MASK_N_M: u16 = 0xF00F;
-const MASK_N_M_IMM4: u16 = 0xF000;
-const MASK_N: u16 = 0xF0FF;
-const MASK_NONE: u16 = 0xFFFF;
-const MASK_IMM8: u16 = 0xFF00;
-const MASK_IMM12: u16 = 0xF000;
-const MASK_N_IMM8: u16 = 0xF000;
-const MASK_N_ML3BIT: u16 = 0xF08F;
-const MASK_NH3BIT: u16 = 0xF1FF;
-const MASK_NH2BIT: u16 = 0xF3FF;
-
-#[inline(always)]
-fn GetN(str_: u16) -> usize { ((str_ >> 8) & 0xF) as usize }
-#[inline(always)]
-fn GetM(str_: u16) -> usize { ((str_ >> 4) & 0xF) as usize }
-#[inline(always)]
-fn GetImm4(str_: u16) -> u32 { (str_ & 0xF) as u32 }
-#[inline(always)]
-fn GetImm8(str_: u16) -> u32 { (str_ & 0xFF) as u32 }
-#[inline(always)]
-fn GetSImm8(str_: u16) -> i32 { (str_ & 0xFF) as i8 as i32 }
-#[inline(always)]
-fn GetImm12(str_: u16) -> u32 { (str_ & 0xFFF) as u32 }
-#[inline(always)]
-fn GetSImm12(str_: u16) -> i32 { ((((GetImm12(str_) as u16) << 4) as i16) >> 4) as i32 }
-
-// -----------------------------------------------------------------------------
-// sh4impl / sh4op
-// -----------------------------------------------------------------------------
-
-fn i_not_implemented(dc: &mut Dreamcast, pc: u32, instr: u16) {
-    let desc_ptr: *const sh4_opcodelistentry = &SH4_OP_DESC[instr as usize];
-    let diss = unsafe {
-        if desc_ptr.is_null() {
-            "missing"
-        } else {
-            let d = &*desc_ptr;
-            if d.diss.is_empty() { "missing" } else { d.diss }
-        }
-    };
-    println!("{:08X}: {:04X} {} [i_not_implemented]", pc, instr, diss);
-}
-
-fn i_not_known(dc: &mut Dreamcast, instr: u16) {
-    let pc = dc.ctx.pc0;
-    let desc_ptr = &SH4_OP_DESC[instr as usize];
-    println!("{:08X}: {:04X} {} [i_not_known]", pc, instr, desc_ptr.diss);
-}
-
-// Helper macro to declare SH-4 opcode handlers with the correct signature.
-// Replace your current `sh4op!` with this version.
-// Usage:
-// sh4op! {
-//     /* implemented ops ... */
-//
-//     stubs! { i0000_nnnn_0010_0011, /* ... */ }
-// }
-
-pub const fn parse_opcode(pattern: &str) -> (u16, u16) {
+const fn parse_opcode(pattern: &str) -> (u16, u16) {
     let bytes = pattern.as_bytes();
-    let mut i = 1; // skip the leading 'i'
+    let mut i = 1; // skip leading 'i'
     let mut mask: u16 = 0;
-    let mut key: u16 = 0;
+    let mut key:  u16 = 0;
     while i < bytes.len() {
         let c = bytes[i];
         if c == b'0' || c == b'1' {
             mask = (mask << 1) | 1;
-            if c == b'1' {
-                key = (key << 1) | 1;
-            } else {
-                key = key << 1;
-            }
-        } else if c == b'_' {
-            // skip
-        } else {
-            // wildcard (n, m, etc.)
+            if c == b'1' { key = (key << 1) | 1; } else { key = key << 1; }
+        } else if c != b'_' {
+            // wildcard
             mask = mask << 1;
-            key = key << 1;
+            key  = key  << 1;
         }
         i += 1;
     }
     (mask, key)
 }
+
 macro_rules! sh4op {
     (
         $( (disas = $diss:literal)
            $name:ident ( $($params:tt)* ) { $($body:tt)* }
         )*
     ) => {
+        // Make the generated modules visible within the crate.
         pub(crate) mod exec {
             use super::*;
             $(
-                sh4op!(@emit $name ( $($params)* ) { $($body)* } ; backend = backend_exec);
+                sh4op!(@emit $name ( $($params)* ) { $($body)* } ; backend = crate::dreamcast::sh4::backend_ipr);
             )*
         }
         pub(crate) mod dec {
             use super::*;
             $(
-                sh4op!(@emit $name ( $($params)* ) { $($body)* } ; backend = backend_dec);
+                sh4op!(@emit $name ( $($params)* ) { $($body)* } ; backend = crate::dreamcast::sh4::backend_fns);
             )*
         }
 
-        static OPCODES: &[sh4_opcodelistentry] = &[
+        // Local opcode descriptor array for expansion
+        pub(crate) static OPCODES: &[sh4_opcodelistentry] = &[
             $(
                 {
                     const MASK_KEY: (u16,u16) = parse_opcode(stringify!($name));
@@ -265,12 +68,12 @@ macro_rules! sh4op {
                         oph: exec::$name,
                         handler_name: stringify!($name),
                         mask: MASK_KEY.0,
-                        key: MASK_KEY.1,
+                        key:  MASK_KEY.1,
                         diss: $diss,
                     }
                 }
             ),*,
-            sh4_opcodelistentry { oph: i_not_known, handler_name: "unknown_opcode", mask: MASK_NONE, key: 0, diss: "unknown opcode" },
+            sh4_opcodelistentry { oph: i_not_known, handler_name: "unknown_opcode", mask: 0xFFFF, key: 0, diss: "unknown opcode" },
         ];
     };
 
@@ -302,21 +105,35 @@ macro_rules! sh4op {
     };
 }
 
+#[inline(always)] fn GetN(str_: u16) -> usize { ((str_ >> 8) & 0xF) as usize }
+#[inline(always)] fn GetM(str_: u16) -> usize { ((str_ >> 4) & 0xF) as usize }
+#[inline(always)] fn GetImm4(str_: u16) -> u32 { (str_ & 0xF) as u32 }
+#[inline(always)] fn GetImm8(str_: u16) -> u32 { (str_ & 0xFF) as u32 }
+#[inline(always)] fn GetSImm8(str_: u16) -> i32 { (str_ & 0xFF) as i8 as i32 }
+#[inline(always)] fn GetImm12(str_: u16) -> u32 { (str_ & 0xFFF) as u32 }
+#[inline(always)] fn GetSImm12(str_: u16) -> i32 { ((((GetImm12(str_) as u16) << 4) as i16) >> 4) as i32 }
 
+#[inline(always)] fn data_target_s8(pc: u32, disp8: i32) -> u32 { ((pc.wrapping_add(4)) & 0xFFFF_FFFC).wrapping_add((disp8 << 2) as u32) }
+#[inline(always)] fn branch_target_s8(pc: u32, disp8: i32) -> u32 { (disp8 as i64 * 2 + 4 + pc as i64) as u32 }
+#[inline(always)] fn branch_target_s12(pc: u32, disp12: i32) -> u32 { (disp12 as i64 * 2 + 4 + pc as i64) as u32 }
 
-// -----------------------------------------------------------------------------
-// Implemented handlers (as per your snippet). Unimplemented ones are stubbed.
-// -----------------------------------------------------------------------------
-
-
-fn data_target_s8(pc: u32, disp8: i32) -> u32 {
-    ((pc.wrapping_add(4)) & 0xFFFFFFFC).wrapping_add((disp8 << 2) as u32)
+fn i_not_implemented(dc: &mut Dreamcast, pc: u32, instr: u16) {
+    let desc_ptr: *const sh4_opcodelistentry = &SH4_OP_DESC[instr as usize];
+    let diss = unsafe {
+        if desc_ptr.is_null() {
+            "missing"
+        } else {
+            let d = &*desc_ptr;
+            if d.diss.is_empty() { "missing" } else { d.diss }
+        }
+    };
+    panic!("{:08X}: {:04X} {} [i_not_implemented]", pc, instr, diss);
 }
-fn branch_target_s8(pc: u32, disp8: i32) -> u32 {
-    (disp8 as i64 * 2 + 4 + pc as i64) as u32
-}
-fn branch_target_s12(pc: u32, disp12: i32) -> u32 {
-    (disp12 as i64 * 2 + 4 + pc as i64) as u32
+
+fn i_not_known(dc: &mut Dreamcast, instr: u16) {
+    let pc = dc.ctx.pc0;
+    let desc_ptr = &SH4_OP_DESC[instr as usize];
+    panic!("{:08X}: {:04X} {} [i_not_known]", pc, instr, desc_ptr.diss);
 }
 
 sh4op! {
@@ -1484,6 +1301,17 @@ sh4op! {
     }
 }
 
+const MASK_N_M: u16 = 0xF00F;
+const MASK_N_M_IMM4: u16 = 0xF000;
+const MASK_N: u16 = 0xF0FF;
+const MASK_NONE: u16 = 0xFFFF;
+const MASK_IMM8: u16 = 0xFF00;
+const MASK_IMM12: u16 = 0xF000;
+const MASK_N_IMM8: u16 = 0xF000;
+const MASK_N_ML3BIT: u16 = 0xF08F;
+const MASK_NH3BIT: u16 = 0xF1FF;
+const MASK_NH2BIT: u16 = 0xF3FF;
+
 pub const fn build_opcode_tables(
     opcodes: &[sh4_opcodelistentry]
 ) -> ([fn(&mut Dreamcast, u16); 0x10000],
@@ -1503,16 +1331,18 @@ pub const fn build_opcode_tables(
         }
 
         let (count, shft) = match op.mask {
-            MASK_NONE       => (1, 0),
-            MASK_N          => (16, 8),
-            MASK_N_M        => (256, 4),
-            MASK_N_M_IMM4   => (256*16, 0),
-            MASK_IMM8       => (256, 0),
-            MASK_N_ML3BIT   => (256, 4),
-            MASK_NH3BIT     => (8, 9),
-            MASK_NH2BIT     => (4, 10),
-            _               => (0, 0), // invalid mask -> no expansion
+            0xFFFF => (1, 0),
+            0xF0FF => (16, 8),
+            0xF00F => (256, 4),
+            0xF000 => (256*16, 0),
+            0xFF00 => (256, 0),
+            0xF08F => (256, 4),
+            0xF1FF => (8, 9),
+            0xF3FF => (4, 10),
+            _ => (0, 0),
         };
+
+        assert!(count != 0);
 
         let mask = !(op.mask as u32);
         let base = op.key as u32;
@@ -1531,485 +1361,21 @@ pub const fn build_opcode_tables(
     (ptrs, descs)
 }
 
-pub const SH4_OP_TABLES: (
+// Make the final tables visible to the crate.
+const SH4_OP_TABLES: (
     [fn(&mut Dreamcast, u16); 0x10000],
     [sh4_opcodelistentry; 0x10000]
 ) = build_opcode_tables(OPCODES);
 
-pub const SH4_OP_PTR: [fn(&mut Dreamcast, u16); 0x10000] = SH4_OP_TABLES.0;
-pub const SH4_OP_DESC: [sh4_opcodelistentry; 0x10000] = SH4_OP_TABLES.1;
-
-// Executes the operation using raw pointers.
-// Safe API; unsafety is contained inside.
-pub mod backend_exec {
-    #[inline(always)]
-    pub fn sh4_muls32(dst: *mut u32, src_n: *const u32, src_m: *const u32) {
-        unsafe {
-            let a = (*src_n) as i32;
-            let b = (*src_m) as i32;
-            *dst = a.wrapping_mul(b) as u32;
-        }
-    }
-
-    #[inline(always)]
-    pub fn sh4_store32(dst: *mut u32, src: *const u32) {
-        unsafe {
-            *dst = *src;
-        }
-    }
-
-    #[inline(always)]
-    pub fn sh4_store32i(dst: *mut u32, imm: u32) {
-        unsafe {
-            *dst = imm;
-        }
-    }
-
-    #[inline(always)]
-    pub fn sh4_and(dst: *mut u32, src_n: *const u32, src_m: *const u32) {
-        unsafe {
-            *dst = *src_n & *src_m;
-        }
-    }
-
-    #[inline(always)]
-    pub fn sh4_xor(dst: *mut u32, src_n: *const u32, src_m: *const u32) {
-        unsafe {
-            *dst = *src_n ^ *src_m;
-        }
-    }
-    
-    #[inline(always)]
-    pub fn sh4_sub(dst: *mut u32, src_n: *const u32, src_m: *const u32) {
-        unsafe {
-            *dst = (*src_n).wrapping_sub(*src_m);
-        }
-    }
-
-    #[inline(always)]
-    pub fn sh4_add(dst: *mut u32, src_n: *const u32, src_m: *const u32) {
-        unsafe {
-            *dst = (*src_n).wrapping_add(*src_m);
-        }
-    }
-
-    #[inline(always)]
-    pub fn sh4_addi(dst: *mut u32, src_n: *const u32, imm: u32) {
-        unsafe {
-            *dst = (*src_n).wrapping_add(imm);
-        }
-    }
-
-    #[inline(always)]
-    pub fn sh4_neg(dst: *mut u32, src_n: *const u32) {
-        unsafe {
-            *dst = (*src_n).wrapping_neg();
-        }
-    }
-
-    #[inline(always)]
-    pub fn sh4_extub(dst: *mut u32, src: *const u32) {
-        unsafe {
-            *dst = *src as u8 as u32;
-        }
-    }
-
-    #[inline(always)]
-    pub fn sh4_dt(sr_T: *mut u32, dst: *mut u32) {
-        unsafe {
-            *dst = (*dst).wrapping_sub(1);
-            *sr_T = if *dst == 0 { 1 } else { 0 };
-        }
-    }
-
-    #[inline(always)]
-    pub fn sh4_shlr(sr_T: *mut u32, dst: *mut u32, src_n: *const u32) {
-        unsafe {
-            *sr_T = *src_n & 1; 
-            *dst = *src_n >> 1;
-        }
-    }
-
-    #[inline(always)]
-    pub fn sh4_shllf(dst: *mut u32, src_n: *const u32, amt: u32) {
-        unsafe {
-            *dst = *src_n << amt;
-        }
-    }
-
-    #[inline(always)]
-    pub fn sh4_shlrf(dst: *mut u32, src_n: *const u32, amt: u32) {
-        unsafe {
-            *dst = *src_n >> amt;
-        }
-    }
-
-    #[inline(always)]
-    pub fn sh4_write_mem8(dc: *mut super::Dreamcast, addr: *const u32, data: *const u32) {
-        unsafe {
-            let _ = super::write_mem::<u8>(&mut *dc, *addr, *data as u8);
-        }
-    }
-
-    #[inline(always)]
-    pub fn sh4_write_mem16(dc: *mut super::Dreamcast, addr: *const u32, data: *const u32) {
-        unsafe {
-            let _ = super::write_mem::<u16>(&mut *dc, *addr, *data as u16);
-        }
-    }
-
-    #[inline(always)]
-    pub fn sh4_write_mem32(dc: *mut super::Dreamcast, addr: *const u32, data: *const u32) {
-        unsafe {
-            let _ = super::write_mem::<u32>(&mut *dc, *addr, *data);
-        }
-    }
-
-    #[inline(always)]
-    pub fn sh4_write_mem64(dc: *mut super::Dreamcast, addr: *const u32, data: *const u64) {
-        unsafe {
-            let _ = super::write_mem::<u64>(&mut *dc, *addr, *data);
-        }
-    }
-
-    #[inline(always)]
-    pub fn sh4_read_mems8(dc: *mut super::Dreamcast, addr: *const u32, data: *mut u32) {
-        unsafe {
-            let mut read: i8 = 0;
-            let _ = super::read_mem::<i8>(&mut *dc, *addr, &mut read);
-            *data = read as i32 as u32;
-        }
-    }
-
-    #[inline(always)]
-    pub fn sh4_read_mems16(dc: *mut super::Dreamcast, addr: *const u32, data: *mut u32) {
-        unsafe {
-            let mut read: i16 = 0;
-            let _ = super::read_mem::<i16>(&mut *dc, *addr, &mut read);
-            *data = read as i32 as u32;
-        }
-    }
-
-    #[inline(always)]
-    pub fn sh4_read_mem32(dc: *mut super::Dreamcast, addr: *const u32, data: *mut u32) {
-        unsafe {
-            let _ = super::read_mem::<u32>(&mut *dc, *addr, &mut *data);
-        }
-    }
-
-    #[inline(always)]
-    pub fn sh4_read_mem64(dc: *mut super::Dreamcast, addr: *const u32, data: *mut u64) {
-        unsafe {
-            let _ = super::read_mem::<u64>(&mut *dc, *addr, &mut *data);
-        }
-    }
-
-
-    #[inline(always)]
-    pub fn sh4_read_mem32i(dc: *mut super::Dreamcast, addr: u32, data: *mut u32) {
-        unsafe {
-            let _ = super::read_mem::<u32>(&mut *dc, addr, &mut *data);
-        }
-    }
-
-    #[inline(always)]
-    pub fn sh4_fadd(dst: *mut f32, src_n: *const f32, src_m: *const f32) {
-        unsafe {
-            *dst = *src_n + *src_m;
-        }
-    }
-
-    #[inline(always)]
-    pub fn sh4_fmul(dst: *mut f32, src_n: *const f32, src_m: *const f32) {
-        unsafe {
-            *dst = *src_n * *src_m;
-        }
-    }
-    
-    #[inline(always)]
-    pub fn sh4_fdiv(dst: *mut f32, src_n: *const f32, src_m: *const f32) {
-        unsafe {
-            *dst = *src_n / *src_m;
-        }
-    }
-
-    #[inline(always)]
-    pub fn sh4_fsca(dst: *mut f32, index: *const u32) {
-        unsafe {
-            let pi_index = *index & 0xFFFF;
-            // rads = (index / (65536/2)) * pi
-            let rads = (pi_index as f32) / (65536.0f32 / 2.0f32) * std::f32::consts::PI;
-
-            *dst.add(0) = rads.sin();
-            *dst.add(1) = rads.cos();
-        }
-    }
-
-    #[inline(always)]
-    pub fn sh4_float(dst: *mut f32, src: *const u32) {
-        unsafe {
-            *dst = *src as i32 as f32;
-        }
-    }
-
-    #[inline(always)]
-    pub fn sh4_ftrc(dst: *mut u32, src: *const f32) {
-        unsafe {
-            let clamped = (*src).min(0x7FFFFFBF as f32);
-            let mut as_i = clamped as i32 as u32;
-            if as_i == 0x80000000 {
-                if (*src) > 0.0 {
-                    as_i = as_i.wrapping_sub(1);
-                }
-            }
-            *dst = as_i;
-        }
-    }
-
-    #[inline(always)]
-    pub fn sh4_branch_cond(dc: *mut super::Dreamcast, T: *const u32, condition: u32, next: u32, target: u32) {
-        unsafe {
-            if *T == condition {
-                (*dc).ctx.pc1 = target;
-                (*dc).ctx.pc2 = target.wrapping_add(2);
-            } else {
-                // these are calcualted by the pipeline logic in the main loop, no need to do it here
-                // but it is done anyway for validation purposes
-                (*dc).ctx.pc1 = next;
-                (*dc).ctx.pc2 = next.wrapping_add(2);
-            }
-        }
-    }
-
-    #[inline(always)]
-    pub fn sh4_branch_cond_delay(dc: *mut super::Dreamcast, T: *const u32, condition: u32, next: u32, target: u32) {
-        unsafe {
-            if *T == condition {
-                (*dc).ctx.pc2 = target;
-            } else {
-                // this is calcualted by the pipeline logic in the main loop, no need to do it here
-                // but it is done anyway for validation purposes
-                (*dc).ctx.pc2 = next;
-            }
-            (*dc).ctx.is_delayslot1 = 1;
-        }
-    }
-
-    #[inline(always)]
-    pub fn sh4_branch_delay(dc: *mut super::Dreamcast, target: u32) {
-        unsafe {
-            (*dc).ctx.pc2 = target;
-            (*dc).ctx.is_delayslot1 = 1;
-        }
-    }
-}
-
-// Decoder/recording backend: stores stable pointers to records (no pc/a/b).
-pub mod backend_dec {
-    use std::{cell::RefCell, ptr::NonNull};
-
-    #[repr(C)]
-    #[derive(Clone, Copy)]
-    pub struct MulRec {
-        pub dst:   *mut u32,
-        pub src_n: *const u32,
-        pub src_m: *const u32,
-    }
-
-    thread_local! {
-        // Owns storage so pointers remain valid until `clear`.
-        static ARENA: RefCell<Vec<Box<MulRec>>> = RefCell::new(Vec::with_capacity(1 << 16));
-        // Compact list of stable pointers into ARENA.
-        static PTRS:  RefCell<Vec<NonNull<MulRec>>> = RefCell::new(Vec::with_capacity(1 << 16));
-    }
-
-    #[inline(always)]
-    pub fn sh4_muls32(dst: *mut u32, src_n: *const u32, src_m: *const u32) {
-        ARENA.with(|arena| PTRS.with(|ptrs| {
-            let mut arena = arena.borrow_mut();
-            let mut ptrs  = ptrs.borrow_mut();
-
-            let mut rec = Box::new(MulRec { dst, src_n, src_m });
-            let nn = NonNull::from(rec.as_mut());
-
-            arena.push(rec);
-            ptrs.push(nn);
-        }));
-    }
-
-    #[inline(always)]
-    pub fn sh4_store32(dst: *mut u32, src: *const u32) {
-        panic!("sh4_store32 is not implemented in backend_dec");
-    }
-
-    #[inline(always)]
-    pub fn sh4_store32i(dst: *mut u32, imm: u32) {
-        panic!("sh4_store32i is not implemented in backend_dec");
-    }
-
-    #[inline(always)]
-    pub fn sh4_and(dst: *mut u32, src_n: *const u32, src_m: *const u32) {
-        panic!("sh4_and is not implemented in backend_dec");
-    }
-
-    #[inline(always)]
-    pub fn sh4_xor(dst: *mut u32, src_n: *const u32, src_m: *const u32) {
-        panic!("sh4_xor is not implemented in backend_dec");
-    }
-    
-    #[inline(always)]
-    pub fn sh4_sub(dst: *mut u32, src_n: *const u32, src_m: *const u32) {
-        panic!("sh4_sub is not implemented in backend_dec");
-    }
-
-    #[inline(always)]
-    pub fn sh4_add(dst: *mut u32, src_n: *const u32, src_m: *const u32) {
-        panic!("sh4_add is not implemented in backend_dec");
-    }
-
-    #[inline(always)]
-    pub fn sh4_addi(dst: *mut u32, src_n: *const u32, imm: u32) {
-        panic!("sh4_addi is not implemented in backend_dec");
-    }
-
-    #[inline(always)]
-    pub fn sh4_neg(dst: *mut u32, src_n: *const u32) {
-        panic!("sh4_neg is not implemented in backend_dec");
-    }
-
-    #[inline(always)]
-    pub fn sh4_extub(dst: *mut u32, src: *const u32) {
-        panic!("sh4_extub is not implemented in backend_dec");
-    }
-
-    #[inline(always)]
-    pub fn sh4_dt(sr_T: *mut u32, dst: *mut u32) {
-        panic!("sh4_dt is not implemented in backend_dec");
-    }
-    
-    #[inline(always)]
-    pub fn sh4_shlr(sr_T: *mut u32, dst: *mut u32, src_n: *const u32) {
-        panic!("sh4_shlr is not implemented in backend_dec");
-    }
-
-    #[inline(always)]
-    pub fn sh4_shllf(dst: *mut u32, src_n: *const u32, amt: u32) {
-        panic!("sh4_shllf is not implemented in backend_dec");
-    }
-
-    #[inline(always)]
-    pub fn sh4_shlrf(dst: *mut u32, src_n: *const u32, amt: u32) {
-        panic!("sh4_shlrf is not implemented in backend_dec");
-    }
-
-    
-    #[inline(always)]
-    pub fn sh4_write_mem8(dc: *mut super::Dreamcast, addr: *const u32, data: *const u32) {
-        panic!("sh4_write_mem8 is not implemented in backend_dec");
-    }
-
-    #[inline(always)]
-    pub fn sh4_write_mem16(dc: *mut super::Dreamcast, addr: *const u32, data: *const u32) {
-        panic!("sh4_write_mem16 is not implemented in backend_dec");
-    }
-
-    #[inline(always)]
-    pub fn sh4_write_mem32(dc: *mut super::Dreamcast, addr: *const u32, data: *const u32) {
-        panic!("sh4_write_mem32 is not implemented in backend_dec");
-    }
-
-    #[inline(always)]
-    pub fn sh4_write_mem64(dc: *mut super::Dreamcast, addr: *const u32, data: *const u64) {
-        panic!("sh4_write_mem64 is not implemented in backend_dec");
-    }
-
-    #[inline(always)]
-    pub fn sh4_read_mems8(dc: *mut super::Dreamcast, addr: *const u32, data: *mut u32) {
-        panic!("sh4_read_mems8 is not implemented in backend_dec");
-    }
-
-    #[inline(always)]
-    pub fn sh4_read_mems16(dc: *mut super::Dreamcast, addr: *const u32, data: *mut u32) {
-        panic!("sh4_read_mems16 is not implemented in backend_dec");
-    }
-
-    #[inline(always)]
-    pub fn sh4_read_mem32(dc: *mut super::Dreamcast, addr: *const u32, data: *mut u32) {
-        panic!("sh4_read_mems32 is not implemented in backend_dec");
-    }
-
-    #[inline(always)]
-    pub fn sh4_read_mem64(dc: *mut super::Dreamcast, addr: *const u32, data: *mut u64) {
-        panic!("sh4_read_mems64 is not implemented in backend_dec");
-    }
-
-    pub fn sh4_read_mem32i(dc: *mut super::Dreamcast, addr: u32, data: *mut u32) {
-        panic!("sh4_read_mem32i is not implemented in backend_dec");
-    }
-    
-    #[inline(always)]
-    pub fn sh4_fadd(dst: *mut f32, src_n: *const f32, src_m: *const f32) {
-        panic!("sh4_fadd is not implemented in backend_dec");
-    }
-
-    #[inline(always)]
-    pub fn sh4_fmul(dst: *mut f32, src_n: *const f32, src_m: *const f32) {
-        panic!("sh4_fmul is not implemented in backend_dec");
-    }
-    
-    #[inline(always)]
-    pub fn sh4_fdiv(dst: *mut f32, src_n: *const f32, src_m: *const f32) {
-        panic!("sh4_fdiv is not implemented in backend_dec");
-    }
-
-    #[inline(always)]
-    pub fn sh4_fsca(dst: *mut f32, index: *const u32) {
-        panic!("sh4_fsca is not implemented in backend_dec");
-    }
-
-    #[inline(always)]
-    pub fn sh4_float(dst: *mut f32, src: *const u32) {
-        panic!("sh4_float is not implemented in backend_dec");
-    }
-
-    #[inline(always)]
-    pub fn sh4_ftrc(dst: *mut u32, src: *const f32) {
-        panic!("sh4_ftrc is not implemented in backend_dec");
-    }
-
-    
-    #[inline(always)]
-    pub fn sh4_branch_cond(dc: *mut super::Dreamcast, T: *const u32, condition: u32, next: u32, target: u32) {
-        panic!("sh4_branch_cond is not implemented in backend_dec");
-    }
-
-    #[inline(always)]
-    pub fn sh4_branch_cond_delay(dc: *mut super::Dreamcast, T: *const u32, condition: u32, next: u32, target: u32) {
-        panic!("sh4_branch_cond_delay is not implemented in backend_dec");
-    }
-
-    #[inline(always)]
-    pub fn sh4_branch_delay(dc: *mut super::Dreamcast, target: u32) {
-        panic!("sh4_branch_delay is not implemented in backend_dec");
-    }
-
-    #[inline]
-    pub fn ptrs_snapshot() -> Vec<NonNull<MulRec>> {
-        PTRS.with(|p| p.borrow().iter().copied().collect())
-    }
-
-    #[inline]
-    pub fn clear() {
-        ARENA.with(|a| a.borrow_mut().clear());
-        PTRS.with(|p| p.borrow_mut().clear());
-    }
-}
-
-pub static ROTO_BIN: &[u8] = include_bytes!("../roto.bin");
-
-
-pub fn format_disas(template: &str, pc:u32, instr: u16) -> String {
-    let mut out = template.to_string();
+pub(crate) const SH4_OP_PTR:  [fn(&mut Dreamcast, u16); 0x10000] = SH4_OP_TABLES.0;
+pub(crate) const SH4_OP_DESC: [sh4_opcodelistentry; 0x10000]     = SH4_OP_TABLES.1;
+
+// // Re-export for parent (and callers) to `use sh4dec::{...}` or via the re-export in dreamcast_sh4.rs
+// pub use SH4_OP_PTR as _;
+// pub use SH4_OP_DESC as _;
+
+pub fn format_disas(pc:u32, instr: u16) -> String {
+    let mut out = unsafe { SH4_OP_DESC.get_unchecked(instr as usize).diss }.to_string();
 
     // ---------------- General-purpose registers ----------------
     if out.contains("<REG_N>") {
@@ -2142,75 +1508,4 @@ pub fn format_disas(template: &str, pc:u32, instr: u16) -> String {
     }
 
     out
-}
-
-pub fn init_dreamcast(dc: &mut Dreamcast) {
-    // Zero entire struct (like memset). In Rust, usually you'd implement Default.
-    *dc = Dreamcast::default();
-
-    // Build opcode tables
-    // build_opcode_tables(dc);
-
-    // Setup memory map
-    dc.memmap[0x0C] = dc.sys_ram.as_mut_ptr();
-    dc.memmask[0x0C] = SYSRAM_MASK;
-    dc.memmap[0x8C] = dc.sys_ram.as_mut_ptr();
-    dc.memmask[0x8C] = SYSRAM_MASK;
-    dc.memmap[0xA5] = dc.video_ram.as_mut_ptr();
-    dc.memmask[0xA5] = VIDEORAM_MASK;
-
-    // Set initial PC
-    dc.ctx.pc0 = 0x8C01_0000;
-    dc.ctx.pc1 = 0x8C01_0000 + 2;
-    dc.ctx.pc2 = 0x8C01_0000 + 4;
-
-    // Copy roto.bin from embedded ROTO_BIN
-    let sysram_slice = &mut dc.sys_ram[0x10000..0x10000 + ROTO_BIN.len()];
-    sysram_slice.copy_from_slice(ROTO_BIN);
-}
-
-
-pub fn run_dreamcast(dc: &mut Dreamcast) {
-    loop {
-        let mut instr: u16 = 0;
-
-        // Equivalent of: read_mem(dc, dc->ctx.pc, instr);
-        read_mem(dc, dc.ctx.pc0, &mut instr);
-
-        // let mnemonic = format_disas(unsafe { SH4_OP_DESC.get_unchecked(instr as usize).diss }, dc.ctx.pc0, instr);
-        // println!("{:x}: {}", dc.ctx.pc0, mnemonic);
-
-        // Call the opcode handler
-        let handler = unsafe { *SH4_OP_PTR.get_unchecked(instr as usize) };
-        handler(dc, instr);
-
-        dc.ctx.pc0 = dc.ctx.pc1;
-        dc.ctx.pc1 = dc.ctx.pc2;
-        dc.ctx.pc2 = dc.ctx.pc2.wrapping_add(2);
-
-        dc.ctx.is_delayslot0 = dc.ctx.is_delayslot1;
-        dc.ctx.is_delayslot1 = 0;
-
-        // Break when remaining_cycles reaches 0
-        dc.ctx.remaining_cycles = dc.ctx.remaining_cycles.wrapping_sub(1);
-        if dc.ctx.remaining_cycles <= 0 {
-            break;
-        }
-    }
-}
-
-
-pub fn rgb565_to_color32(buf: &[u16], w: usize, h: usize) -> egui::ColorImage {
-    let mut pixels = Vec::with_capacity(w * h);
-    for &px in buf {
-        let r = ((px >> 11) & 0x1F) as u8;
-        let g = ((px >> 5) & 0x3F) as u8;
-        let b = (px & 0x1F) as u8;
-        // Expand to 8-bit
-        let r = (r << 3) | (r >> 2);
-        let g = (g << 2) | (g >> 4);
-        let b = (b << 3) | (b >> 2);
-        pixels.push(egui::Color32::from_rgb(r, g, b));
-    }
-    egui::ColorImage { size: [w, h], pixels, source_size: egui::vec2(w as f32, h as f32) }
 }
