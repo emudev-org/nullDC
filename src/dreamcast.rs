@@ -2246,6 +2246,142 @@ pub mod backend_dec {
 pub static ROTO_BIN: &[u8] = include_bytes!("../roto.bin");
 
 
+pub fn format_disas(template: &str, pc:u32, instr: u16) -> String {
+    let mut out = template.to_string();
+
+    // ---------------- General-purpose registers ----------------
+    if out.contains("<REG_N>") {
+        let n = (instr >> 8) & 0xF;
+        out = out.replace("<REG_N>", &format!("r{}", n));
+    }
+    if out.contains("<REG_M>") {
+        let m = (instr >> 4) & 0xF;
+        out = out.replace("<REG_M>", &format!("r{}", m));
+    }
+
+    // ---------------- Immediates ----------------
+    if out.contains("<IMM4>") {
+        let imm = instr & 0xF;
+        out = out.replace("<IMM4>", &format!("#{}", imm));
+    }
+    if out.contains("<IMM8>") || out.contains("<imm8>") {
+        let imm = (instr & 0xFF) as i8;
+        out = out.replace("<IMM8>", &format!("#{}", imm));
+        out = out.replace("<imm8>", &format!("#{}", imm));
+    }
+    if out.contains("<simm8>") {
+        let imm = (instr & 0xFF) as i8;
+        out = out.replace("<simm8>", &format!("{}", imm));
+    }
+    if out.contains("<simm8hex>") {
+        let imm = (instr & 0xFF) as i8;
+        out = out.replace("<simm8hex>", &format!("{:#x}", imm));
+    }
+
+    // ---------------- Displacements ----------------
+    if out.contains("<bdisp8>") {
+        let disp = ((instr & 0xFF) as i8 as i32) << 1;
+        out = out.replace("<bdisp8>", &format!("{:#x}", disp));
+    }
+    if out.contains("<bdisp12>") {
+        let disp = ((instr & 0x0FFF) as i16 as i32) << 1;
+        out = out.replace("<bdisp12>", &format!("{:#x}", disp));
+    }
+
+    // 4-bit disps
+    if out.contains("<disp4b>") {
+        let d = instr & 0xF;
+        out = out.replace("<disp4b>", &format!("{:#x}", d));
+    }
+    if out.contains("<disp4w>") {
+        let d = (instr & 0xF) << 1;
+        out = out.replace("<disp4w>", &format!("{:#x}", d));
+    }
+    if out.contains("<disp4dw>") {
+        let d = (instr & 0xF) << 2;
+        out = out.replace("<disp4dw>", &format!("{:#x}", d));
+    }
+
+    // 8-bit disps
+    if out.contains("<disp8b>") {
+        let d = instr & 0xFF;
+        out = out.replace("<disp8b>", &format!("{:#x}", d));
+    }
+    if out.contains("<disp8w>") {
+        let d = (instr & 0xFF) << 1;
+        out = out.replace("<disp8w>", &format!("{:#x}", d));
+    }
+    if out.contains("<disp8dw>") {
+        let d = (instr & 0xFF) << 2;
+        out = out.replace("<disp8dw>", &format!("{:#x}", d));
+    }
+
+    // PC relative
+    if out.contains("<PCdisp8d>") {
+        let d = (instr & 0xFF) << 2;
+        out = out.replace("<PCdisp8d>", &format!("{:#x}", d));
+    }
+    if out.contains("<PCdisp8w>") {
+        let d = (instr & 0xFF) << 1;
+        out = out.replace("<PCdisp8w>", &format!("{:#x}", d));
+    }
+
+    // GBR disps
+    if out.contains("<GBRdisp8b>") {
+        let d = instr & 0xFF;
+        out = out.replace("<GBRdisp8b>", &format!("{:#x}", d));
+    }
+    if out.contains("<GBRdisp8w>") {
+        let d = (instr & 0xFF) << 1;
+        out = out.replace("<GBRdisp8w>", &format!("{:#x}", d));
+    }
+    if out.contains("<GBRdisp8dw>") {
+        let d = (instr & 0xFF) << 2;
+        out = out.replace("<GBRdisp8dw>", &format!("{:#x}", d));
+    }
+
+    // ---------------- Floating-point regs ----------------
+    if out.contains("<FREG_N>") {
+        let n = (instr >> 8) & 0xF;
+        out = out.replace("<FREG_N>", &format!("fr{}", n));
+    }
+    if out.contains("<FREG_M>") {
+        let m = (instr >> 4) & 0xF;
+        out = out.replace("<FREG_M>", &format!("fr{}", m));
+    }
+    if out.contains("<FREG_N_SD_F>") {
+        let n = (instr >> 8) & 0xF;
+        out = out.replace("<FREG_N_SD_F>", &format!("fr{}", n));
+    }
+    if out.contains("<FREG_M_SD_F>") {
+        let m = (instr >> 4) & 0xF;
+        out = out.replace("<FREG_M_SD_F>", &format!("fr{}", m));
+    }
+    if out.contains("<FREG_N_SD_A>") {
+        let n = (instr >> 8) & 0xF;
+        out = out.replace("<FREG_N_SD_A>", &format!("fr{}", n));
+    }
+    if out.contains("<FREG_M_SD_A>") {
+        let m = (instr >> 4) & 0xF;
+        out = out.replace("<FREG_M_SD_A>", &format!("fr{}", m));
+    }
+
+    if out.contains("<DR_N>") {
+        let n = ((instr >> 8) & 0xE) >> 1; // even reg pair
+        out = out.replace("<DR_N>", &format!("dr{}", n));
+    }
+    if out.contains("<FV_N>") {
+        let n = ((instr >> 8) & 0xC) >> 2; // vector index
+        out = out.replace("<FV_N>", &format!("fv{}", n));
+    }
+    if out.contains("<FV_M>") {
+        let m = ((instr >> 4) & 0xC) >> 2;
+        out = out.replace("<FV_M>", &format!("fv{}", m));
+    }
+
+    out
+}
+
 pub fn init_dreamcast(dc: &mut Dreamcast) {
     // Zero entire struct (like memset). In Rust, usually you'd implement Default.
     *dc = Dreamcast::default();
@@ -2278,6 +2414,9 @@ pub fn run_dreamcast(dc: &mut Dreamcast) {
 
         // Equivalent of: read_mem(dc, dc->ctx.pc, instr);
         read_mem(dc, dc.ctx.pc0, &mut instr);
+
+        // let mnemonic = format_disas(unsafe { SH4_OP_DESC.get_unchecked(instr as usize).diss }, dc.ctx.pc0, instr);
+        // println!("{:x}: {}", dc.ctx.pc0, mnemonic);
 
         // Call the opcode handler
         let handler = unsafe { *SH4_OP_PTR.get_unchecked(instr as usize) };
