@@ -2243,66 +2243,6 @@ pub mod backend_dec {
     }
 }
 
-fn diff_opcodes(new: &[sh4_opcodelistentry], old: &[sh4_opcodelistentry]) {
-    let mut new_idx: Vec<usize> = (0..new.len()).collect();
-    let mut old_idx: Vec<usize> = (0..old.len()).collect();
-
-    new_idx.sort_by_key(|&i| new[i].key);
-    old_idx.sort_by_key(|&i| old[i].key);
-
-    let (mut i, mut j) = (0, 0);
-
-    while i < new_idx.len() && j < old_idx.len() {
-        let a = &new[new_idx[i]];
-        let b = &old[old_idx[j]];
-        match a.key.cmp(&b.key) {
-            std::cmp::Ordering::Equal => {
-                if a.mask != b.mask || a.diss != b.diss || a.handler_name != b.handler_name {
-                    println!(
-                        "Key {:04x} differs:\n  NEW: {:<20} mask={:04x} diss={}\n  OLD: {:<20} mask={:04x} diss={}",
-                        a.key, a.handler_name, a.mask, a.diss,
-                        b.handler_name, b.mask, b.diss
-                    );
-                }
-                i += 1;
-                j += 1;
-            }
-            std::cmp::Ordering::Less => {
-                println!(
-                    "Key {:04x} present in NEW only: {:<20} mask={:04x} diss={}",
-                    a.key, a.handler_name, a.mask, a.diss
-                );
-                i += 1;
-            }
-            std::cmp::Ordering::Greater => {
-                println!(
-                    "Key {:04x} present in OLD only: {:<20} mask={:04x} diss={}",
-                    b.key, b.handler_name, b.mask, b.diss
-                );
-                j += 1;
-            }
-        }
-    }
-
-    while i < new_idx.len() {
-        let a = &new[new_idx[i]];
-        println!(
-            "Key {:04x} present in NEW only: {:<20} mask={:04x} diss={}",
-            a.key, a.handler_name, a.mask, a.diss
-        );
-        i += 1;
-    }
-    while j < old_idx.len() {
-        let b = &old[old_idx[j]];
-        println!(
-            "Key {:04x} present in OLD only: {:<20} mask={:04x} diss={}",
-            b.key, b.handler_name, b.mask, b.diss
-        );
-        j += 1;
-    }
-}
-
-
 pub static ROTO_BIN: &[u8] = include_bytes!("../roto.bin");
 
 
