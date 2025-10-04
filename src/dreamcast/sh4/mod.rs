@@ -97,14 +97,14 @@ mod backend_fns;
 pub fn sh4_ipr_dispatcher(dc: *mut Dreamcast) {
     unsafe {
         loop {
-            let mut instr: u16 = 0;
+            let mut opcode: u16 = 0;
 
-            // Equivalent of: read_mem(dc, dc->ctx.pc, instr);
-            read_mem(dc, (*dc).ctx.pc0, &mut instr);
+            // Equivalent of: read_mem(dc, dc->ctx.pc, opcode);
+            read_mem(dc, (*dc).ctx.pc0, &mut opcode);
 
             // Call the opcode handler
-            let handler = *SH4_OP_PTR.get_unchecked(instr as usize);
-            handler(dc, instr);
+            let handler = *SH4_OP_PTR.get_unchecked(opcode as usize);
+            handler(dc, opcode);
 
             (*dc).ctx.pc0 = (*dc).ctx.pc1;
             (*dc).ctx.pc1 = (*dc).ctx.pc2;
@@ -139,18 +139,18 @@ unsafe fn sh4_build_block(dc: &mut Dreamcast, start_pc: u32) -> *const u8 {
     dc.ctx.dec_branch_dslot = 0;
 
     loop {
-        let mut instr: u16 = 0;
+        let mut opcode: u16 = 0;
 
-        // Equivalent of: read_mem(dc, dc->ctx.pc, instr);
-        read_mem(dc, current_pc, &mut instr);
+        // Equivalent of: read_mem(dc, dc->ctx.pc, opcode);
+        read_mem(dc, current_pc, &mut opcode);
 
-        println!("{:x}: {}", current_pc, format_disas(SH4DecoderState{pc: current_pc, fpscr_PR: (*dc).ctx.fpscr_PR, fpscr_SZ: (*dc).ctx.fpscr_SZ}, instr));
+        println!("{:x}: {}", current_pc, format_disas(SH4DecoderState{pc: current_pc, fpscr_PR: (*dc).ctx.fpscr_PR, fpscr_SZ: (*dc).ctx.fpscr_SZ}, opcode));
 
         // Call the opcode handler
         dc.ctx.pc0 = current_pc;
-        let handler = unsafe { (*SH4_OP_DESC.get_unchecked(instr as usize)).dech };
+        let handler = unsafe { (*SH4_OP_DESC.get_unchecked(opcode as usize)).dech };
         let was_branch_dslot = dc.ctx.dec_branch_dslot;
-        handler(dc, instr);
+        handler(dc, opcode);
         if was_branch_dslot != 0 {
             dc.ctx.dec_branch_dslot = 0;
         }
