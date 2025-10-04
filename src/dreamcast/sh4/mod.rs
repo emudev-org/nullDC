@@ -123,7 +123,7 @@ pub fn sh4_ipr_dispatcher(dc: *mut Dreamcast) {
 }
 
 unsafe fn sh4_build_block(dc: &mut Dreamcast, start_pc: u32) -> *const u8 {
-    let mut remaining_line = 32 - (start_pc & 31);
+    let mut remaining_line = (32 - (start_pc & 31)) / 2;
 
     let mut current_pc = start_pc;
 
@@ -187,7 +187,9 @@ unsafe fn sh4_build_block(dc: &mut Dreamcast, start_pc: u32) -> *const u8 {
     dc.ctx.pc0 = start_pc;
 
     dec_patch_dispatcher();
-    unsafe { dec_finalize_shrink().0 }
+    let rv = unsafe { dec_finalize_shrink() };
+    println!("BLOCK done {:?} {}", rv.0, rv.1);
+    rv.0
 }
 
 pub fn sh4_fns_decode_on_demand(dc: &mut Dreamcast) {

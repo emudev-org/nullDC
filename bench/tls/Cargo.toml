@@ -1,0 +1,25 @@
+[package]
+name = "tls-vs-param-bench"
+version = "0.1.0"
+edition = "2021"
+
+[[bench]]
+name = "tls_vs_param"
+harness = false
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[profile.bench]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+debug = true
+
+[target.x86_64-pc-windows-msvc]
+rustflags = [
+  "-C", "link-arg=/EXPORT:param_sum",
+  "-C", "link-arg=/EXPORT:tls_sum_hoisted",
+  "-C", "link-arg=/EXPORT:tls_sum_per_iter",
+]
+
