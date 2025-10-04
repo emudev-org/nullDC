@@ -1,6 +1,5 @@
 use std::sync::Arc;
 use std::ptr;
-use std::time::Instant;
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -621,10 +620,7 @@ impl ApplicationHandler for AppHandle {
                             let dreamcast = app.dreamcast;
                             unsafe {
                                 (*dreamcast).ctx.remaining_cycles += 2_000_000;
-                                let t0 = Instant::now();
                                 run_dreamcast(dreamcast);
-                                let dt = t0.elapsed();
-                                eprintln!("run_dreamcast took {:?}", dt);
 
                                 let base_u8: *const u8 = (*dreamcast).video_ram.as_ptr().add(0x0000); // add offset if needed
 
