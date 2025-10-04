@@ -40,33 +40,43 @@ const fn parse_opcode(pattern: &str) -> (u16, u16) {
     (mask, key)
 }
 
+#[derive(Copy, Clone)]
+pub struct SH4DecoderState {
+    pub pc: u32,
+    pub fpscr_PR: u32,
+    pub fpscr_SZ: u32,
+}
+
 macro_rules! sh4op {
     (
         $( (disas = $diss:literal)
            $name:ident ( $($params:tt)* ) { $($body:tt)* }
         )*
     ) => {
-        // Make the generated modules visible within the crate.
+        // Exec expansion
         pub(crate) mod exec {
             use super::*;
             $(
-                sh4op!(@emit $name ( $($params)* ) { $($body)* } ; backend = crate::dreamcast::sh4::backend_ipr);
+                sh4op!(@emit $name ( $($params)* ) { $($body)* }
+                       ; backend = crate::dreamcast::sh4::backend_ipr);
             )*
         }
+        // Decoder expansion
         pub(crate) mod dec {
             use super::*;
             $(
-                sh4op!(@emit $name ( $($params)* ) { $($body)* } ; backend = crate::dreamcast::sh4::backend_fns);
+                sh4op!(@emit $name ( $($params)* ) { $($body)* }
+                       ; backend = crate::dreamcast::sh4::backend_fns);
             )*
         }
 
-        // Local opcode descriptor array for expansion
+        // Opcode descriptor table
         pub(crate) static OPCODES: &[sh4_opcodelistentry] = &[
             $(
                 {
                     const MASK_KEY: (u16,u16) = parse_opcode(stringify!($name));
                     sh4_opcodelistentry {
-                        oph: exec::$name,
+                        oph:  exec::$name,
                         dech: dec::$name,
                         handler_name: stringify!($name),
                         mask: MASK_KEY.0,
@@ -75,10 +85,14 @@ macro_rules! sh4op {
                     }
                 }
             ),*,
-            sh4_opcodelistentry { oph: i_not_known, dech: i_not_known, handler_name: "unknown_opcode", mask: 0xFFFF, key: 0, diss: "unknown opcode" },
+            sh4_opcodelistentry {
+                oph: i_not_known, dech: i_not_known,
+                handler_name: "unknown_opcode", mask: 0xFFFF, key: 0, diss: "unknown opcode"
+            },
         ];
     };
 
+    // --- (dc, instr) ---------------------------------------------------------------------------
     (@emit
         $name:ident ( $dc:ident , $instr:ident )
         { $($body:tt)* }
@@ -95,8 +109,9 @@ macro_rules! sh4op {
         }
     };
 
+    // --- (dc, state, instr): inject a local state struct ---------------------------------------
     (@emit
-        $name:ident ( $dc:ident , $pc:ident , $instr:ident )
+        $name:ident ( $dc:ident , $state:ident , $instr:ident )
         { $($body:tt)* }
         ; backend = $backend:path
     ) => {
@@ -106,12 +121,19 @@ macro_rules! sh4op {
             unsafe {
                 #[allow(unused_imports)]
                 use $backend as backend;
-                let $pc: u32 = (*$dc).ctx.pc0;
+
+                let $state = SH4DecoderState {
+                    pc: (*$dc).ctx.pc0,
+                    fpscr_PR: (*$dc).ctx.fpscr_PR,
+                    fpscr_SZ: (*$dc).ctx.fpscr_SZ,
+                };
+
                 { $($body)* }
             }
         }
     };
 }
+
 
 #[inline(always)] fn GetN(str_: u16) -> usize { ((str_ >> 8) & 0xF) as usize }
 #[inline(always)] fn GetM(str_: u16) -> usize { ((str_ >> 4) & 0xF) as usize }
@@ -125,7 +147,7 @@ macro_rules! sh4op {
 #[inline(always)] fn branch_target_s8(pc: u32, disp8: i32) -> u32 { (disp8 as i64 * 2 + 4 + pc as i64) as u32 }
 #[inline(always)] fn branch_target_s12(pc: u32, disp12: i32) -> u32 { (disp12 as i64 * 2 + 4 + pc as i64) as u32 }
 
-fn i_not_implemented(dc: *mut Dreamcast, pc: u32, instr: u16) {
+fn i_not_implemented(dc: *mut Dreamcast, state: SH4DecoderState, instr: u16) {
     let desc_ptr: *const sh4_opcodelistentry = &SH4_OP_DESC[instr as usize];
     let diss = unsafe {
         if desc_ptr.is_null() {
@@ -135,7 +157,7 @@ fn i_not_implemented(dc: *mut Dreamcast, pc: u32, instr: u16) {
             if d.diss.is_empty() { "missing" } else { d.diss }
         }
     };
-    panic!("{:08X}: {:04X} {} [i_not_implemented]", pc, instr, diss);
+    panic!("{:08X}: {:04X} {} [i_not_implemented]", state.pc, instr, diss);
 }
 
 fn i_not_known(dc: *mut Dreamcast, instr: u16) {
@@ -287,65 +309,65 @@ sh4op! {
     }
 
     (disas = "bf <bdisp8>")
-    i1000_1011_iiii_iiii(dc, pc, instr) {
+    i1000_1011_iiii_iiii(dc, state, instr) {
         let disp8 = GetSImm8(instr);
-        let next = pc.wrapping_add(2);
-        let target = branch_target_s8(pc, disp8);
+        let next = state.pc.wrapping_add(2);
+        let target = branch_target_s8(state.pc, disp8);
         backend::sh4_branch_cond(dc, addr_of!((*dc).ctx.sr_T), 0, next, target);
     }
 
     (disas = "bf/s <bdisp8>")
-    i1000_1111_iiii_iiii(dc, pc, instr) {
+    i1000_1111_iiii_iiii(dc, state, instr) {
         let disp8 = GetSImm8(instr);
-        let next = pc.wrapping_add(4);
-        let target = branch_target_s8(pc, disp8);
+        let next = state.pc.wrapping_add(4);
+        let target = branch_target_s8(state.pc, disp8);
         backend::sh4_branch_cond_delay(dc, addr_of!((*dc).ctx.sr_T), 0, next, target);
     }
 
     (disas = "bra <bdisp12>")
-    i1010_iiii_iiii_iiii(dc, pc, instr) {
+    i1010_iiii_iiii_iiii(dc, state, instr) {
         let disp12 = GetSImm12(instr);
-        let target = branch_target_s12(pc, disp12);
+        let target = branch_target_s12(state.pc, disp12);
         backend::sh4_branch_delay(dc, target);
     }
 
     (disas = "mova @(<PCdisp8d>),R0")
-    i1100_0111_iiii_iiii(dc, pc, instr) {
+    i1100_0111_iiii_iiii(dc, state, instr) {
         let disp8 = GetImm8(instr) as i32;
-        let addr = data_target_s8(pc, disp8);
+        let addr = data_target_s8(state.pc, disp8);
         backend::sh4_store32i(addr_of_mut!((*dc).ctx.r[0]), addr);
     }
     (disas = "mov.b R0,@(<disp4b>,<REG_M>)")
-    i1000_0000_mmmm_iiii(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1000_0000_mmmm_iiii(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "mov.w R0,@(<disp4w>,<REG_M>)")
-    i1000_0001_mmmm_iiii(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1000_0001_mmmm_iiii(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "mov.b @(<disp4b>,<REG_M>),R0")
-    i1000_0100_mmmm_iiii(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1000_0100_mmmm_iiii(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "mov.w @(<disp4w>,<REG_M>),R0")
-    i1000_0101_mmmm_iiii(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1000_0101_mmmm_iiii(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "cmp/eq #<simm8hex>,R0")
-    i1000_1000_iiii_iiii(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1000_1000_iiii_iiii(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
 
     (disas = "mov.l @(<PCdisp8d>),<REG_N>")
-    i1101_nnnn_iiii_iiii(dc, pc, instr) {
+    i1101_nnnn_iiii_iiii(dc, state, instr) {
         let n = GetN(instr);
         let disp8 = GetImm8(instr) as i32;
-        let addr = data_target_s8(pc, disp8);
+        let addr = data_target_s8(state.pc, disp8);
 
         backend::sh4_read_mem32i(dc, addr, addr_of_mut!((*dc).ctx.r[n]));
     }
@@ -369,8 +391,8 @@ sh4op! {
     }
 
     (disas = "fsub <FREG_M_SD_F>,<FREG_N_SD_F>")
-    i1111_nnnn_mmmm_0001(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1111_nnnn_mmmm_0001(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "fmul <FREG_M_SD_F>,<FREG_N_SD_F>")
@@ -455,859 +477,859 @@ sh4op! {
     }
 
     (disas = "stc SR,<REG_N>")
-    i0000_nnnn_0000_0010(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0000_nnnn_0000_0010(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "stc GBR,<REG_N>")
-    i0000_nnnn_0001_0010(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0000_nnnn_0001_0010(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "stc VBR,<REG_N>")
-    i0000_nnnn_0010_0010(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0000_nnnn_0010_0010(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "stc SSR,<REG_N>")
-    i0000_nnnn_0011_0010(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0000_nnnn_0011_0010(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "sts SGR,<REG_N>")
-    i0000_nnnn_0011_1010(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0000_nnnn_0011_1010(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "stc SPC,<REG_N>")
-    i0000_nnnn_0100_0010(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0000_nnnn_0100_0010(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "stc RM_BANK,<REG_N>")
-    i0000_nnnn_1mmm_0010(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0000_nnnn_1mmm_0010(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "braf <REG_N>")
-    i0000_nnnn_0010_0011(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0000_nnnn_0010_0011(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "bsrf <REG_N>")
-    i0000_nnnn_0000_0011(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0000_nnnn_0000_0011(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "movca.l R0,@<REG_N>")
-    i0000_nnnn_1100_0011(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0000_nnnn_1100_0011(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "ocbi @<REG_N>")
-    i0000_nnnn_1001_0011(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0000_nnnn_1001_0011(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "ocbp @<REG_N>")
-    i0000_nnnn_1010_0011(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0000_nnnn_1010_0011(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "ocbwb @<REG_N>")
-    i0000_nnnn_1011_0011(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0000_nnnn_1011_0011(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "pref @<REG_N>")
-    i0000_nnnn_1000_0011(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0000_nnnn_1000_0011(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "mov.b <REG_M>,@(R0,<REG_N>)")
-    i0000_nnnn_mmmm_0100(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0000_nnnn_mmmm_0100(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "mov.w <REG_M>,@(R0,<REG_N>)")
-    i0000_nnnn_mmmm_0101(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0000_nnnn_mmmm_0101(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "mov.l <REG_M>,@(R0,<REG_N>)")
-    i0000_nnnn_mmmm_0110(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0000_nnnn_mmmm_0110(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "clrmac")
-    i0000_0000_0010_1000(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0000_0000_0010_1000(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "clrs")
-    i0000_0000_0100_1000(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0000_0000_0100_1000(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "clrt")
-    i0000_0000_0000_1000(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0000_0000_0000_1000(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "ldtlb")
-    i0000_0000_0011_1000(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0000_0000_0011_1000(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "sets")
-    i0000_0000_0101_1000(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0000_0000_0101_1000(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "sett")
-    i0000_0000_0001_1000(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0000_0000_0001_1000(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "div0u")
-    i0000_0000_0001_1001(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0000_0000_0001_1001(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "movt <REG_N>")
-    i0000_nnnn_0010_1001(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0000_nnnn_0010_1001(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "sts FPSCR,<REG_N>")
-    i0000_nnnn_0110_1010(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0000_nnnn_0110_1010(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "sts DBR,<REG_N>")
-    i0000_nnnn_1111_1010(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0000_nnnn_1111_1010(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "sts MACH,<REG_N>")
-    i0000_nnnn_0000_1010(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0000_nnnn_0000_1010(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "rte")
-    i0000_0000_0010_1011(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0000_0000_0010_1011(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "rts")
-    i0000_0000_0000_1011(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0000_0000_0000_1011(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "sleep")
-    i0000_0000_0001_1011(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0000_0000_0001_1011(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "mov.b @(R0,<REG_M>),<REG_N>")
-    i0000_nnnn_mmmm_1100(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0000_nnnn_mmmm_1100(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "mov.w @(R0,<REG_M>),<REG_N>")
-    i0000_nnnn_mmmm_1101(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0000_nnnn_mmmm_1101(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "mov.l @(R0,<REG_M>),<REG_N>")
-    i0000_nnnn_mmmm_1110(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0000_nnnn_mmmm_1110(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "mac.l @<REG_M>+,@<REG_N>+")
-    i0000_nnnn_mmmm_1111(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0000_nnnn_mmmm_1111(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "mov.l <REG_M>,@(<disp4dw>,<REG_N>)")
-    i0001_nnnn_mmmm_iiii(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0001_nnnn_mmmm_iiii(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "mov.b <REG_M>,@-<REG_N>")
-    i0010_nnnn_mmmm_0100(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0010_nnnn_mmmm_0100(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "mov.w <REG_M>,@-<REG_N>")
-    i0010_nnnn_mmmm_0101(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0010_nnnn_mmmm_0101(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "mov.l <REG_M>,@-<REG_N>")
-    i0010_nnnn_mmmm_0110(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0010_nnnn_mmmm_0110(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "div0s <REG_M>,<REG_N>")
-    i0010_nnnn_mmmm_0111(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0010_nnnn_mmmm_0111(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "tst <REG_M>,<REG_N>")
-    i0010_nnnn_mmmm_1000(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0010_nnnn_mmmm_1000(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "or <REG_M>,<REG_N>")
-    i0010_nnnn_mmmm_1011(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0010_nnnn_mmmm_1011(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "cmp/str <REG_M>,<REG_N>")
-    i0010_nnnn_mmmm_1100(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0010_nnnn_mmmm_1100(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "xtrct <REG_M>,<REG_N>")
-    i0010_nnnn_mmmm_1101(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0010_nnnn_mmmm_1101(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "mulu.w <REG_M>,<REG_N>")
-    i0010_nnnn_mmmm_1110(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0010_nnnn_mmmm_1110(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "muls.w <REG_M>,<REG_N>")
-    i0010_nnnn_mmmm_1111(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0010_nnnn_mmmm_1111(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "cmp/eq <REG_M>,<REG_N>")
-    i0011_nnnn_mmmm_0000(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0011_nnnn_mmmm_0000(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "cmp/hs <REG_M>,<REG_N>")
-    i0011_nnnn_mmmm_0010(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0011_nnnn_mmmm_0010(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "cmp/ge <REG_M>,<REG_N>")
-    i0011_nnnn_mmmm_0011(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0011_nnnn_mmmm_0011(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "div1 <REG_M>,<REG_N>")
-    i0011_nnnn_mmmm_0100(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0011_nnnn_mmmm_0100(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "dmulu.l <REG_M>,<REG_N>")
-    i0011_nnnn_mmmm_0101(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0011_nnnn_mmmm_0101(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "cmp/hi <REG_M>,<REG_N>")
-    i0011_nnnn_mmmm_0110(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0011_nnnn_mmmm_0110(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "cmp/gt <REG_M>,<REG_N>")
-    i0011_nnnn_mmmm_0111(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0011_nnnn_mmmm_0111(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "subc <REG_M>,<REG_N>")
-    i0011_nnnn_mmmm_1010(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0011_nnnn_mmmm_1010(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "subv <REG_M>,<REG_N>")
-    i0011_nnnn_mmmm_1011(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0011_nnnn_mmmm_1011(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "dmuls.l <REG_M>,<REG_N>")
-    i0011_nnnn_mmmm_1101(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0011_nnnn_mmmm_1101(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "addc <REG_M>,<REG_N>")
-    i0011_nnnn_mmmm_1110(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0011_nnnn_mmmm_1110(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "addv <REG_M>,<REG_N>")
-    i0011_nnnn_mmmm_1111(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0011_nnnn_mmmm_1111(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "sts.l FPUL,@-<REG_N>")
-    i0100_nnnn_0101_0010(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0101_0010(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "sts.l FPSCR,@-<REG_N>")
-    i0100_nnnn_0110_0010(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0110_0010(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "sts.l MACH,@-<REG_N>")
-    i0100_nnnn_0000_0010(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0000_0010(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "sts.l MACL,@-<REG_N>")
-    i0100_nnnn_0001_0010(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0001_0010(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "sts.l PR,@-<REG_N>")
-    i0100_nnnn_0010_0010(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0010_0010(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "stc.l DBR,@-<REG_N>")
-    i0100_nnnn_1111_0010(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_1111_0010(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "stc.l SR,@-<REG_N>")
-    i0100_nnnn_0000_0011(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0000_0011(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "stc.l GBR,@-<REG_N>")
-    i0100_nnnn_0001_0011(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0001_0011(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "stc.l VBR,@-<REG_N>")
-    i0100_nnnn_0010_0011(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0010_0011(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "stc.l SSR,@-<REG_N>")
-    i0100_nnnn_0011_0011(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0011_0011(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "stc.l SPC,@-<REG_N>")
-    i0100_nnnn_0100_0011(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0100_0011(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "stc <RM_BANK>,@-<REG_N>")
-    i0100_nnnn_1mmm_0011(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_1mmm_0011(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "lds.l @<REG_N>+,MACH")
-    i0100_nnnn_0000_0110(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0000_0110(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "lds.l @<REG_N>+,MACL")
-    i0100_nnnn_0001_0110(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0001_0110(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "lds.l @<REG_N>+,PR")
-    i0100_nnnn_0010_0110(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0010_0110(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "ldc.l @<REG_N>+,SGR")
-    i0100_nnnn_0011_0110(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0011_0110(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "lds.l @<REG_N>+,FPUL")
-    i0100_nnnn_0101_0110(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0101_0110(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "lds.l @<REG_N>+,FPSCR")
-    i0100_nnnn_0110_0110(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0110_0110(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "ldc.l @<REG_N>+,DBR")
-    i0100_nnnn_1111_0110(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_1111_0110(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "ldc.l @<REG_N>+,SR")
-    i0100_nnnn_0000_0111(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0000_0111(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "ldc.l @<REG_N>+,GBR")
-    i0100_nnnn_0001_0111(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0001_0111(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "ldc.l @<REG_N>+,VBR")
-    i0100_nnnn_0010_0111(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0010_0111(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "ldc.l @<REG_N>+,SSR")
-    i0100_nnnn_0011_0111(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0011_0111(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "ldc.l @<REG_N>+,SPC")
-    i0100_nnnn_0100_0111(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0100_0111(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "ldc.l @<REG_N>+,RM_BANK")
-    i0100_nnnn_1mmm_0111(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_1mmm_0111(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "lds <REG_N>,MACH")
-    i0100_nnnn_0000_1010(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0000_1010(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "lds <REG_N>,MACL")
-    i0100_nnnn_0001_1010(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0001_1010(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "lds <REG_N>,PR")
-    i0100_nnnn_0010_1010(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0010_1010(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "lds <REG_N>,FPSCR")
-    i0100_nnnn_0110_1010(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0110_1010(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "ldc <REG_N>,DBR")
-    i0100_nnnn_1111_1010(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_1111_1010(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "ldc <REG_N>,SR")
-    i0100_nnnn_0000_1110(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0000_1110(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "ldc <REG_N>,GBR")
-    i0100_nnnn_0001_1110(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0001_1110(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "ldc <REG_N>,VBR")
-    i0100_nnnn_0010_1110(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0010_1110(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "ldc <REG_N>,SSR")
-    i0100_nnnn_0011_1110(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0011_1110(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "ldc <REG_N>,SPC")
-    i0100_nnnn_0100_1110(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0100_1110(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "ldc <REG_N>,<RM_BANK>")
-    i0100_nnnn_1mmm_1110(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_1mmm_1110(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "shll <REG_N>")
-    i0100_nnnn_0000_0000(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0000_0000(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "shal <REG_N>")
-    i0100_nnnn_0010_0000(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0010_0000(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "cmp/pz <REG_N>")
-    i0100_nnnn_0001_0001(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0001_0001(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "shar <REG_N>")
-    i0100_nnnn_0010_0001(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0010_0001(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "rotcl <REG_N>")
-    i0100_nnnn_0010_0100(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0010_0100(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "rotl <REG_N>")
-    i0100_nnnn_0000_0100(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0000_0100(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "cmp/pl <REG_N>")
-    i0100_nnnn_0001_0101(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0001_0101(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "rotcr <REG_N>")
-    i0100_nnnn_0010_0101(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0010_0101(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "rotr <REG_N>")
-    i0100_nnnn_0000_0101(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0000_0101(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "shll2 <REG_N>")
-    i0100_nnnn_0000_1000(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0000_1000(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "shll16 <REG_N>")
-    i0100_nnnn_0010_1000(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0010_1000(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "shlr8 <REG_N>")
-    i0100_nnnn_0001_1001(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0001_1001(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "jmp @<REG_N>")
-    i0100_nnnn_0010_1011(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0010_1011(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "jsr @<REG_N>")
-    i0100_nnnn_0000_1011(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0000_1011(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "tas.b @<REG_N>")
-    i0100_nnnn_0001_1011(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0001_1011(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "shad <REG_M>,<REG_N>")
-    i0100_nnnn_mmmm_1100(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_mmmm_1100(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "shld <REG_M>,<REG_N>")
-    i0100_nnnn_mmmm_1101(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_mmmm_1101(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "mac.w @<REG_M>+,@<REG_N>+")
-    i0100_nnnn_mmmm_1111(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_mmmm_1111(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     // 5xxx
     (disas = "mov.l @(<disp4dw>,<REG_M>),<REG_N>")
-    i0101_nnnn_mmmm_iiii(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0101_nnnn_mmmm_iiii(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     // 6xxx
     (disas = "mov.w @<REG_M>,<REG_N>")
-    i0110_nnnn_mmmm_0001(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0110_nnnn_mmmm_0001(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "mov.l @<REG_M>,<REG_N>")
-    i0110_nnnn_mmmm_0010(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0110_nnnn_mmmm_0010(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "mov.b @<REG_M>+,<REG_N>")
-    i0110_nnnn_mmmm_0100(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0110_nnnn_mmmm_0100(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "mov.w @<REG_M>+,<REG_N>")
-    i0110_nnnn_mmmm_0101(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0110_nnnn_mmmm_0101(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "mov.l @<REG_M>+,<REG_N>")
-    i0110_nnnn_mmmm_0110(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0110_nnnn_mmmm_0110(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "not <REG_M>,<REG_N>")
-    i0110_nnnn_mmmm_0111(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0110_nnnn_mmmm_0111(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "swap.b <REG_M>,<REG_N>")
-    i0110_nnnn_mmmm_1000(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0110_nnnn_mmmm_1000(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "swap.w <REG_M>,<REG_N>")
-    i0110_nnnn_mmmm_1001(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0110_nnnn_mmmm_1001(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "negc <REG_M>,<REG_N>")
-    i0110_nnnn_mmmm_1010(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0110_nnnn_mmmm_1010(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "extu.w <REG_M>,<REG_N>")
-    i0110_nnnn_mmmm_1101(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0110_nnnn_mmmm_1101(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "exts.b <REG_M>,<REG_N>")
-    i0110_nnnn_mmmm_1110(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0110_nnnn_mmmm_1110(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "exts.w <REG_M>,<REG_N>")
-    i0110_nnnn_mmmm_1111(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0110_nnnn_mmmm_1111(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     //8xxx
 
     (disas = "mov.w @(<PCdisp8w>),<REG_N>")
-    i1001_nnnn_iiii_iiii(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1001_nnnn_iiii_iiii(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
 
     (disas = "bt <bdisp8>")
-    i1000_1001_iiii_iiii(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1000_1001_iiii_iiii(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "bt/s <bdisp8>")
-    i1000_1101_iiii_iiii(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1000_1101_iiii_iiii(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     
     //bxxx
     (disas = "bsr <bdisp12>")
-    i1011_iiii_iiii_iiii(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1011_iiii_iiii_iiii(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
 
     //Cxxx
     (disas = "mov.b R0,@(<disp8b>,GBR)")
-    i1100_0000_iiii_iiii(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1100_0000_iiii_iiii(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "mov.w R0,@(<disp8w>,GBR)")
-    i1100_0001_iiii_iiii(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1100_0001_iiii_iiii(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "mov.l R0,@(<disp8dw>,GBR)")
-    i1100_0010_iiii_iiii(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1100_0010_iiii_iiii(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "trapa #<imm8>")
-    i1100_0011_iiii_iiii(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1100_0011_iiii_iiii(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "mov.b @(<GBRdisp8b>),R0")
-    i1100_0100_iiii_iiii(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1100_0100_iiii_iiii(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "mov.w @(<GBRdisp8w>),R0")
-    i1100_0101_iiii_iiii(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1100_0101_iiii_iiii(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "mov.l @(<GBRdisp8dw>),R0")
-    i1100_0110_iiii_iiii(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1100_0110_iiii_iiii(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "tst #<imm8>,R0")
-    i1100_1000_iiii_iiii(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1100_1000_iiii_iiii(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "and #<imm8>,R0")
-    i1100_1001_iiii_iiii(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1100_1001_iiii_iiii(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "xor #<imm8>,R0")
-    i1100_1010_iiii_iiii(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1100_1010_iiii_iiii(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "or #<imm8>,R0")
-    i1100_1011_iiii_iiii(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1100_1011_iiii_iiii(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "tst.b #<imm8>,@(R0,GBR)")
-    i1100_1100_iiii_iiii(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1100_1100_iiii_iiii(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "and.b #<imm8>,@(R0,GBR)")
-    i1100_1101_iiii_iiii(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1100_1101_iiii_iiii(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "xor.b #<imm8>,@(R0,GBR)")
-    i1100_1110_iiii_iiii(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1100_1110_iiii_iiii(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "or.b #<imm8>,@(R0,GBR)")
-    i1100_1111_iiii_iiii(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1100_1111_iiii_iiii(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     //Fxxx
     (disas = "flds <FREG_N>,FPUL")
-    i1111_nnnn_0001_1101(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1111_nnnn_0001_1101(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "fneg <FREG_N_SD_F>")
-    i1111_nnnn_0100_1101(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1111_nnnn_0100_1101(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "fabs <FREG_N_SD_F>")
-    i1111_nnnn_0101_1101(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1111_nnnn_0101_1101(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "fsqrt <FREG_N>")
-    i1111_nnnn_0110_1101(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1111_nnnn_0110_1101(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "fldi0 <FREG_N>")
-    i1111_nnnn_1000_1101(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1111_nnnn_1000_1101(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "fldi1 <FREG_N>")
-    i1111_nnnn_1001_1101(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1111_nnnn_1001_1101(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "ftrv xmtrx,<FV_N>")
-    i1111_nn01_1111_1101(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1111_nn01_1111_1101(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "fcmp/eq <FREG_M_SD_F>,<FREG_N_SD_F>")
-    i1111_nnnn_mmmm_0100(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1111_nnnn_mmmm_0100(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "fcmp/gt <FREG_M_SD_F>,<FREG_N_SD_F>")
-    i1111_nnnn_mmmm_0101(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1111_nnnn_mmmm_0101(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "fmov.s @(R0,<REG_M>),<FREG_N_SD_A>")
-    i1111_nnnn_mmmm_0110(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1111_nnnn_mmmm_0110(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "fmov.s <FREG_M_SD_A>,@(R0,<REG_N>)")
-    i1111_nnnn_mmmm_0111(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1111_nnnn_mmmm_0111(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "fmov.s @<REG_M>+,<FREG_N_SD_A>")
-    i1111_nnnn_mmmm_1001(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1111_nnnn_mmmm_1001(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "fmov.s <FREG_M_SD_A>,@<REG_N>")
-    i1111_nnnn_mmmm_1010(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1111_nnnn_mmmm_1010(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "fmov.s <FREG_M_SD_A>,@-<REG_N>")
-    i1111_nnnn_mmmm_1011(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1111_nnnn_mmmm_1011(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
 
     (disas = "fcnvds <DR_N>,FPUL")
-    i1111_nnnn_1011_1101(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1111_nnnn_1011_1101(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "fcnvsd FPUL,<DR_N>")
-    i1111_nnnn_1010_1101(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1111_nnnn_1010_1101(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "fipr <FV_M>,<FV_N>")
-    i1111_nnmm_1110_1101(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1111_nnmm_1110_1101(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "frchg")
-    i1111_1011_1111_1101(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1111_1011_1111_1101(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "fschg")
-    i1111_0011_1111_1101(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1111_0011_1111_1101(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "fsts FPUL,<FREG_N>")
-    i1111_nnnn_0000_1101(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1111_nnnn_0000_1101(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "fsrra <FREG_N>")
-    i1111_nnnn_0111_1101(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1111_nnnn_0111_1101(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "fmac <FREG_0>,<FREG_M>,<FREG_N>")
-    i1111_nnnn_mmmm_1110(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i1111_nnnn_mmmm_1110(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
 
     (disas = "sts PR,<REG_N>")
-    i0000_nnnn_0010_1010(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0000_nnnn_0010_1010(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
     (disas = "ldc <REG_N>,SGR")
-    i0100_nnnn_0011_1010(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0011_1010(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 
     (disas = "stc.l SGR,@-<REG_N>")
-    i0100_nnnn_0011_0010(dc, pc, instr) {
-        i_not_implemented(dc, pc, instr);
+    i0100_nnnn_0011_0010(dc, state, instr) {
+        i_not_implemented(dc, state, instr);
     }
 }
 
@@ -1384,7 +1406,7 @@ pub(crate) const SH4_OP_DESC: [sh4_opcodelistentry; 0x10000]     = SH4_OP_TABLES
 // pub use SH4_OP_PTR as _;
 // pub use SH4_OP_DESC as _;
 
-pub fn format_disas(pc:u32, instr: u16) -> String {
+pub fn format_disas(state:SH4DecoderState, instr: u16) -> String {
     let mut out = unsafe { SH4_OP_DESC.get_unchecked(instr as usize).diss }.to_string();
 
     // ---------------- General-purpose registers ----------------

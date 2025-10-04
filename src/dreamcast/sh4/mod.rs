@@ -1,7 +1,7 @@
 use crate::dreamcast::sh4::backend_fns::{ dec_start, dec_finalize_shrink, sh4_dec_call_decode, sh4_store32i, sh4_dec_branch_cond, dec_reserve_dispatcher, dec_patch_dispatcher, dec_run_block, dec_free };
 use std::ptr;
 use std::ptr::{ addr_of, addr_of_mut };
-use crate::dreamcast::sh4::sh4dec::format_disas;
+use crate::dreamcast::sh4::sh4dec::{format_disas, SH4DecoderState};
 
 #[repr(C)]
 pub union FRBank {
@@ -144,7 +144,7 @@ unsafe fn sh4_build_block(dc: &mut Dreamcast, start_pc: u32) -> *const u8 {
         // Equivalent of: read_mem(dc, dc->ctx.pc, instr);
         read_mem(dc, current_pc, &mut instr);
 
-        println!("{:x}: {}", current_pc, format_disas(current_pc, instr));
+        println!("{:x}: {}", current_pc, format_disas(SH4DecoderState{pc: current_pc, fpscr_PR: (*dc).ctx.fpscr_PR, fpscr_SZ: (*dc).ctx.fpscr_SZ}, instr));
 
         // Call the opcode handler
         dc.ctx.pc0 = current_pc;
