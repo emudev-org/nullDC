@@ -14,9 +14,12 @@ crate-type = ["rlib", "cdylib"]
 
 [profile.release]
 lto = "thin"
+opt-level = 3
+debug = true
 
 [dependencies]
 paste = "1.0"
+seq-macro = "0.3"
 git-version = "0.3"
 wgpu = "26.0.1"
 winit = "0.30.12"

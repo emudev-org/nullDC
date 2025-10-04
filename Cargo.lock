@@ -1343,6 +1343,7 @@ dependencies = [
  "log",
  "paste",
  "pollster",
+ "seq-macro",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-logger",
@@ -2035,6 +2036,12 @@ dependencies = [
  "smithay-client-toolkit",
  "tiny-skia",
 ]
+
+[[package]]
+name = "seq-macro"
+version = "0.3.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1bc711410fbe7399f390ca1c3b60ad0f53f80e95c5eb935e52268a0e2cd49acc"
 
 [[package]]
 name = "serde"

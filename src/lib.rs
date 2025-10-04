@@ -1,4 +1,6 @@
 use std::sync::Arc;
+use std::ptr;
+use std::time::Instant;
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -490,7 +492,7 @@ impl State {
 #[derive(Default)]
 struct App {
     state: Option<State>,
-    dreamcast: Option<Box<Dreamcast>>,
+    dreamcast: *mut Dreamcast,
 }
 
 // Import ApplicationHandler trait from winit
@@ -506,7 +508,7 @@ impl AppHandle {
     fn new() -> Self {
         AppHandle(Rc::new(RefCell::new(App {
             state: None,
-            dreamcast: None,
+            dreamcast: ptr::null_mut(),
         })))
     }
 }
@@ -555,8 +557,8 @@ impl ApplicationHandler for AppHandle {
         
         {
             let mut app = self.0.borrow_mut();
-            app.dreamcast = Some(Box::new(Dreamcast::default()));
-            init_dreamcast(app.dreamcast.as_mut().unwrap());
+            app.dreamcast = Box::into_raw(Box::new(Dreamcast::default()));
+            init_dreamcast(app.dreamcast);
         }
 
         #[cfg(not(target_arch = "wasm32"))]
@@ -615,15 +617,23 @@ impl ApplicationHandler for AppHandle {
                     WindowEvent::RedrawRequested => {
                         let mut image: Option<egui::ColorImage> = None;
 
-                        if let Some(dreamcast) = app.dreamcast.as_mut() {
-                            dreamcast.ctx.remaining_cycles += 2_000_000;
-                            run_dreamcast(dreamcast);
+                        if !app.dreamcast.is_null() {
+                            let dreamcast = app.dreamcast;
+                            unsafe {
+                                (*dreamcast).ctx.remaining_cycles += 2_000_000;
+                                let t0 = Instant::now();
+                                run_dreamcast(dreamcast);
+                                let dt = t0.elapsed();
+                                eprintln!("run_dreamcast took {:?}", dt);
 
-                            image = Some(dreamcast::rgb565_to_color32(
-                                bytemuck::cast_slice(&dreamcast.video_ram[0..640 * 480 * 2]),
-                                640,
-                                480,
-                            ));
+                                let base_u8: *const u8 = (*dreamcast).video_ram.as_ptr().add(0x0000); // add offset if needed
+
+                                let base_u16 = base_u8.cast::<u16>();
+                                let len_u16 = 640 * 480;
+                                let buf: &[u16] = core::slice::from_raw_parts(base_u16, len_u16);
+
+                                image = Some(dreamcast::rgb565_to_color32(buf, 640, 480));
+                            }
                         }
 
                         if let Some(state) = app.state.as_mut() {

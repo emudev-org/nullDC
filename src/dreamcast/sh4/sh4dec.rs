@@ -12,7 +12,8 @@ use crate::dreamcast::Dreamcast;
 
 #[derive(Copy, Clone)]
 pub struct sh4_opcodelistentry {
-    pub oph: fn(&mut Dreamcast, u16),
+    pub oph: fn(*mut Dreamcast, u16),
+    pub dech: fn(*mut Dreamcast, u16),
     pub handler_name: &'static str,
     pub mask: u16,
     pub key: u16,
@@ -66,6 +67,7 @@ macro_rules! sh4op {
                     const MASK_KEY: (u16,u16) = parse_opcode(stringify!($name));
                     sh4_opcodelistentry {
                         oph: exec::$name,
+                        dech: dec::$name,
                         handler_name: stringify!($name),
                         mask: MASK_KEY.0,
                         key:  MASK_KEY.1,
@@ -73,7 +75,7 @@ macro_rules! sh4op {
                     }
                 }
             ),*,
-            sh4_opcodelistentry { oph: i_not_known, handler_name: "unknown_opcode", mask: 0xFFFF, key: 0, diss: "unknown opcode" },
+            sh4_opcodelistentry { oph: i_not_known, dech: i_not_known, handler_name: "unknown_opcode", mask: 0xFFFF, key: 0, diss: "unknown opcode" },
         ];
     };
 
@@ -83,10 +85,13 @@ macro_rules! sh4op {
         ; backend = $backend:path
     ) => {
         #[allow(non_snake_case)]
-        pub(crate) fn $name($dc: &mut Dreamcast, $instr: u16) {
-            #[allow(unused_imports)]
-            use $backend as backend;
-            { $($body)* }
+        pub(crate) fn $name($dc: *mut Dreamcast, $instr: u16) {
+            #[allow(unused_unsafe)]
+            unsafe {
+                #[allow(unused_imports)]
+                use $backend as backend;
+                { $($body)* }
+            }
         }
     };
 
@@ -96,11 +101,14 @@ macro_rules! sh4op {
         ; backend = $backend:path
     ) => {
         #[allow(non_snake_case)]
-        pub(crate) fn $name($dc: &mut Dreamcast, $instr: u16) {
-            #[allow(unused_imports)]
-            use $backend as backend;
-            let $pc: u32 = $dc.ctx.pc0;
-            { $($body)* }
+        pub(crate) fn $name($dc: *mut Dreamcast, $instr: u16) {
+            #[allow(unused_unsafe)]
+            unsafe {
+                #[allow(unused_imports)]
+                use $backend as backend;
+                let $pc: u32 = (*$dc).ctx.pc0;
+                { $($body)* }
+            }
         }
     };
 }
@@ -117,7 +125,7 @@ macro_rules! sh4op {
 #[inline(always)] fn branch_target_s8(pc: u32, disp8: i32) -> u32 { (disp8 as i64 * 2 + 4 + pc as i64) as u32 }
 #[inline(always)] fn branch_target_s12(pc: u32, disp12: i32) -> u32 { (disp12 as i64 * 2 + 4 + pc as i64) as u32 }
 
-fn i_not_implemented(dc: &mut Dreamcast, pc: u32, instr: u16) {
+fn i_not_implemented(dc: *mut Dreamcast, pc: u32, instr: u16) {
     let desc_ptr: *const sh4_opcodelistentry = &SH4_OP_DESC[instr as usize];
     let diss = unsafe {
         if desc_ptr.is_null() {
@@ -130,10 +138,12 @@ fn i_not_implemented(dc: &mut Dreamcast, pc: u32, instr: u16) {
     panic!("{:08X}: {:04X} {} [i_not_implemented]", pc, instr, diss);
 }
 
-fn i_not_known(dc: &mut Dreamcast, instr: u16) {
-    let pc = dc.ctx.pc0;
-    let desc_ptr = &SH4_OP_DESC[instr as usize];
-    panic!("{:08X}: {:04X} {} [i_not_known]", pc, instr, desc_ptr.diss);
+fn i_not_known(dc: *mut Dreamcast, instr: u16) {
+    unsafe {
+        let pc = (*dc).ctx.pc0;
+        let desc_ptr = &SH4_OP_DESC[instr as usize];
+        panic!("{:08X}: {:04X} {} [i_not_known]", pc, instr, desc_ptr.diss);
+    }
 }
 
 sh4op! {
@@ -141,7 +151,7 @@ sh4op! {
     i0000_nnnn_mmmm_0111(dc, instr) {
         let n = GetN(instr);
         let m = GetM(instr);
-        backend::sh4_muls32(addr_of_mut!(dc.ctx.macl), addr_of!(dc.ctx.r[n]), addr_of!(dc.ctx.r[m]));
+        backend::sh4_muls32(addr_of_mut!((*dc).ctx.macl), addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
     }
 
     (disas = "nop")
@@ -152,92 +162,92 @@ sh4op! {
     (disas = "sts FPUL,<REG_N>")
     i0000_nnnn_0101_1010(dc, instr) {
         let n = GetN(instr);
-        backend::sh4_store32(addr_of_mut!(dc.ctx.r[n]), addr_of!(dc.ctx.fpul));
+        backend::sh4_store32(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.fpul));
     }
 
     (disas = "sts MACL,<REG_N>")
     i0000_nnnn_0001_1010(dc, instr) {
         let n = GetN(instr);
-        backend::sh4_store32(addr_of_mut!(dc.ctx.r[n]), addr_of!(dc.ctx.macl));
+        backend::sh4_store32(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.macl));
     }
 
     (disas = "mov.b <REG_M>,@<REG_N>")
     i0010_nnnn_mmmm_0000(dc, instr) {
         let n = GetN(instr);
         let m = GetM(instr);
-        backend::sh4_write_mem8(addr_of_mut!(*dc), addr_of!(dc.ctx.r[n]), addr_of!(dc.ctx.r[m]));
+        backend::sh4_write_mem8(dc, addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
     }
 
     (disas = "mov.w <REG_M>,@<REG_N>")
     i0010_nnnn_mmmm_0001(dc, instr) {
         let n = GetN(instr);
         let m = GetM(instr);
-        backend::sh4_write_mem16(addr_of_mut!(*dc), addr_of!(dc.ctx.r[n]), addr_of!(dc.ctx.r[m]));
+        backend::sh4_write_mem16(dc, addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
     }
 
     (disas = "mov.l <REG_M>,@<REG_N>")
     i0010_nnnn_mmmm_0010(dc, instr) {
         let n = GetN(instr);
         let m = GetM(instr);
-        backend::sh4_write_mem32(addr_of_mut!(*dc), addr_of!(dc.ctx.r[n]), addr_of!(dc.ctx.r[m]));
+        backend::sh4_write_mem32(dc, addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
     }
 
     (disas = "and <REG_M>,<REG_N>")
     i0010_nnnn_mmmm_1001(dc, instr) {
         let n = GetN(instr);
         let m = GetM(instr);
-        backend::sh4_and(addr_of_mut!(dc.ctx.r[n]), addr_of!(dc.ctx.r[n]), addr_of!(dc.ctx.r[m]));
+        backend::sh4_and(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
     }
 
     (disas = "xor <REG_M>,<REG_N>")
     i0010_nnnn_mmmm_1010(dc, instr) {
         let n = GetN(instr);
         let m = GetM(instr);
-        backend::sh4_xor(addr_of_mut!(dc.ctx.r[n]), addr_of!(dc.ctx.r[n]), addr_of!(dc.ctx.r[m]));
+        backend::sh4_xor(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
     }
 
     (disas = "sub <REG_M>,<REG_N>")
     i0011_nnnn_mmmm_1000(dc, instr) {
         let n = GetN(instr);
         let m = GetM(instr);
-        backend::sh4_sub(addr_of_mut!(dc.ctx.r[n]), addr_of!(dc.ctx.r[n]), addr_of!(dc.ctx.r[m]));
+        backend::sh4_sub(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
     }
 
     (disas = "add <REG_M>,<REG_N>")
     i0011_nnnn_mmmm_1100(dc, instr) {
         let n = GetN(instr);
         let m = GetM(instr);
-        backend::sh4_add(addr_of_mut!(dc.ctx.r[n]), addr_of!(dc.ctx.r[n]), addr_of!(dc.ctx.r[m]));
+        backend::sh4_add(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
     }
 
     (disas = "dt <REG_N>")
     i0100_nnnn_0001_0000(dc, instr) {
         let n = GetN(instr);
-        backend::sh4_dt(addr_of_mut!(dc.ctx.sr_T), addr_of_mut!(dc.ctx.r[n]));
+        backend::sh4_dt(addr_of_mut!((*dc).ctx.sr_T), addr_of_mut!((*dc).ctx.r[n]));
     }
 
     (disas = "shlr <REG_N>")
     i0100_nnnn_0000_0001(dc, instr) {
         let n = GetN(instr);
-        backend::sh4_shlr(addr_of_mut!(dc.ctx.sr_T), addr_of_mut!(dc.ctx.r[n]), addr_of!(dc.ctx.r[n]));
+        backend::sh4_shlr(addr_of_mut!((*dc).ctx.sr_T), addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]));
     }
 
     (disas = "shll8 <REG_N>")
     i0100_nnnn_0001_1000(dc, instr) {
         let n = GetN(instr);
-        backend::sh4_shllf(addr_of_mut!(dc.ctx.r[n]), addr_of!(dc.ctx.r[n]), 8);
+        backend::sh4_shllf(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), 8);
     }
 
     (disas = "shlr2 <REG_N>")
     i0100_nnnn_0000_1001(dc, instr) {
         let n = GetN(instr);
-        backend::sh4_shlrf(addr_of_mut!(dc.ctx.r[n]), addr_of!(dc.ctx.r[n]), 2);
+        backend::sh4_shlrf(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), 2);
     }
 
     (disas = "shlr16 <REG_N>")
     i0100_nnnn_0010_1001(dc, instr) {
         let n = GetN(instr);
-        backend::sh4_shlrf(addr_of_mut!(dc.ctx.r[n]), addr_of!(dc.ctx.r[n]), 16);
+        backend::sh4_shlrf(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), 16);
     }
 
     (disas = "mov.b @<REG_M>,<REG_N>")
@@ -245,35 +255,35 @@ sh4op! {
         let n = GetN(instr);
         let m = GetM(instr);
 
-        backend::sh4_read_mems8(addr_of_mut!(*dc), addr_of!(dc.ctx.r[m]), addr_of_mut!(dc.ctx.r[n]));
+        backend::sh4_read_mems8(dc, addr_of!((*dc).ctx.r[m]), addr_of_mut!((*dc).ctx.r[n]));
     }
 
     (disas = "mov <REG_M>,<REG_N>")
     i0110_nnnn_mmmm_0011(dc, instr) {
         let n = GetN(instr);
         let m = GetM(instr);
-        backend::sh4_store32(addr_of_mut!(dc.ctx.r[n]), addr_of!(dc.ctx.r[m]));
+        backend::sh4_store32(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
     }
 
     (disas = "neg <REG_M>,<REG_N>")
     i0110_nnnn_mmmm_1011(dc, instr) {
         let n = GetN(instr);
         let m = GetM(instr);
-        backend::sh4_neg(addr_of_mut!(dc.ctx.r[n]), addr_of!(dc.ctx.r[m]));
+        backend::sh4_neg(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
     }
 
     (disas = "extu.b <REG_M>,<REG_N>")
     i0110_nnnn_mmmm_1100(dc, instr) {
         let n = GetN(instr);
         let m = GetM(instr);
-        backend::sh4_extub(addr_of_mut!(dc.ctx.r[n]), addr_of!(dc.ctx.r[m]));
+        backend::sh4_extub(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
     }
 
     (disas = "add #<simm8>,<REG_N>")
     i0111_nnnn_iiii_iiii(dc, instr) {
         let n = GetN(instr);
         let stmp1 = GetSImm8(instr);
-        backend::sh4_addi(addr_of_mut!(dc.ctx.r[n]), addr_of!(dc.ctx.r[n]), stmp1 as u32);
+        backend::sh4_addi(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), stmp1 as u32);
     }
 
     (disas = "bf <bdisp8>")
@@ -281,7 +291,7 @@ sh4op! {
         let disp8 = GetSImm8(instr);
         let next = pc.wrapping_add(2);
         let target = branch_target_s8(pc, disp8);
-        backend::sh4_branch_cond(addr_of_mut!(*dc), addr_of!(dc.ctx.sr_T), 0, next, target);
+        backend::sh4_branch_cond(dc, addr_of!((*dc).ctx.sr_T), 0, next, target);
     }
 
     (disas = "bf/s <bdisp8>")
@@ -289,21 +299,21 @@ sh4op! {
         let disp8 = GetSImm8(instr);
         let next = pc.wrapping_add(4);
         let target = branch_target_s8(pc, disp8);
-        backend::sh4_branch_cond_delay(addr_of_mut!(*dc), addr_of!(dc.ctx.sr_T), 0, next, target);
+        backend::sh4_branch_cond_delay(dc, addr_of!((*dc).ctx.sr_T), 0, next, target);
     }
 
     (disas = "bra <bdisp12>")
     i1010_iiii_iiii_iiii(dc, pc, instr) {
         let disp12 = GetSImm12(instr);
         let target = branch_target_s12(pc, disp12);
-        backend::sh4_branch_delay(addr_of_mut!(*dc), target);
+        backend::sh4_branch_delay(dc, target);
     }
 
     (disas = "mova @(<PCdisp8d>),R0")
     i1100_0111_iiii_iiii(dc, pc, instr) {
         let disp8 = GetImm8(instr) as i32;
         let addr = data_target_s8(pc, disp8);
-        backend::sh4_store32i(addr_of_mut!(dc.ctx.r[0]), addr);
+        backend::sh4_store32i(addr_of_mut!((*dc).ctx.r[0]), addr);
     }
     (disas = "mov.b R0,@(<disp4b>,<REG_M>)")
     i1000_0000_mmmm_iiii(dc, pc, instr) {
@@ -337,22 +347,22 @@ sh4op! {
         let disp8 = GetImm8(instr) as i32;
         let addr = data_target_s8(pc, disp8);
 
-        backend::sh4_read_mem32i(dc, addr, addr_of_mut!(dc.ctx.r[n]));
+        backend::sh4_read_mem32i(dc, addr, addr_of_mut!((*dc).ctx.r[n]));
     }
 
     (disas = "mov #<simm8hex>,<REG_N>")
     i1110_nnnn_iiii_iiii(dc, instr) {
         let n = GetN(instr);
         let imm = GetSImm8(instr);
-        backend::sh4_store32i(addr_of_mut!(dc.ctx.r[n]), imm as u32);
+        backend::sh4_store32i(addr_of_mut!((*dc).ctx.r[n]), imm as u32);
     }
 
     (disas = "fadd <FREG_M_SD_F>,<FREG_N_SD_F>")
     i1111_nnnn_mmmm_0000(dc, instr) {
-        if dc.ctx.fpscr_PR == 0 {
+        if (*dc).ctx.fpscr_PR == 0 {
             let n = GetN(instr);
             let m = GetM(instr);
-            unsafe { backend::sh4_fadd(addr_of_mut!(dc.ctx.fr.f32s[n]), addr_of!(dc.ctx.fr.f32s[n]), addr_of!(dc.ctx.fr.f32s[m])); };
+            unsafe { backend::sh4_fadd(addr_of_mut!((*dc).ctx.fr.f32s[n]), addr_of!((*dc).ctx.fr.f32s[n]), addr_of!((*dc).ctx.fr.f32s[m])); };
         } else {
             debug_assert!(false);
         }
@@ -365,10 +375,10 @@ sh4op! {
 
     (disas = "fmul <FREG_M_SD_F>,<FREG_N_SD_F>")
     i1111_nnnn_mmmm_0010(dc, instr) {
-        if dc.ctx.fpscr_PR == 0 {
+        if (*dc).ctx.fpscr_PR == 0 {
             let n = GetN(instr);
             let m = GetM(instr);
-            unsafe { backend::sh4_fmul(addr_of_mut!(dc.ctx.fr.f32s[n]), addr_of!(dc.ctx.fr.f32s[n]), addr_of!(dc.ctx.fr.f32s[m])); };
+            unsafe { backend::sh4_fmul(addr_of_mut!((*dc).ctx.fr.f32s[n]), addr_of!((*dc).ctx.fr.f32s[n]), addr_of!((*dc).ctx.fr.f32s[m])); };
         } else {
             debug_assert!(false);
         }
@@ -376,10 +386,10 @@ sh4op! {
 
     (disas = "fdiv <FREG_M_SD_F>,<FREG_N_SD_F>")
     i1111_nnnn_mmmm_0011(dc, instr) {
-        if dc.ctx.fpscr_PR == 0 {
+        if (*dc).ctx.fpscr_PR == 0 {
             let n = GetN(instr);
             let m = GetM(instr);
-            unsafe { backend::sh4_fdiv(addr_of_mut!(dc.ctx.fr.f32s[n]), addr_of!(dc.ctx.fr.f32s[n]), addr_of!(dc.ctx.fr.f32s[m])); };
+            unsafe { backend::sh4_fdiv(addr_of_mut!((*dc).ctx.fr.f32s[n]), addr_of!((*dc).ctx.fr.f32s[n]), addr_of!((*dc).ctx.fr.f32s[m])); };
         } else {
             debug_assert!(false);
         }
@@ -387,10 +397,10 @@ sh4op! {
 
     (disas = "fmov.s @<REG_M>,<FREG_N_SD_A>")
     i1111_nnnn_mmmm_1000(dc, instr) {
-        if dc.ctx.fpscr_SZ == 0 {
+        if (*dc).ctx.fpscr_SZ == 0 {
             let n = GetN(instr);
             let m = GetM(instr);
-            unsafe { backend::sh4_read_mem32(dc, addr_of!(dc.ctx.r[m]), addr_of_mut!(dc.ctx.fr.u32s[n])); }
+            unsafe { backend::sh4_read_mem32(dc, addr_of!((*dc).ctx.r[m]), addr_of_mut!((*dc).ctx.fr.u32s[n])); }
         } else {
             debug_assert!(false);
         }
@@ -398,10 +408,10 @@ sh4op! {
 
     (disas = "fmov <FREG_M_SD_A>,<FREG_N_SD_A>")
     i1111_nnnn_mmmm_1100(dc, instr) {
-        if dc.ctx.fpscr_SZ == 0 {
+        if (*dc).ctx.fpscr_SZ == 0 {
             let n = GetN(instr);
             let m = GetM(instr);
-            unsafe { backend::sh4_store32(addr_of_mut!(dc.ctx.fr.u32s[n]), addr_of!(dc.ctx.fr.u32s[m])); }
+            unsafe { backend::sh4_store32(addr_of_mut!((*dc).ctx.fr.u32s[n]), addr_of!((*dc).ctx.fr.u32s[m])); }
         } else {
             debug_assert!(false);
         }
@@ -410,8 +420,8 @@ sh4op! {
     (disas = "fsca FPUL,<DR_N>")
     i1111_nnn0_1111_1101(dc, instr) {
         let n = (GetN(instr) & 0xE) as usize;
-        if dc.ctx.fpscr_PR == 0 {
-            unsafe { backend::sh4_fsca(addr_of_mut!(dc.ctx.fr.f32s[n]), addr_of!(dc.ctx.fpul)); }
+        if (*dc).ctx.fpscr_PR == 0 {
+            unsafe { backend::sh4_fsca(addr_of_mut!((*dc).ctx.fr.f32s[n]), addr_of!((*dc).ctx.fpul)); }
             
         } else {
             debug_assert!(false);
@@ -420,9 +430,9 @@ sh4op! {
 
     (disas = "float FPUL,<FREG_N_SD_F>")
     i1111_nnnn_0010_1101(dc, instr) {
-        if dc.ctx.fpscr_PR == 0 {
+        if (*dc).ctx.fpscr_PR == 0 {
             let n = GetN(instr);
-            unsafe { backend::sh4_float(addr_of_mut!(dc.ctx.fr.f32s[n]), addr_of!(dc.ctx.fpul)); }
+            unsafe { backend::sh4_float(addr_of_mut!((*dc).ctx.fr.f32s[n]), addr_of!((*dc).ctx.fpul)); }
         } else {
             debug_assert!(false);
         }
@@ -430,9 +440,9 @@ sh4op! {
 
     (disas = "ftrc <FREG_N>,FPUL")
     i1111_nnnn_0011_1101(dc, instr) {
-        if dc.ctx.fpscr_PR == 0 {
+        if (*dc).ctx.fpscr_PR == 0 {
             let n = GetN(instr);
-            unsafe { backend::sh4_ftrc(addr_of_mut!(dc.ctx.fpul), addr_of!(dc.ctx.fr.f32s[n])); }
+            unsafe { backend::sh4_ftrc(addr_of_mut!((*dc).ctx.fpul), addr_of!((*dc).ctx.fr.f32s[n])); }
         } else {
             debug_assert!(false);
         }
@@ -441,7 +451,7 @@ sh4op! {
     (disas = "lds <REG_N>,FPUL")
     i0100_nnnn_0101_1010(dc, instr) {
         let n = GetN(instr);
-        backend::sh4_store32(addr_of_mut!(dc.ctx.fpul), addr_of!(dc.ctx.r[n]));
+        backend::sh4_store32(addr_of_mut!((*dc).ctx.fpul), addr_of!((*dc).ctx.r[n]));
     }
 
     (disas = "stc SR,<REG_N>")
@@ -1314,13 +1324,13 @@ const MASK_NH2BIT: u16 = 0xF3FF;
 
 pub const fn build_opcode_tables(
     opcodes: &[sh4_opcodelistentry]
-) -> ([fn(&mut Dreamcast, u16); 0x10000],
+) -> ([fn(*mut Dreamcast, u16); 0x10000],
       [sh4_opcodelistentry; 0x10000])
 {
     // The sentinel is always the last element of OPCODES
     let sentinel = opcodes[opcodes.len() - 1];
 
-    let mut ptrs: [fn(&mut Dreamcast, u16); 0x10000] = [sentinel.oph; 0x10000];
+    let mut ptrs: [fn(*mut Dreamcast, u16); 0x10000] = [sentinel.oph; 0x10000];
     let mut descs: [sh4_opcodelistentry; 0x10000] = [sentinel; 0x10000];
 
     let mut i = 0;
@@ -1363,11 +1373,11 @@ pub const fn build_opcode_tables(
 
 // Make the final tables visible to the crate.
 const SH4_OP_TABLES: (
-    [fn(&mut Dreamcast, u16); 0x10000],
+    [fn(*mut Dreamcast, u16); 0x10000],
     [sh4_opcodelistentry; 0x10000]
 ) = build_opcode_tables(OPCODES);
 
-pub(crate) const SH4_OP_PTR:  [fn(&mut Dreamcast, u16); 0x10000] = SH4_OP_TABLES.0;
+pub(crate) const SH4_OP_PTR:  [fn(*mut Dreamcast, u16); 0x10000] = SH4_OP_TABLES.0;
 pub(crate) const SH4_OP_DESC: [sh4_opcodelistentry; 0x10000]     = SH4_OP_TABLES.1;
 
 // // Re-export for parent (and callers) to `use sh4dec::{...}` or via the re-export in dreamcast_sh4.rs

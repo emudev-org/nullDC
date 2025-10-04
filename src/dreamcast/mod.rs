@@ -8,7 +8,7 @@
 use std::ptr;
 
 mod sh4;
-use sh4::{Sh4Ctx, sh4_ipr_dispatcher};
+use sh4::{Sh4Ctx, sh4_ipr_dispatcher, sh4_fns_dispatcher, sh4_init_ctx};
 
 const SYSRAM_SIZE: u32 = 16 * 1024 * 1024;
 const VIDEORAM_SIZE: u32 = 8 * 1024 * 1024;
@@ -50,34 +50,41 @@ impl Default for Dreamcast {
 
 pub static ROTO_BIN: &[u8] = include_bytes!("../../roto.bin");
 
-pub fn init_dreamcast(dc: &mut Dreamcast) {
-    // Zero entire struct (like memset). In Rust, usually you'd implement Default.
-    *dc = Dreamcast::default();
+pub fn init_dreamcast(dc: *mut Dreamcast) {
+    unsafe {
+        // Zero entire struct (like memset). In Rust, usually you'd implement Default.
+        *dc = Dreamcast::default();
 
-    // Build opcode tables
-    // build_opcode_tables(dc);
+        sh4_init_ctx(dc);
 
-    // Setup memory map
-    dc.memmap[0x0C] = dc.sys_ram.as_mut_ptr();
-    dc.memmask[0x0C] = SYSRAM_MASK;
-    dc.memmap[0x8C] = dc.sys_ram.as_mut_ptr();
-    dc.memmask[0x8C] = SYSRAM_MASK;
-    dc.memmap[0xA5] = dc.video_ram.as_mut_ptr();
-    dc.memmask[0xA5] = VIDEORAM_MASK;
+        // Build opcode tables
+        // build_opcode_tables(dc);
 
-    // Set initial PC
-    dc.ctx.pc0 = 0x8C01_0000;
-    dc.ctx.pc1 = 0x8C01_0000 + 2;
-    dc.ctx.pc2 = 0x8C01_0000 + 4;
+        // Setup memory map
+        (*dc).memmap[0x0C] = (*dc).sys_ram.as_mut_ptr();
+        (*dc).memmask[0x0C] = SYSRAM_MASK;
+        (*dc).memmap[0x8C] = (*dc).sys_ram.as_mut_ptr();
+        (*dc).memmask[0x8C] = SYSRAM_MASK;
+        (*dc).memmap[0xA5] = (*dc).video_ram.as_mut_ptr();
+        (*dc).memmask[0xA5] = VIDEORAM_MASK;
 
-    // Copy roto.bin from embedded ROTO_BIN
-    let sysram_slice = &mut dc.sys_ram[0x10000..0x10000 + ROTO_BIN.len()];
-    sysram_slice.copy_from_slice(ROTO_BIN);
+        // Set initial PC
+        (*dc).ctx.pc0 = 0x8C01_0000;
+        (*dc).ctx.pc1 = 0x8C01_0000 + 2;
+        (*dc).ctx.pc2 = 0x8C01_0000 + 4;
+
+        // Copy roto.bin from embedded ROTO_BIN
+        let dst = (*dc).sys_ram.as_mut_ptr().add(0x10000);
+        let src = ROTO_BIN.as_ptr();
+
+        ptr::copy_nonoverlapping(src, dst, ROTO_BIN.len())
+    }
 }
 
 
-pub fn run_dreamcast(dc: &mut Dreamcast) {
-    sh4_ipr_dispatcher(dc);
+pub fn run_dreamcast(dc: *mut Dreamcast) {
+    //sh4_ipr_dispatcher(dc);
+    sh4_fns_dispatcher(dc);
 }
 
 

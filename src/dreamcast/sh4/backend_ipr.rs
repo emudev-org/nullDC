@@ -106,28 +106,28 @@ pub fn sh4_shlrf(dst: *mut u32, src_n: *const u32, amt: u32) {
 #[inline(always)]
 pub fn sh4_write_mem8(dc: *mut Dreamcast, addr: *const u32, data: *const u32) {
     unsafe {
-        let _ = write_mem::<u8>(&mut *dc, *addr, *data as u8);
+        let _ = write_mem::<u8>(dc, *addr, *data as u8);
     }
 }
 
 #[inline(always)]
 pub fn sh4_write_mem16(dc: *mut Dreamcast, addr: *const u32, data: *const u32) {
     unsafe {
-        let _ = write_mem::<u16>(&mut *dc, *addr, *data as u16);
+        let _ = write_mem::<u16>(dc, *addr, *data as u16);
     }
 }
 
 #[inline(always)]
 pub fn sh4_write_mem32(dc: *mut Dreamcast, addr: *const u32, data: *const u32) {
     unsafe {
-        let _ = write_mem::<u32>(&mut *dc, *addr, *data);
+        let _ = write_mem::<u32>(dc, *addr, *data);
     }
 }
 
 #[inline(always)]
 pub fn sh4_write_mem64(dc: *mut Dreamcast, addr: *const u32, data: *const u64) {
     unsafe {
-        let _ = write_mem::<u64>(&mut *dc, *addr, *data);
+        let _ = write_mem::<u64>(dc, *addr, *data);
     }
 }
 
@@ -135,7 +135,7 @@ pub fn sh4_write_mem64(dc: *mut Dreamcast, addr: *const u32, data: *const u64) {
 pub fn sh4_read_mems8(dc: *mut Dreamcast, addr: *const u32, data: *mut u32) {
     unsafe {
         let mut read: i8 = 0;
-        let _ = read_mem::<i8>(&mut *dc, *addr, &mut read);
+        let _ = read_mem::<i8>(dc, *addr, &mut read);
         *data = read as i32 as u32;
     }
 }
@@ -144,7 +144,7 @@ pub fn sh4_read_mems8(dc: *mut Dreamcast, addr: *const u32, data: *mut u32) {
 pub fn sh4_read_mems16(dc: *mut Dreamcast, addr: *const u32, data: *mut u32) {
     unsafe {
         let mut read: i16 = 0;
-        let _ = read_mem::<i16>(&mut *dc, *addr, &mut read);
+        let _ = read_mem::<i16>(dc, *addr, &mut read);
         *data = read as i32 as u32;
     }
 }
@@ -152,14 +152,14 @@ pub fn sh4_read_mems16(dc: *mut Dreamcast, addr: *const u32, data: *mut u32) {
 #[inline(always)]
 pub fn sh4_read_mem32(dc: *mut Dreamcast, addr: *const u32, data: *mut u32) {
     unsafe {
-        let _ = read_mem::<u32>(&mut *dc, *addr, &mut *data);
+        let _ = read_mem::<u32>(dc, *addr, &mut *data);
     }
 }
 
 #[inline(always)]
 pub fn sh4_read_mem64(dc: *mut Dreamcast, addr: *const u32, data: *mut u64) {
     unsafe {
-        let _ = read_mem::<u64>(&mut *dc, *addr, &mut *data);
+        let _ = read_mem::<u64>(dc, *addr, &mut *data);
     }
 }
 
@@ -167,7 +167,7 @@ pub fn sh4_read_mem64(dc: *mut Dreamcast, addr: *const u32, data: *mut u64) {
 #[inline(always)]
 pub fn sh4_read_mem32i(dc: *mut Dreamcast, addr: u32, data: *mut u32) {
     unsafe {
-        let _ = read_mem::<u32>(&mut *dc, addr, &mut *data);
+        let _ = read_mem::<u32>(dc, addr, &mut *data);
     }
 }
 
@@ -259,5 +259,24 @@ pub fn sh4_branch_delay(dc: *mut Dreamcast, target: u32) {
     unsafe {
         (*dc).ctx.pc2 = target;
         (*dc).ctx.is_delayslot1 = 1;
+    }
+}
+
+#[inline(always)]
+pub fn sh4_dec_branch_cond(dst: *mut u32, jdyn: *const u32, condition: u32, next: u32, target: u32) {
+    unsafe {
+        if *jdyn == condition {
+            *dst = target;
+        } else {
+            *dst = next;
+        }
+    }
+}
+
+#[inline(always)]
+pub fn sh4_dec_call_decode(dc: *mut Dreamcast) {
+    use crate::dreamcast::sh4::sh4_fns_decode_on_demand;
+    unsafe {
+        sh4_fns_decode_on_demand(&mut *dc);
     }
 }

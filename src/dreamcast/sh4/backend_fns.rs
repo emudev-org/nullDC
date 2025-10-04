@@ -1,216 +1,298 @@
-//! backend_fns.rs — “dec” backend that records ops as [handler_ptr][args...]
+// backend_fns.rs — single global buffer, 32-byte aligned, sequential packing, realloc growth
 
 use crate::dreamcast::Dreamcast;
-// Adjust this path if needed:
-use crate::dreamcast::sh4::backend_ipr;
+use crate::dreamcast::sh4::backend_ipr; // adjust path if needed
 
-use std::{cell::RefCell, mem, ptr::NonNull};
-
+use core::{mem, ptr};
+use std::alloc::{alloc, dealloc, realloc, handle_alloc_error, Layout};
 use paste::paste;
+use seq_macro::seq;
+use std::ptr::{ addr_of, addr_of_mut };
+/* ------------------------------ Types ------------------------------ */
 
-/// Every record starts with this function pointer, followed by that handler’s packed args.
-/// The handler receives `data_ptr` (right after the function pointer) and must return
-/// the pointer immediately after its own arguments (i.e., the next record’s handler).
-type Handler = unsafe extern "C" fn(data_ptr: *mut u8) -> *mut u8;
+/// Handler receives pointer just after the stored handler ptr, returns pointer
+/// just after its consumed arguments (i.e., the next record’s handler ptr).
+pub type Handler = unsafe extern "C" fn(data_ptr: *const u8) -> *const u8;
 
-thread_local! {
-    /// A grow-only byte arena so all pointers remain valid until `clear`.
-    static ARENA: RefCell<Vec<u8>> = RefCell::new(Vec::with_capacity(1 << 20)); // 1 MiB to start
+/* --------------------- Global, NOT thread-safe --------------------- */
 
-    /// Starts (addresses) of records (each is the address where the Handler was written).
-    static PTRS:  RefCell<Vec<NonNull<u8>>> = RefCell::new(Vec::with_capacity(1 << 16));
-}
+static mut START: *mut u8 = ptr::null_mut();
+static mut CUR:   *mut u8 = ptr::null_mut();
+static mut END:   *mut u8 = ptr::null_mut();
+static mut CAP:   usize = 0;
+static mut STEPS: usize = 0;
 
-/* ------------------------- Byte-pack utilities (aligned) ------------------------- */
+/// Required buffer alignment for the whole allocation.
+const BUF_ALIGN: usize = 32;
 
-#[inline(always)]
-fn align_up(off: usize, align: usize) -> usize {
-    debug_assert!(align.is_power_of_two());
-    (off + (align - 1)) & !(align - 1)
-}
-
-#[inline(always)]
-unsafe fn arena_push_aligned<T: Copy>(buf: &mut Vec<u8>, v: T) -> *mut u8 {
-    let align = mem::align_of::<T>();
-    let size  = mem::size_of::<T>();
-    let base  = align_up(buf.len(), align);
-
-    if buf.len() < base { buf.resize(base, 0); }
-    let start = base;
-    let end   = start + size;
-
-    buf.reserve(size);
-    // Extend with uninit then write
-    let old_len = buf.len();
-    buf.set_len(end);
-
-    let dst = buf.as_mut_ptr().add(start) as *mut T;
-    dst.write_unaligned(v);
-    buf.as_mut_ptr().add(start)
-}
-
-/// Read aligned value from a moving pointer, advancing it. Must match `arena_push_aligned`.
-#[inline(always)]
-unsafe fn read_aligned<T: Copy>(p: &mut *mut u8) -> T {
-    let align = mem::align_of::<T>();
-    let addr  = *p as usize;
-    let aligned = align_up(addr, align);
-    *p = aligned as *mut u8;
-
-    let val = (aligned as *const T).read_unaligned();
-    *p = (*p).add(mem::size_of::<T>());
-    val
-}
-
-/* ----------------------------- Recording primitive ------------------------------ */
+/* ------------------------------ Utils ------------------------------ */
 
 #[inline(always)]
-unsafe fn start_record(buf: &mut Vec<u8>, h: Handler) -> *mut u8 {
-    // Write the handler pointer first; return the address where it was written
-    arena_push_aligned::<Handler>(buf, h)
-}
-
-#[inline(always)]
-fn push_ptr_start(start_ptr: *mut u8) {
-    // Save record start (handler position)
-    PTRS.with(|p| unsafe {
-        p.borrow_mut()
-            .push(NonNull::new_unchecked(start_ptr));
-    });
-}
-
-/* ------------------------------- Public utilities ------------------------------- */
-
-#[inline]
-pub fn ptrs_snapshot() -> Vec<NonNull<u8>> {
-    PTRS.with(|p| p.borrow().iter().copied().collect())
-}
-
-#[inline]
-pub fn clear() {
-    ARENA.with(|a| a.borrow_mut().clear());
-    PTRS.with(|p| p.borrow_mut().clear());
-}
-
-/// Execute the single record starting at `record_ptr` (address of handler).
-/// Returns the pointer to the *next* record’s handler (right after this record’s data).
-#[inline]
-pub unsafe fn step_once(mut record_ptr: *mut u8) -> *mut u8 {
-    // Load handler
-    let h = {
-        // Align as when we wrote it
-        let aligned = align_up(record_ptr as usize, mem::align_of::<Handler>()) as *mut u8;
-        record_ptr = aligned;
-        (aligned as *const Handler).read_unaligned()
-    };
-    // Data starts immediately after the stored function pointer:
-    let mut data_ptr = record_ptr.add(mem::size_of::<Handler>());
-    // Let the handler consume its args and return the next record pointer
-    h(data_ptr)
-}
-
-/// Convenience: walk and execute a chain starting at `start` for `n` records.
-#[inline]
-pub unsafe fn run_all_from(mut start: *mut u8, n: usize) -> *mut u8 {
-    let mut p = start;
-    for _ in 0..n {
-        p = step_once(p);
+unsafe fn layout_for(size: usize) -> Layout {
+    unsafe {
+        // Keep the same alignment on alloc/realloc/dealloc to satisfy the contract.
+        Layout::from_size_align_unchecked(size.max(1), BUF_ALIGN)
     }
-    p
 }
 
-/* ----------------------------- Macro: define ops --------------------------------
-   For each `sh4_*` we generate:
-     - a recorder function with the exact signature
-     - a handler that unpacks the same arguments and calls backend_ipr::sh4_*
-----------------------------------------------------------------------------------*/
+#[inline(always)]
+unsafe fn write_seq<T: Copy>(val: T) -> *mut u8 {
+    unsafe {
+        let sz = mem::size_of::<T>();
+        assert!(CUR.add(sz) <= END, "Out of space in recorder buffer");
+        let at = CUR;
+        (at as *mut T).write_unaligned(val);
+        CUR = CUR.add(sz);
+        at
+    }
+}
+
+#[inline(always)]
+unsafe fn read_seq<T: Copy>(p: &mut *const u8) -> T {
+    unsafe {
+        let at = *p as *const T;
+        let v = at.read_unaligned();
+        *p = (*p).add(mem::size_of::<T>());
+        v
+    }
+}
+
+/* ---------------------------- Lifecycle API ---------------------------- */
+
+/// Allocate/initialize the recorder with given initial capacity (bytes).
+pub unsafe fn dec_start(initial_capacity_bytes: usize) {
+    unsafe {
+        let cap = initial_capacity_bytes.max(64);
+        let layout = layout_for(cap);
+        let p = alloc(layout);
+        if p.is_null() { handle_alloc_error(layout) }
+        STEPS = 0;
+        START = p;
+        CUR   = p;
+        END   = p.add(cap);
+        CAP   = cap;
+    }
+}
+
+#[inline(never)]
+unsafe extern "C" fn unreachable_stub(_: *const u8) -> *const u8 {
+    unsafe {
+        core::hint::unreachable_unchecked();
+    }
+}
+
+pub fn dec_reserve_dispatcher() {
+    unsafe {
+        write_seq::<Handler>(unreachable_stub);
+    }
+}
+
+/// Optionally shrink to the exact used size and return (base, used_bytes).
+/// Ownership remains here; call `dec_free()` when done.
+pub unsafe fn dec_finalize_shrink() -> (*const u8, usize) {
+    unsafe {
+        write_seq::<u32>(STEPS as u32);
+
+        let used = (CUR as usize).saturating_sub(START as usize);
+        let old_layout = layout_for(CAP);
+        let new_layout = layout_for(used);
+        let new_ptr = if used == CAP {
+            START
+        } else {
+            let p = realloc(START, old_layout, used);
+            if p.is_null() { handle_alloc_error(new_layout) }
+            p
+        };
+        START = ptr::null_mut();
+        CUR   = ptr::null_mut();
+        END   = ptr::null_mut();
+        CAP   = 0;
+        (new_ptr, used)
+    }
+}
+
+/// Free the recorder buffer.
+pub unsafe fn dec_free(ptr: *const u8) {
+    unsafe {
+        if !ptr.is_null() {
+            dealloc(ptr as *mut u8, layout_for(CAP));
+        }
+    }
+}
+
+/* ---------------------------- Recording API ---------------------------- */
+
+/// Begin a record: write the handler pointer; return pointer to first arg slot.
+#[inline(always)]
+unsafe fn emit_record(h: Handler) -> *mut u8 {
+    unsafe {
+        // Packed sequentially: no per-field alignment between items.
+        let _where = write_seq::<Handler>(h);
+        // Data ptr starts right after the handler
+        _where.add(mem::size_of::<Handler>())
+    }
+}
+
+#[inline(always)]
+unsafe fn emit_arg<T: Copy>(v: T) { unsafe { let _ = write_seq::<T>(v); } }
+
+/* ----------------------------- Execution API ----------------------------- */
+
+/// Execute one record located at `record_ptr` (address where the handler pointer is stored).
+/// Returns pointer to the next record’s handler.
+#[inline(always)]
+unsafe fn step_once(record_ptr: *const u8) -> *const u8 {
+    unsafe {
+        // Read handler (unaligned)
+        let h = (record_ptr as *const Handler).read_unaligned();
+        // Data immediately follows the handler
+        let data_ptr = record_ptr.add(mem::size_of::<Handler>());
+        h(data_ptr)
+    }
+}
+
+#[inline(always)]
+pub unsafe fn dec_run_block(record_ptr: *const u8) -> u32 {
+    unsafe {
+        let data = step_once(record_ptr);
+
+        *(data as *const u32)
+    }
+}
+
+// Generate executor_1 .. executor_24
+seq!(N in 1..=24 {
+    paste! {
+        unsafe extern "C" fn [<executor_ N>](mut data: *const u8) -> *const u8 {
+            // Unroll N times
+            seq!(i in 0..N { unsafe { data = step_once(data); } });
+            data
+        }
+    }
+});
+
+// Build the dispatch table: index 0 => 1 step, …, index 23 => 24 steps
+pub static EXECUTORS: [Handler; 24] = seq!(N in 1..=24 {
+    [
+        #(
+            paste! { [<executor_ N>] },
+        )*
+    ]
+});
+
+
+pub fn dec_patch_dispatcher() {
+    unsafe {
+        assert!(STEPS > 0, "Too few steps");
+        assert!(STEPS <= 24, "Too many steps");
+
+        let old_cur = CUR;
+        CUR = START;
+        write_seq::<Handler>(EXECUTORS[STEPS-1]);
+        CUR = old_cur;
+    }
+}
+
+/* ----------------------- Macro to define ops & handlers ----------------------- */
 
 macro_rules! define_op {
     ($name:ident ( $($arg:ident : $ty:ty),* $(,)? )) => {
         paste! {
             #[inline(always)]
             pub fn $name( $($arg : $ty),* ) {
-                ARENA.with(|arena| {
-                    let mut buf = arena.borrow_mut();
-                    // Write handler pointer
-                    let start = unsafe { start_record(&mut *buf, [<handler_ $name>] as Handler) };
-                    // Pack arguments
-                    $( unsafe { arena_push_aligned::<$ty>(&mut *buf, $arg); } )*
-                    // Track record start
-                    push_ptr_start(start);
-                });
+                unsafe {
+                    STEPS += 1;
+                    let mut _data = emit_record([<handler_ $name>] as Handler);
+                    // pack each argument sequentially (unaligned)
+                    $( { let _ = _data; emit_arg::<$ty>($arg); } )*
+                }
             }
 
             #[inline(always)]
-            unsafe extern "C" fn [<handler_ $name>](mut p: *mut u8) -> *mut u8 {
-                $( let $arg : $ty = read_aligned::<$ty>(&mut p); )*
-                // Call through to the immediate backend
-                backend_ipr::$name( $($arg),* );
-                // p now points right after our args => next record’s handler
-                p
+            unsafe extern "C" fn [<handler_ $name>](mut p: *const u8) -> *const u8 {
+                unsafe {
+                    // read args in the same order (unaligned)
+                    $( let $arg : $ty = read_seq::<$ty>(&mut p); )*
+                    backend_ipr::$name( $($arg),* );
+                    // p now points just after our last arg => next record’s handler
+                    p
+                }
             }
         }
     };
 }
 
+/* ------------------------------ Declarations ------------------------------ */
+/* Mirror backend_ipr.rs signatures */
 
-/* ------------------------------- Op definitions ---------------------------------
-   Below are all the ops you listed, with signatures mirroring backend_ipr.rs.
-   Add/remove lines as needed; the macro will generate both the recorder & handler.
-----------------------------------------------------------------------------------*/
-
-// Integer ops
 define_op!(sh4_muls32 (dst: *mut u32, src_n: *const u32, src_m: *const u32));
 define_op!(sh4_store32 (dst: *mut u32, src: *const u32));
-define_op!(sh4_store32i(dst: *mut u32, imm: u32));
-define_op!(sh4_and    (dst: *mut u32, src_n: *const u32, src_m: *const u32));
-define_op!(sh4_xor    (dst: *mut u32, src_n: *const u32, src_m: *const u32));
-define_op!(sh4_sub    (dst: *mut u32, src_n: *const u32, src_m: *const u32));
-define_op!(sh4_add    (dst: *mut u32, src_n: *const u32, src_m: *const u32));
-define_op!(sh4_addi   (dst: *mut u32, src_n: *const u32, imm: u32));
-define_op!(sh4_neg    (dst: *mut u32, src_n: *const u32));
-define_op!(sh4_extub  (dst: *mut u32, src: *const u32));
-define_op!(sh4_dt     (sr_T: *mut u32, dst: *mut u32));
-define_op!(sh4_shlr   (sr_T: *mut u32, dst: *mut u32, src_n: *const u32));
-define_op!(sh4_shllf  (dst: *mut u32, src_n: *const u32, amt: u32));
-define_op!(sh4_shlrf  (dst: *mut u32, src_n: *const u32, amt: u32));
+define_op!(sh4_store32i (dst: *mut u32, imm: u32));
+define_op!(sh4_and (dst: *mut u32, src_n: *const u32, src_m: *const u32));
+define_op!(sh4_xor (dst: *mut u32, src_n: *const u32, src_m: *const u32));
+define_op!(sh4_sub (dst: *mut u32, src_n: *const u32, src_m: *const u32));
+define_op!(sh4_add (dst: *mut u32, src_n: *const u32, src_m: *const u32));
+define_op!(sh4_addi (dst: *mut u32, src_n: *const u32, imm: u32));
+define_op!(sh4_neg (dst: *mut u32, src_n: *const u32));
+define_op!(sh4_extub (dst: *mut u32, src: *const u32));
+define_op!(sh4_dt (sr_T: *mut u32, dst: *mut u32));
+define_op!(sh4_shlr (sr_T: *mut u32, dst: *mut u32, src_n: *const u32));
+define_op!(sh4_shllf (dst: *mut u32, src_n: *const u32, amt: u32));
+define_op!(sh4_shlrf (dst: *mut u32, src_n: *const u32, amt: u32));
 
-// Memory ops (8/16/32/64 bit)
 define_op!(sh4_write_mem8 (dc: *mut Dreamcast, addr: *const u32, data: *const u32));
-define_op!(sh4_write_mem16(dc: *mut Dreamcast, addr: *const u32, data: *const u32));
-define_op!(sh4_write_mem32(dc: *mut Dreamcast, addr: *const u32, data: *const u32));
-define_op!(sh4_write_mem64(dc: *mut Dreamcast, addr: *const u32, data: *const u64));
+define_op!(sh4_write_mem16 (dc: *mut Dreamcast, addr: *const u32, data: *const u32));
+define_op!(sh4_write_mem32 (dc: *mut Dreamcast, addr: *const u32, data: *const u32));
+define_op!(sh4_write_mem64 (dc: *mut Dreamcast, addr: *const u32, data: *const u64));
 
 define_op!(sh4_read_mems8 (dc: *mut Dreamcast, addr: *const u32, data: *mut u32));
-define_op!(sh4_read_mems16(dc: *mut Dreamcast, addr: *const u32, data: *mut u32));
+define_op!(sh4_read_mems16 (dc: *mut Dreamcast, addr: *const u32, data: *mut u32));
 define_op!(sh4_read_mem32 (dc: *mut Dreamcast, addr: *const u32, data: *mut u32));
 define_op!(sh4_read_mem64 (dc: *mut Dreamcast, addr: *const u32, data: *mut u64));
-define_op!(sh4_read_mem32i(dc: *mut Dreamcast, addr: u32,          data: *mut u32));
+define_op!(sh4_read_mem32i (dc: *mut Dreamcast, addr: u32,          data: *mut u32));
 
-// FP ops
 define_op!(sh4_fadd (dst: *mut f32, src_n: *const f32, src_m: *const f32));
 define_op!(sh4_fmul (dst: *mut f32, src_n: *const f32, src_m: *const f32));
 define_op!(sh4_fdiv (dst: *mut f32, src_n: *const f32, src_m: *const f32));
 define_op!(sh4_fsca (dst: *mut f32, index: *const u32));
-define_op!(sh4_float(dst: *mut f32, src: *const u32));
+define_op!(sh4_float (dst: *mut f32, src: *const u32));
 define_op!(sh4_ftrc (dst: *mut u32, src: *const f32));
 
-// Branching
 // define_op!(sh4_branch_cond       (dc: *mut Dreamcast, T: *const u32, condition: u32, next: u32, target: u32));
 // define_op!(sh4_branch_cond_delay (dc: *mut Dreamcast, T: *const u32, condition: u32, next: u32, target: u32));
 // define_op!(sh4_branch_delay      (dc: *mut Dreamcast, target: u32));
 
+define_op!(sh4_dec_branch_cond (dst: *mut u32, jdyn: *const u32, condition: u32, next: u32, target: u32));
+define_op!(sh4_dec_call_decode (dc: *mut Dreamcast));
+
 #[inline(always)]
 pub fn sh4_branch_cond(dc: *mut Dreamcast, T: *const u32, condition: u32, next: u32, target: u32) {
-    panic!("sh4_branch_cond is not implemented in backend_fns");
+    unsafe {
+        (*dc).ctx.dec_branch = 1;
+        (*dc).ctx.dec_branch_cond = condition;
+        (*dc).ctx.dec_branch_next = next;
+        (*dc).ctx.dec_branch_target = target;
+    }
 }
 
 #[inline(always)]
 pub fn sh4_branch_cond_delay(dc: *mut Dreamcast, T: *const u32, condition: u32, next: u32, target: u32) {
-    panic!("sh4_branch_cond_delay is not implemented in backend_fns");
+    unsafe {
+        sh4_store32(addr_of_mut!((*dc).ctx.virt_jdyn), addr_of!((*dc).ctx.sr_T));
+
+        (*dc).ctx.dec_branch = 1;
+        (*dc).ctx.dec_branch_cond = condition;
+        (*dc).ctx.dec_branch_next = next;
+        (*dc).ctx.dec_branch_target = target;
+        (*dc).ctx.dec_branch_dslot = 1;
+    }
 }
 
 #[inline(always)]
 pub fn sh4_branch_delay(dc: *mut Dreamcast, target: u32) {
-    panic!("sh4_branch_delay is not implemented in backend_fns");
+    unsafe {
+        (*dc).ctx.dec_branch = 2;
+        (*dc).ctx.dec_branch_target = target;
+        (*dc).ctx.dec_branch_dslot = 1;
+    }
 }
