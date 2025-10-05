@@ -202,30 +202,97 @@ const arm7Instructions = [
   { mnemonic: "nop", operands: (_r1: number, _r2: number, _r3: number, _val: number, _offset: number) => "", bytes: 4 },
 ];
 
-const dspInstructions = [
-  { mnemonic: "ld", operands: (r: number, _r2: number, _r3: number, _val: number, addr: number) => `r${r}, @0x${addr.toString(16)}`, bytes: 2 },
-  { mnemonic: "add", operands: (r1: number, r2: number, _r3: number, _val: number, _offset: number) => `acc, r${r1}, r${r2}`, bytes: 2 },
-  { mnemonic: "mul", operands: (r1: number, r2: number, _r3: number, _val: number, _offset: number) => `r${r1}, r${r2}`, bytes: 2 },
-  { mnemonic: "store", operands: (_r1: number, _r2: number, _r3: number, _val: number, addr: number) => `acc, @0x${addr.toString(16)}`, bytes: 2 },
-  { mnemonic: "jmp", operands: (_r1: number, _r2: number, _r3: number, _val: number, addr: number) => `0x${addr.toString(16)}`, bytes: 2 },
-  { mnemonic: "nop", operands: (_r1: number, _r2: number, _r3: number, _val: number, _offset: number) => "", bytes: 2 },
+const dspSampleProgram = [
+  "TWT TWA YSEL BSELXSEL YSEL IRA:2 ZERO NOFL MASA:6 NXADRTRA YSEL BSEL",
+  "YSEL IWT IWA:6 MWT BSEL NOFL",
+  "YSEL BSEL",
+  "YSEL MRD BSEL NOFL MASA:7",
+  "YSEL BSEL",
+  "YSEL IWT IWA:7 MRD BSEL NOFL MASA:8",
+  "YSEL BSEL",
+  "YSEL IWT IWA:8 MRD BSEL NOFL MASA:9",
+  "YSEL BSEL",
+  "YSEL IWT IWA:9 MRD BSEL NOFL MASA:10XSEL YSEL IRA:2 ZERO",
+  "TWT YSEL IWT IWA:10 MRD BSEL NOFL MASA:11XSEL YSEL IRA:3 NEGB BSELXSEL YSEL IRA:33 IWT IWA:11 MRD BSEL NOFL MASA:12",
+  "TWT TWA YSEL BSELXSEL YSEL IRA:2 IWT IWA:12 MRD ZERO NOFL MASA:13TRA YSEL BSEL",
+  "YSEL IWT IWA:13 MWT BSEL NOFL MASA:2",
+  "YSEL BSEL",
+  "YSEL MRD BSEL NOFL MASA:14",
+  "YSEL BSEL",
+  "YSEL IWT IWA:14 MRD BSEL NOFL MASA:15",
+  "YSEL BSEL",
+  "YSEL IWT IWA:15 MRD BSEL NOFL MASA:17",
+  "YSEL BSEL",
+  "YSEL IWT IWA:17 MRD BSEL NOFL MASA:19XSEL YSEL IRA:4 ZERO",
+  "TWT YSEL IWT IWA:19 MRD BSEL NOFL MASA:21XSEL YSEL IRA:5 NEGB BSELXSEL YSEL IRA:32 IWT IWA:21 MRD BSEL NOFL MASA:23",
+  "TWT TWA YSEL BSELXSEL YSEL IRA:4 IWT IWA:23 ZEROTRA YSEL BSEL",
+  "YSEL BSELXSEL YSEL IRA:6 ZERO",
+  "TWT YSEL BSELXSEL YSEL IRA:7 NEGB BSELXSEL YSEL IRA:33 BSEL",
+  "TWT TWA YSEL BSELXSEL YSEL IRA:6 ZEROTRA YSEL BSEL",
+  "YSEL BSELXSEL YSEL IRA:8 ZEROXSEL YSEL IRA:9 BSEL",
+  "XSEL YSEL IRA:10 BSEL",
+  "XSEL YSEL IRA:11 BSEL",
+  "TWT TWA:2 YSEL BSEL",
+  "YSEL BSELXSEL YSEL IRA:12 ZEROXSEL YSEL IRA:13 BSEL",
+  "XSEL YSEL IRA:14 BSEL",
+  "XSEL YSEL IRA:15 BSEL",
+  "TWT TWA:3 YSEL BSEL",
+  "YSEL BSELTRA:2 XSEL YSEL IRA:17",
+  "TWT TWA:2 YSEL BSEL",
+  "YSEL BSEL",
+  "YSEL MWT BSEL NOFL MASA:16XSEL YSEL IRA:17 ZEROTRA:2 YSEL BSEL",
+  "TWT TWA:2 YSEL BSEL",
+  "YSEL BSELTRA:3 XSEL YSEL IRA:19",
+  "TWT TWA:3 YSEL BSEL",
+  "YSEL BSEL",
+  "YSEL MWT BSEL NOFL MASA:18XSEL YSEL IRA:19 ZEROTRA:3 YSEL BSEL",
+  "TWT TWA:3 YSEL BSEL",
+  "YSEL BSELTRA:2 XSEL YSEL IRA:21",
+  "TWT TWA:2 YSEL BSEL",
+  "YSEL BSEL",
+  "YSEL MWT BSEL NOFL MASA:20XSEL YSEL IRA:21 ZEROTRA:2 YSEL BSEL",
+  "YSEL EWT BSEL",
+  "YSEL BSELTRA:3 XSEL YSEL IRA:23",
+  "TWT TWA:3 YSEL BSEL",
+  "YSEL BSEL",
+  "YSEL MWT BSEL NOFL MASA:22XSEL YSEL IRA:23 ZEROTRA:3 YSEL BSEL",
+  "YSEL EWT EWA BSEL",
 ];
 
 const generateDisassembly = (target: string, address: number, count: number): DisassemblyLine[] => {
+  if (target === "dsp") {
+    const lines: DisassemblyLine[] = [];
+    const sanitizedAddress = Number.isFinite(address) && address >= 0 ? address : 0;
+    const startStep = Math.max(0, Math.min(0x7f, sanitizedAddress));
+
+    for (let i = 0; i < count; i++) {
+      const step = (startStep + i) & 0x7f;
+      const programLine = dspSampleProgram[(startStep + i) % dspSampleProgram.length] ?? "";
+      lines.push({
+        address: step,
+        bytes: ((step * 2) & 0xff).toString(16).toUpperCase().padStart(2, "0"),
+        mnemonic: programLine,
+        operands: "",
+      });
+    }
+
+    return lines;
+  }
+
   const instructionSets = {
     sh4: sh4Instructions,
     arm7: arm7Instructions,
-    dsp: dspInstructions,
   };
 
-  const instructions = instructionSets[target as keyof typeof instructionSets] ?? sh4Instructions;
+  const selected = instructionSets[target as keyof typeof instructionSets] ?? sh4Instructions;
   const lines: DisassemblyLine[] = [];
-  let currentAddr = address;
+  const sanitizedAddress = Number.isFinite(address) && address >= 0 ? address : 0;
+  let currentAddr = sanitizedAddress;
 
   for (let i = 0; i < count; i++) {
     const hash = sha256Byte(`${target}:${currentAddr.toString(16)}`);
-    const instrIndex = hash % instructions.length;
-    const instr = instructions[instrIndex];
+    const instrIndex = hash % selected.length;
+    const instr = selected[instrIndex];
 
     const r1 = (hash >> 4) % 16;
     const r2 = (hash >> 2) % 16;
@@ -235,12 +302,11 @@ const generateDisassembly = (target: string, address: number, count: number): Di
 
     const operands = instr.operands(r1, r2, r3, val, offset);
 
-    // Generate pseudo-random bytes
     const byteValues: number[] = [];
     for (let b = 0; b < instr.bytes; b++) {
       byteValues.push(sha256Byte(`${target}:${currentAddr.toString(16)}:${b}`));
     }
-    const bytes = byteValues.map(b => b.toString(16).toUpperCase().padStart(2, "0")).join(" ");
+    const bytes = byteValues.map((b) => b.toString(16).toUpperCase().padStart(2, "0")).join(" " );
 
     lines.push({
       address: currentAddr,
@@ -255,6 +321,7 @@ const generateDisassembly = (target: string, address: number, count: number): Di
 
   return lines;
 };
+
 const sampleBreakpoints: BreakpointDescriptor[] = [
   { id: "bp-1", location: "dc.sh4.cpu.pc == 0x8C0000A0", kind: "code", enabled: true, hitCount: 3 },
   { id: "bp-2", location: "dc.aica.channel[0].step", kind: "event", enabled: false, hitCount: 0 },

@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { SimpleTreeView } from "@mui/x-tree-view/SimpleTreeView";
 import { TreeItem } from "@mui/x-tree-view/TreeItem";
@@ -18,8 +18,6 @@ import AddIcon from "@mui/icons-material/Add";
 import { useDebuggerDataStore } from "../../state/debuggerDataStore";
 import { useSessionStore } from "../../state/sessionStore";
 
-const gatherExpanded = (nodes: DeviceNodeDescriptor[]): string[] =>
-  nodes.flatMap((node) => [node.path, ...(node.children ? gatherExpanded(node.children) : [])]);
 
 export const DeviceTreePanel = () => {
   const deviceTree = useDebuggerDataStore((state) => state.deviceTree);
@@ -145,7 +143,7 @@ export const DeviceTreePanel = () => {
         <Stack alignItems="center" justifyContent="center" sx={{ p: 2 }} spacing={1}>
           <CircularProgress size={16} />
           <Typography variant="body2" color="text.secondary">
-            Loading devices…
+            Loading devices�
           </Typography>
         </Stack>
       ) : error ? (

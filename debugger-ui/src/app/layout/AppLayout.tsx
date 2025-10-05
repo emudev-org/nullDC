@@ -28,7 +28,7 @@ const workspaceTabs = [
   { value: "ta", label: "TA", component: <TaInspectorPanel /> },
   { value: "core", label: "CORE", component: <CoreInspectorPanel /> },
   { value: "aica", label: "AICA", component: <AudioPanel /> },
-  { value: "dsp", label: "DSP: Disassembly", component: <DspDisassemblyPanel /> },
+    { value: "dsp-disassembly", label: "DSP: Disassembly", component: <DspDisassemblyPanel /> },
 ];
 
 const connectionIcons = {
@@ -209,6 +209,7 @@ export const AppLayout = () => {
     </Box>
   );
 };
+
 
 
 

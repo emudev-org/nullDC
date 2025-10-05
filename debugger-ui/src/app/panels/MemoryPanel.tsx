@@ -1,160 +1,149 @@
-﻿import { useCallback, useEffect, useMemo, useState, useRef } from "react";
-import { Box, Button, CircularProgress, IconButton, Stack, TextField, Typography } from "@mui/material";
-import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
-import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
-import type { MemorySlice } from "../../lib/debuggerSchema";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Panel } from "../layout/Panel";
+import { Box, Button, CircularProgress, Stack, TextField, Typography } from "@mui/material";
+import type { MemorySlice } from "../../lib/debuggerSchema";
 import { useSessionStore } from "../../state/sessionStore";
 
 type MemoryRow = {
+  id: number;
   address: number;
   hex: string;
   ascii: string;
 };
 
-type MemoryViewConfig = {
+const formatHexAddress = (value: number) => `0x${value.toString(16).toUpperCase().padStart(8, "0")}`;
+
+const clampAddress = (value: number, max: number) => {
+  if (value < 0) {
+    return 0;
+  }
+  if (value > max) {
+    return max;
+  }
+  return value;
+};
+
+const WHEEL_PIXEL_THRESHOLD = 60;
+const MEMORY_SCROLL_BYTES = 96;
+const BYTES_PER_ROW = 16;
+
+const MemoryView = ({
+  title,
+  target,
+  defaultAddress,
+  length,
+  encoding,
+  wordSize,
+}: {
   title: string;
   target: string;
   defaultAddress: number;
+  length: number;
   encoding?: MemorySlice["encoding"];
   wordSize?: MemorySlice["wordSize"];
-};
-
-const BYTES_PER_ROW = 16;
-const VISIBLE_ROWS = 30;
-const BUFFER_ROWS = 100;
-const TOTAL_VIRTUAL_ROWS = 1000000;
-const ROW_HEIGHT = 28;
-
-const MemoryView = ({ title, target, defaultAddress, encoding, wordSize }: MemoryViewConfig) => {
+}) => {
   const client = useSessionStore((state) => state.client);
   const connectionState = useSessionStore((state) => state.connectionState);
-  const [memoryCache, setMemoryCache] = useState<Map<number, number>>(new Map());
+  const [slice, setSlice] = useState<MemorySlice | null>(null);
   const [loading, setLoading] = useState(false);
-  const [scrollOffset, setScrollOffset] = useState(0);
-  const [baseAddress, setBaseAddress] = useState(defaultAddress);
-  const [addressInput, setAddressInput] = useState(`0x${defaultAddress.toString(16).toUpperCase()}`);
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const fetchingRef = useRef(false);
+  const [address, setAddress] = useState(defaultAddress);
+  const [addressInput, setAddressInput] = useState(formatHexAddress(defaultAddress));
+  const requestIdRef = useRef(0);
+  const wheelRemainder = useRef(0);
 
-  const fetchMemoryPage = useCallback(async (address: number, length: number) => {
-    if (!client || connectionState !== "connected" || fetchingRef.current) {
-      return;
-    }
+  const maxAddress = useMemo(() => 0xffffffff - Math.max(length - 1, 0), [length]);
 
-    fetchingRef.current = true;
-    setLoading(true);
-    try {
-      const result = await client.fetchMemorySlice({
-        target,
-        address,
-        length,
-        encoding,
-        wordSize,
-      });
-
-      const bytes = result.data.match(/.{1,2}/g) ?? [];
-      setMemoryCache(prev => {
-        const newCache = new Map(prev);
-        bytes.forEach((byte, index) => {
-          newCache.set(result.baseAddress + index, Number.parseInt(byte, 16));
-        });
-        return newCache;
-      });
-    } catch (error) {
-      console.error(`Failed to fetch ${target} memory`, error);
-    } finally {
-      setLoading(false);
-      fetchingRef.current = false;
-    }
-  }, [client, connectionState, target, encoding, wordSize]);
-
-  useEffect(() => {
-    void fetchMemoryPage(defaultAddress, BUFFER_ROWS * BYTES_PER_ROW);
-  }, [fetchMemoryPage, defaultAddress]);
-
-  const currentVirtualRow = useMemo(() => {
-    return Math.floor(scrollOffset / ROW_HEIGHT);
-  }, [scrollOffset]);
-
-  const visibleRows = useMemo<MemoryRow[]>(() => {
-    const startRow = Math.max(0, currentVirtualRow - 10);
-    const endRow = Math.min(TOTAL_VIRTUAL_ROWS, currentVirtualRow + VISIBLE_ROWS + 10);
-
-    const result: MemoryRow[] = [];
-    for (let rowIndex = startRow; rowIndex < endRow; rowIndex++) {
-      const address = baseAddress + rowIndex * BYTES_PER_ROW;
-      const rowBytes: number[] = [];
-
-      for (let i = 0; i < BYTES_PER_ROW; i++) {
-        const byteAddr = address + i;
-        const byte = memoryCache.get(byteAddr);
-        rowBytes.push(byte ?? 0);
+  const fetchSlice = useCallback(
+    async (addr: number) => {
+      if (!client || connectionState !== "connected") {
+        return;
       }
 
-      const hex = rowBytes.map(b => b.toString(16).toUpperCase().padStart(2, "0")).join(" ");
-      const ascii = rowBytes
-        .map(b => {
-          const char = String.fromCharCode(b);
+      const requestId = ++requestIdRef.current;
+      setLoading(true);
+      try {
+        const result = await client.fetchMemorySlice({
+          target,
+          address: addr,
+          length,
+          encoding,
+          wordSize,
+        });
+        if (requestIdRef.current !== requestId) {
+          return;
+        }
+        setSlice(result);
+      } catch (error) {
+        console.error(`Failed to fetch ${target} memory`, error);
+      } finally {
+        if (requestIdRef.current === requestId) {
+          setLoading(false);
+        }
+      }
+    },
+    [client, connectionState, target, length, encoding, wordSize],
+  );
+
+  useEffect(() => {
+    setAddressInput(formatHexAddress(address));
+    void fetchSlice(address);
+  }, [address, fetchSlice]);
+
+  const rows = useMemo<MemoryRow[]>(() => {
+    if (!slice) {
+      return [];
+    }
+    const bytes = slice.data.match(/.{1,2}/g) ?? [];
+    const result: MemoryRow[] = [];
+    for (let offset = 0; offset < bytes.length; offset += BYTES_PER_ROW) {
+      const chunk = bytes.slice(offset, offset + BYTES_PER_ROW);
+      const rowAddress = slice.baseAddress + offset;
+      const hex = chunk.join(" ");
+      const ascii = chunk
+        .map((byte) => {
+          const charCode = Number.parseInt(byte, 16);
+          const char = String.fromCharCode(charCode);
           return /[\x20-\x7E]/.test(char) ? char : ".";
         })
         .join("");
-
-      result.push({ address, hex, ascii });
+      result.push({ id: offset, address: rowAddress, hex, ascii });
     }
     return result;
-  }, [baseAddress, memoryCache, currentVirtualRow]);
+  }, [slice]);
 
-  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-    const { scrollTop } = e.currentTarget;
-    setScrollOffset(scrollTop);
+  const adjustAddress = useCallback(
+    (delta: number) => {
+      setAddress((prev) => clampAddress(prev + delta, maxAddress));
+    },
+    [maxAddress],
+  );
 
-    const currentRow = Math.floor(scrollTop / ROW_HEIGHT);
-    const currentAddress = baseAddress + currentRow * BYTES_PER_ROW;
+  const handleWheel = useCallback(
+    (event: React.WheelEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      wheelRemainder.current += event.deltaY;
 
-    // Check if we need to fetch more data
-    const minCachedAddr = Math.min(...Array.from(memoryCache.keys()));
-    const maxCachedAddr = Math.max(...Array.from(memoryCache.keys()));
-
-    if (currentAddress < minCachedAddr + BYTES_PER_ROW * 20) {
-      const fetchAddr = Math.max(0, minCachedAddr - BUFFER_ROWS * BYTES_PER_ROW);
-      void fetchMemoryPage(fetchAddr, BUFFER_ROWS * BYTES_PER_ROW);
-    } else if (currentAddress > maxCachedAddr - BYTES_PER_ROW * 20) {
-      const fetchAddr = maxCachedAddr + 1;
-      void fetchMemoryPage(fetchAddr, BUFFER_ROWS * BYTES_PER_ROW);
-    }
-  }, [baseAddress, memoryCache, fetchMemoryPage]);
-
-
-  const handleAddressChange = useCallback(() => {
-    try {
-      const parsed = Number.parseInt(addressInput.replace(/^0x/i, ""), 16);
-      if (!Number.isNaN(parsed)) {
-        setBaseAddress(parsed);
-        setMemoryCache(new Map());
-        setScrollOffset(0);
-        if (scrollContainerRef.current) {
-          scrollContainerRef.current.scrollTop = 0;
-        }
-        void fetchMemoryPage(parsed, BUFFER_ROWS * BYTES_PER_ROW);
-        setAddressInput(`0x${parsed.toString(16).toUpperCase()}`);
+      while (Math.abs(wheelRemainder.current) >= WHEEL_PIXEL_THRESHOLD) {
+        const direction = wheelRemainder.current > 0 ? 1 : -1;
+        adjustAddress(direction * MEMORY_SCROLL_BYTES);
+        wheelRemainder.current -= direction * WHEEL_PIXEL_THRESHOLD;
       }
-    } catch {
-      // Invalid input, ignore
-    }
-  }, [addressInput, fetchMemoryPage]);
+    },
+    [adjustAddress],
+  );
 
-  const handlePageUp = useCallback(() => {
-    if (scrollContainerRef.current) {
-      scrollContainerRef.current.scrollTop = Math.max(0, scrollContainerRef.current.scrollTop - VISIBLE_ROWS * ROW_HEIGHT);
+  const handleAddressSubmit = useCallback(() => {
+    const normalized = addressInput.trim();
+    const parsed = Number.parseInt(normalized.replace(/^0x/i, ""), 16);
+    if (Number.isNaN(parsed)) {
+      return;
     }
-  }, []);
+    setAddress(clampAddress(parsed, maxAddress));
+  }, [addressInput, maxAddress]);
 
-  const handlePageDown = useCallback(() => {
-    if (scrollContainerRef.current) {
-      scrollContainerRef.current.scrollTop += VISIBLE_ROWS * ROW_HEIGHT;
-    }
-  }, []);
+  const handleRefresh = useCallback(() => {
+    void fetchSlice(address);
+  }, [fetchSlice, address]);
 
   return (
     <Panel
@@ -164,105 +153,84 @@ const MemoryView = ({ title, target, defaultAddress, encoding, wordSize }: Memor
           <TextField
             size="small"
             value={addressInput}
-            onChange={(e) => setAddressInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                handleAddressChange();
+            onChange={(event) => setAddressInput(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                handleAddressSubmit();
               }
             }}
-            placeholder="0x00000000"
             sx={{ width: 140 }}
-            disabled={loading || connectionState !== "connected"}
+            disabled={connectionState !== "connected"}
           />
-          <Button size="small" onClick={handleAddressChange} disabled={loading || connectionState !== "connected"}>
+          <Button size="small" onClick={handleAddressSubmit} disabled={connectionState !== "connected"}>
             Go
           </Button>
-          <IconButton size="small" onClick={handlePageUp} disabled={loading || connectionState !== "connected"}>
-            <ArrowUpwardIcon fontSize="small" />
-          </IconButton>
-          <IconButton size="small" onClick={handlePageDown} disabled={loading || connectionState !== "connected"}>
-            <ArrowDownwardIcon fontSize="small" />
-          </IconButton>
+          <Button size="small" onClick={handleRefresh} disabled={loading || connectionState !== "connected"}>
+            Refresh
+          </Button>
         </Stack>
       }
     >
-      {memoryCache.size === 0 && loading ? (
+      {loading && !slice ? (
         <Stack alignItems="center" justifyContent="center" sx={{ height: "100%" }} spacing={1}>
           <CircularProgress size={18} />
           <Typography variant="body2" color="text.secondary">
-            Loading memory…
+            Loading memory.
           </Typography>
         </Stack>
-      ) : (
+      ) : slice && rows.length > 0 ? (
         <Box
-          ref={scrollContainerRef}
-          onScroll={handleScroll}
+          onWheel={handleWheel}
           sx={{
-            flex: 1,
-            overflow: "auto",
-            fontFamily: "monospace",
-            fontSize: "13px",
             height: "100%",
+            flex: 1,
+            overflow: "hidden",
+            fontFamily: "monospace",
+            fontSize: 13,
+            p: 1.5,
             position: "relative",
-            "&::-webkit-scrollbar": {
-              width: 0,
-              height: 0,
-            },
-            scrollbarWidth: "none",
-            msOverflowStyle: "none",
+            cursor: "ns-resize",
           }}
         >
-          <Box sx={{ height: TOTAL_VIRTUAL_ROWS * ROW_HEIGHT, position: "relative" }}>
-            <Box
-              sx={{
-                position: "absolute",
-                top: Math.max(0, currentVirtualRow - 10) * ROW_HEIGHT,
-                left: 0,
-                right: 0,
-              }}
-            >
-              <Box component="table" sx={{ width: "100%", borderCollapse: "collapse" }}>
-                <Box component="thead" sx={{ position: "sticky", top: 0, bgcolor: "background.paper", zIndex: 1 }}>
-                  <Box component="tr">
-                    <Box component="th" sx={{ textAlign: "left", p: 1, borderBottom: 1, borderColor: "divider" }}>
-                      Address
-                    </Box>
-                    <Box component="th" sx={{ textAlign: "left", p: 1, borderBottom: 1, borderColor: "divider" }}>
-                      Hex
-                    </Box>
-                    <Box component="th" sx={{ textAlign: "left", p: 1, borderBottom: 1, borderColor: "divider" }}>
-                      ASCII
-                    </Box>
-                  </Box>
-                </Box>
-                <Box component="tbody">
-                  {visibleRows.map((row) => (
-                    <Box component="tr" key={row.address} sx={{ height: ROW_HEIGHT }}>
-                      <Box component="td" sx={{ p: 1, borderBottom: 1, borderColor: "divider", whiteSpace: "nowrap" }}>
-                        {`0x${row.address.toString(16).toUpperCase().padStart(8, "0")}`}
-                      </Box>
-                      <Box component="td" sx={{ p: 1, borderBottom: 1, borderColor: "divider", whiteSpace: "nowrap" }}>
-                        {row.hex}
-                      </Box>
-                      <Box component="td" sx={{ p: 1, borderBottom: 1, borderColor: "divider", whiteSpace: "nowrap" }}>
-                        {row.ascii}
-                      </Box>
-                    </Box>
-                  ))}
-                </Box>
-              </Box>
-            </Box>
+          {loading && (
+            <Stack direction="row" spacing={1} alignItems="center" sx={{ position: "absolute", top: 8, right: 16 }}>
+              <CircularProgress size={12} thickness={5} />
+              <Typography variant="caption" color="text.secondary">
+                Updating
+              </Typography>
+            </Stack>
+          )}
+          <Box sx={{ display: "flex", mb: 1, color: "text.secondary", fontWeight: 600, fontFamily: "monospace", fontSize: 13 }}>
+            <Typography component="span" sx={{ width: 100, flexShrink: 0, mr: "1.5em" }}>Address</Typography>
+            <Typography component="span" sx={{ width: 380, flexShrink: 0, mr: "4em" }}>Hex</Typography>
+            <Typography component="span" sx={{ width: 130, flexShrink: 0 }}>ASCII</Typography>
           </Box>
+          <Stack spacing={0.5}>
+            {rows.map((row) => (
+              <Box
+                key={`${target}-${row.id}`}
+                sx={{ display: "flex", fontFamily: "monospace", fontSize: 13, alignItems: "baseline" }}>
+                <Typography component="span" sx={{ width: 100, flexShrink: 0, mr: "1.5em" }}>{formatHexAddress(row.address)}</Typography>
+                <Typography component="span" sx={{ width: 380, flexShrink: 0, whiteSpace: "nowrap", letterSpacing: 0, mr: "4em" }}>{row.hex}</Typography>
+                <Typography component="span" sx={{ width: 130, flexShrink: 0, whiteSpace: "pre", letterSpacing: "0.05em" }}>{row.ascii}</Typography>
+              </Box>
+            ))}
+          </Stack>
         </Box>
+      ) : (
+        <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
+          Memory slice unavailable.
+        </Typography>
       )}
     </Panel>
   );
 };
 
 export const Sh4MemoryPanel = () => (
-  <MemoryView title="SH4: Memory" target="sh4" defaultAddress={0x8c000000} />
+  <MemoryView title="SH4: Memory" target="sh4" defaultAddress={0x8c000000} length={256} />
 );
 
 export const Arm7MemoryPanel = () => (
-  <MemoryView title="ARM7: Memory" target="arm7" defaultAddress={0x00200000} />
+  <MemoryView title="ARM7: Memory" target="arm7" defaultAddress={0x00200000} length={128} />
 );

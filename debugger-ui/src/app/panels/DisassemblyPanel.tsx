@@ -1,4 +1,5 @@
-﻿import { useCallback, useEffect, useMemo, useState, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { WheelEvent as ReactWheelEvent } from "react";
 import { Panel } from "../layout/Panel";
 import { Box, Button, CircularProgress, IconButton, Stack, TextField, Typography } from "@mui/material";
 import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
@@ -6,137 +7,146 @@ import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
 import type { DisassemblyLine } from "../../lib/debuggerSchema";
 import { useSessionStore } from "../../state/sessionStore";
 
-type DisassemblyConfig = {
+const WHEEL_PIXEL_THRESHOLD = 60;
+const INSTRUCTIONS_PER_TICK = 6;
+const FETCH_LINE_COUNT = 64;
+
+const formatHexAddress = (value: number) => `0x${value.toString(16).toUpperCase().padStart(8, "0")}`;
+
+const instructionSizeForTarget = (target: string) => {
+  switch (target) {
+    case "sh4":
+      return 2;
+    case "arm7":
+      return 4;
+    case "dsp":
+      return 1;
+    default:
+      return 2;
+  }
+};
+
+const maxAddressForTarget = (target: string) => (target === "dsp" ? 0x7f : 0xffffffff);
+
+const normalizeAddress = (value: number, max: number, step: number) => {
+  const clamped = Math.min(Math.max(0, value), max);
+  if (step <= 1) {
+    return clamped;
+  }
+  return clamped - (clamped % step);
+};
+
+const formatAddressInput = (target: string, value: number) =>
+  target === "dsp" ? value.toString() : formatHexAddress(value);
+
+const formatAddressForDisplay = (target: string, value: number) =>
+  target === "dsp" ? value.toString().padStart(3, "0") : formatHexAddress(value);
+
+const parseAddressInput = (target: string, input: string) => {
+  const trimmed = input.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  if (/^0x/i.test(trimmed)) {
+    const parsed = Number.parseInt(trimmed.replace(/^0x/i, ""), 16);
+    return Number.isNaN(parsed) ? undefined : parsed;
+  }
+  const base = target === "dsp" ? 10 : 16;
+  const parsed = Number.parseInt(trimmed, base);
+  return Number.isNaN(parsed) ? undefined : parsed;
+};
+
+const DisassemblyView = ({
+  title,
+  target,
+  defaultAddress,
+}: {
   title: string;
   target: string;
   defaultAddress: number;
-};
-
-const VISIBLE_ROWS = 30;
-const BUFFER_ROWS = 128;
-const TOTAL_VIRTUAL_ROWS = 1000000;
-const ROW_HEIGHT = 24;
-
-const DisassemblyView = ({ title, target, defaultAddress }: DisassemblyConfig) => {
+}) => {
   const client = useSessionStore((state) => state.client);
   const connectionState = useSessionStore((state) => state.connectionState);
-  const [disasmCache, setDisasmCache] = useState<Map<number, DisassemblyLine>>(new Map());
+  const [lines, setLines] = useState<DisassemblyLine[]>([]);
   const [loading, setLoading] = useState(false);
-  const [scrollOffset, setScrollOffset] = useState(0);
-  const [baseAddress, setBaseAddress] = useState(defaultAddress);
-  const [addressInput, setAddressInput] = useState(`0x${defaultAddress.toString(16).toUpperCase()}`);
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const fetchingRef = useRef(false);
+  const [address, setAddress] = useState(defaultAddress);
+  const [addressInput, setAddressInput] = useState(formatAddressInput(target, defaultAddress));
+  const [error, setError] = useState<string | undefined>();
+  const requestIdRef = useRef(0);
+  const wheelRemainder = useRef(0);
 
-  const fetchDisassembly = useCallback(async (address: number, count: number) => {
-    if (!client || connectionState !== "connected" || fetchingRef.current) {
-      return;
-    }
+  const instructionSize = useMemo(() => instructionSizeForTarget(target), [target]);
+  const maxAddress = useMemo(() => maxAddressForTarget(target), [target]);
 
-    fetchingRef.current = true;
-    setLoading(true);
-    try {
-      const result = await client.fetchDisassembly({ target, address, count });
-      setDisasmCache(prev => {
-        const newCache = new Map(prev);
-        result.lines.forEach(line => {
-          newCache.set(line.address, line);
-        });
-        return newCache;
-      });
-    } catch (error) {
-      console.error(`Failed to fetch ${target} disassembly`, error);
-    } finally {
-      setLoading(false);
-      fetchingRef.current = false;
-    }
-  }, [client, connectionState, target]);
+  const fetchDisassembly = useCallback(
+    async (addr: number) => {
+      if (!client || connectionState !== "connected") {
+        return;
+      }
+      const requestId = ++requestIdRef.current;
+      setLoading(true);
+      setError(undefined);
+      try {
+        const result = await client.fetchDisassembly({ target, address: addr, count: FETCH_LINE_COUNT });
+        if (requestIdRef.current !== requestId) {
+          return;
+        }
+        setLines(result.lines);
+      } catch (err) {
+        if (requestIdRef.current === requestId) {
+          setError(err instanceof Error ? err.message : String(err));
+        }
+      } finally {
+        if (requestIdRef.current === requestId) {
+          setLoading(false);
+        }
+      }
+    },
+    [client, connectionState, target],
+  );
 
   useEffect(() => {
-    void fetchDisassembly(defaultAddress, BUFFER_ROWS);
-  }, [fetchDisassembly, defaultAddress]);
+    const normalized = normalizeAddress(address, maxAddress, instructionSize);
+    setAddressInput(formatAddressInput(target, normalized));
+    void fetchDisassembly(normalized);
+  }, [address, fetchDisassembly, instructionSize, maxAddress, target]);
 
-  const currentVirtualRow = useMemo(() => {
-    return Math.floor(scrollOffset / ROW_HEIGHT);
-  }, [scrollOffset]);
+  const adjustAddress = useCallback(
+    (steps: number) => {
+      setAddress((prev) => normalizeAddress(prev + steps * instructionSize, maxAddress, instructionSize));
+    },
+    [instructionSize, maxAddress],
+  );
 
-  const visibleLines = useMemo<DisassemblyLine[]>(() => {
-    const startRow = Math.max(0, currentVirtualRow - 10);
-    const endRow = Math.min(TOTAL_VIRTUAL_ROWS, currentVirtualRow + VISIBLE_ROWS + 10);
+  const handleWheel = useCallback(
+    (event: ReactWheelEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      wheelRemainder.current += event.deltaY;
 
-    const result: DisassemblyLine[] = [];
-    for (let rowIndex = startRow; rowIndex < endRow; rowIndex++) {
-      const address = baseAddress + rowIndex * 2; // Assuming 2-byte instructions on average
-      const cachedLine = disasmCache.get(address);
-
-      if (cachedLine) {
-        result.push(cachedLine);
-      } else {
-        // Placeholder for uncached lines
-        result.push({
-          address,
-          bytes: "??",
-          mnemonic: "...",
-          operands: "",
-          isCurrent: false,
-        });
+      while (Math.abs(wheelRemainder.current) >= WHEEL_PIXEL_THRESHOLD) {
+        const direction = wheelRemainder.current > 0 ? 1 : -1;
+        adjustAddress(direction * INSTRUCTIONS_PER_TICK);
+        wheelRemainder.current -= direction * WHEEL_PIXEL_THRESHOLD;
       }
+    },
+    [adjustAddress],
+  );
+
+  const handleAddressSubmit = useCallback(() => {
+    const parsed = parseAddressInput(target, addressInput);
+    if (parsed === undefined) {
+      return;
     }
-    return result;
-  }, [baseAddress, disasmCache, currentVirtualRow]);
-
-  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-    const { scrollTop } = e.currentTarget;
-    setScrollOffset(scrollTop);
-
-    const currentRow = Math.floor(scrollTop / ROW_HEIGHT);
-    const currentAddress = baseAddress + currentRow * 2;
-
-    // Check if we need to fetch more data
-    const cachedAddresses = Array.from(disasmCache.keys());
-    if (cachedAddresses.length === 0) return;
-
-    const minCachedAddr = Math.min(...cachedAddresses);
-    const maxCachedAddr = Math.max(...cachedAddresses);
-
-    if (currentAddress < minCachedAddr + 40) {
-      const fetchAddr = Math.max(0, minCachedAddr - BUFFER_ROWS * 2);
-      void fetchDisassembly(fetchAddr, BUFFER_ROWS);
-    } else if (currentAddress > maxCachedAddr - 40) {
-      const fetchAddr = maxCachedAddr + 2;
-      void fetchDisassembly(fetchAddr, BUFFER_ROWS);
-    }
-  }, [baseAddress, disasmCache, fetchDisassembly]);
-
-  const handleAddressChange = useCallback(() => {
-    try {
-      const parsed = Number.parseInt(addressInput.replace(/^0x/i, ""), 16);
-      if (!Number.isNaN(parsed)) {
-        setBaseAddress(parsed);
-        setDisasmCache(new Map());
-        setScrollOffset(0);
-        if (scrollContainerRef.current) {
-          scrollContainerRef.current.scrollTop = 0;
-        }
-        void fetchDisassembly(parsed, BUFFER_ROWS);
-        setAddressInput(`0x${parsed.toString(16).toUpperCase()}`);
-      }
-    } catch {
-      // Invalid input, ignore
-    }
-  }, [addressInput, fetchDisassembly]);
+    setAddress(normalizeAddress(parsed, maxAddress, instructionSize));
+  }, [addressInput, instructionSize, maxAddress, target]);
 
   const handlePageUp = useCallback(() => {
-    if (scrollContainerRef.current) {
-      scrollContainerRef.current.scrollTop = Math.max(0, scrollContainerRef.current.scrollTop - VISIBLE_ROWS * ROW_HEIGHT);
-    }
-  }, []);
+    adjustAddress(-FETCH_LINE_COUNT);
+  }, [adjustAddress]);
 
   const handlePageDown = useCallback(() => {
-    if (scrollContainerRef.current) {
-      scrollContainerRef.current.scrollTop += VISIBLE_ROWS * ROW_HEIGHT;
-    }
-  }, []);
+    adjustAddress(FETCH_LINE_COUNT);
+  }, [adjustAddress]);
 
   return (
     <Panel
@@ -146,88 +156,108 @@ const DisassemblyView = ({ title, target, defaultAddress }: DisassemblyConfig) =
           <TextField
             size="small"
             value={addressInput}
-            onChange={(e) => setAddressInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                handleAddressChange();
+            onChange={(event) => setAddressInput(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                handleAddressSubmit();
               }
             }}
-            placeholder="0x00000000"
-            sx={{ width: 140 }}
-            disabled={loading || connectionState !== "connected"}
+            sx={{ width: 160 }}
+            disabled={connectionState !== "connected"}
           />
-          <Button size="small" onClick={handleAddressChange} disabled={loading || connectionState !== "connected"}>
+          <Button size="small" onClick={handleAddressSubmit} disabled={connectionState !== "connected"}>
             Go
           </Button>
-          <IconButton size="small" onClick={handlePageUp} disabled={loading || connectionState !== "connected"}>
+          <IconButton size="small" onClick={handlePageUp} disabled={connectionState !== "connected"}>
             <ArrowUpwardIcon fontSize="small" />
           </IconButton>
-          <IconButton size="small" onClick={handlePageDown} disabled={loading || connectionState !== "connected"}>
+          <IconButton size="small" onClick={handlePageDown} disabled={connectionState !== "connected"}>
             <ArrowDownwardIcon fontSize="small" />
           </IconButton>
         </Stack>
       }
     >
-      {disasmCache.size === 0 && loading ? (
+      {connectionState !== "connected" ? (
+        <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
+          Connect to view disassembly.
+        </Typography>
+      ) : error ? (
+        <Typography variant="body2" color="error" sx={{ p: 2 }}>
+          {error}
+        </Typography>
+      ) : lines.length === 0 && loading ? (
         <Stack alignItems="center" justifyContent="center" sx={{ height: "100%" }} spacing={1}>
           <CircularProgress size={18} />
           <Typography variant="body2" color="text.secondary">
-            Loading disassembly…
+            Loading disassembly.
           </Typography>
         </Stack>
       ) : (
         <Box
-          ref={scrollContainerRef}
-          onScroll={handleScroll}
+          onWheel={handleWheel}
           sx={{
             flex: 1,
-            overflow: "auto",
+            height: "100%",
+            overflow: "hidden",
             fontFamily: "monospace",
             fontSize: "13px",
-            height: "100%",
+            p: 1.5,
             position: "relative",
-            "&::-webkit-scrollbar": {
-              width: 0,
-              height: 0,
-            },
-            scrollbarWidth: "none",
-            msOverflowStyle: "none",
+            cursor: "ns-resize",
           }}
         >
-          <Box sx={{ height: TOTAL_VIRTUAL_ROWS * ROW_HEIGHT, position: "relative" }}>
-            <Box
-              sx={{
-                position: "absolute",
-                top: Math.max(0, currentVirtualRow - 10) * ROW_HEIGHT,
-                left: 0,
-                right: 0,
-              }}
-            >
-              <Box component="pre" sx={{ m: 0, p: 1.5 }}>
-                {visibleLines.map((line) => (
-                  <Typography
-                    key={line.address}
-                    component="div"
+          {loading && (
+            <Stack direction="row" spacing={1} alignItems="center" sx={{ position: "absolute", top: 8, right: 16 }}>
+              <CircularProgress size={12} thickness={5} />
+              <Typography variant="caption" color="text.secondary">
+                Updating
+              </Typography>
+            </Stack>
+          )}
+          {lines.length === 0 ? (
+            <Typography variant="body2" color="text.secondary">
+              No disassembly returned.
+            </Typography>
+          ) : (
+            <Stack spacing={0.25}>
+              {lines.map((line) => {
+                const commentText = line.comment ? `; ${line.comment}` : "";
+                const mnemonicSegment = line.operands ? `${line.mnemonic} ${line.operands}` : line.mnemonic;
+                return (
+                  <Box
+                    key={`${line.address}-${line.mnemonic}-${line.operands}`}
                     sx={{
-                      display: "flex",
-                      gap: 2,
+                      display: "grid",
+                      gridTemplateColumns: target === "dsp" ? "80px 120px 1fr" : "140px 140px 1fr",
+                      gap: 1,
+                      alignItems: "center",
                       color: line.isCurrent ? "primary.main" : "inherit",
-                      height: ROW_HEIGHT,
-                      lineHeight: `${ROW_HEIGHT}px`,
+                      fontWeight: line.isCurrent ? 600 : 400,
+                      borderLeft: line.isBreakpoint ? "2px solid var(--mui-palette-warning-main)" : "2px solid transparent",
+                      px: 0.5,
+                      py: 0.25,
                     }}
                   >
-                    <span>{`0x${line.address.toString(16).toUpperCase().padStart(8, "0")}`}</span>
-                    <span>{line.bytes.padEnd(11, " ")}</span>
-                    <span>{line.mnemonic.padEnd(8, " ")}</span>
-                    <span>{line.operands}</span>
-                    {line.comment && (
-                      <span style={{ color: "var(--mui-palette-text-secondary)" }}>; {line.comment}</span>
-                    )}
-                  </Typography>
-                ))}
-              </Box>
-            </Box>
-          </Box>
+                    <Typography component="span" sx={{ color: "text.secondary" }}>
+                      {formatAddressForDisplay(target, line.address)}
+                    </Typography>
+                    <Typography component="span" sx={{ color: "text.secondary" }}>
+                      {line.bytes}
+                    </Typography>
+                    <Typography component="span" sx={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                      {mnemonicSegment}
+                      {commentText && (
+                        <Box component="span" sx={{ color: "text.secondary", ml: 1, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                          {commentText}
+                        </Box>
+                      )}
+                    </Typography>
+                  </Box>
+                );
+              })}
+            </Stack>
+          )}
         </Box>
       )}
     </Panel>
