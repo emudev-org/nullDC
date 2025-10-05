@@ -1,4 +1,4 @@
-﻿import { useEffect, useState, useCallback } from "react";
+﻿import { useEffect, useCallback, useMemo } from "react";
 import { AppBar, Box, Button, Divider, IconButton, Tab, Tabs, Toolbar, Tooltip, Typography, Alert } from "@mui/material";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import PowerSettingsNewIcon from "@mui/icons-material/PowerSettingsNew";
@@ -18,6 +18,7 @@ import { TaInspectorPanel } from "../panels/TaInspectorPanel";
 import { CoreInspectorPanel } from "../panels/CoreInspectorPanel";
 import { BreakpointsPanel } from "../panels/BreakpointsPanel";
 import { Sh4SimPanel } from "../panels/Sh4SimPanel";
+import { useNavigate, useParams } from "react-router-dom";
 
 const workspaceTabs = [
   { value: "events", label: "Event Log", component: <EventLogPanel /> },
@@ -50,7 +51,10 @@ export const AppLayout = () => {
   const client = useSessionStore((state) => state.client);
   const initializeData = useDebuggerDataStore((state) => state.initialize);
   const resetData = useDebuggerDataStore((state) => state.reset);
-  const [activeTab, setActiveTab] = useState(workspaceTabs[0].value);
+  const navigate = useNavigate();
+  const { tab } = useParams();
+  const validValues = useMemo(() => new Set(workspaceTabs.map(t => t.value)), []);
+  const currentTab = validValues.has(tab ?? "") ? (tab as string) : workspaceTabs[0].value;
 
   useEffect(() => {
     void connect();
@@ -135,8 +139,8 @@ export const AppLayout = () => {
         >
           <Box sx={{ borderRadius: 1, border: "1px solid", borderColor: "divider", minHeight: 0, display: "flex", flexDirection: "column", flex: 1 }}>
             <Tabs
-              value={activeTab}
-              onChange={(_, value) => setActiveTab(value)}
+              value={currentTab}
+              onChange={(_, value) => navigate(`/${value}`)}
               variant="scrollable"
               scrollButtons="auto"
               sx={{ borderBottom: "1px solid", borderColor: "divider" }}
@@ -151,16 +155,16 @@ export const AppLayout = () => {
                 <Box
                   key={tab.value}
                   role="tabpanel"
-                  hidden={activeTab !== tab.value}
+                  hidden={currentTab !== tab.value}
                   sx={{
                     height: "100%",
                     minHeight: 0,
                     flex: 1,
-                    display: activeTab === tab.value ? "flex" : "none",
+                    display: currentTab === tab.value ? "flex" : "none",
                     flexDirection: "column",
                   }}
                 >
-                  {activeTab === tab.value && (
+                  {currentTab === tab.value && (
                     <Box sx={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
                       {tab.component}
                     </Box>
