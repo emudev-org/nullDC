@@ -12,8 +12,8 @@ import { WatchPanel } from "../panels/WatchPanel";
 import { EventLogPanel } from "../panels/EventLogPanel";
 import { Sh4DisassemblyPanel, Arm7DisassemblyPanel, DspDisassemblyPanel } from "../panels/DisassemblyPanel";
 import { Sh4MemoryPanel, Arm7MemoryPanel } from "../panels/MemoryPanel";
+import { Sh4CallstackPanel, Arm7CallstackPanel } from "../panels/CallstackPanel";
 import { AudioPanel } from "../panels/AudioPanel";
-import { ThreadsPanel } from "../panels/ThreadsPanel";
 import { TaInspectorPanel } from "../panels/TaInspectorPanel";
 import { CoreInspectorPanel } from "../panels/CoreInspectorPanel";
 import { BreakpointsPanel } from "../panels/BreakpointsPanel";
@@ -183,8 +183,8 @@ export const AppLayout = () => {
           }}
         >
           <WatchPanel />
-          <ThreadsPanel />
-          <AudioPanel />
+          <Sh4CallstackPanel />
+          <Arm7CallstackPanel />
         </Box>
       </Box>
       <Divider />

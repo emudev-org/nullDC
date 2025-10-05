@@ -92,10 +92,22 @@ export interface TransportSettings {
   build: "native" | "wasm";
 }
 
+export interface CallstackFrame {
+  index: number;
+  pc: number;
+  sp?: number;
+  symbol?: string;
+  location?: string;
+}
+
 export type DebuggerRpcSchema = RpcSchema & {
   "debugger.handshake": {
     params: { clientName: string; clientVersion: string; transport: TransportSettings };
     result: { sessionId: string; capabilities: string[] };
+  };
+  "state.getCallstack": {
+    params: { target: "sh4" | "arm7"; maxFrames?: number };
+    result: { target: string; frames: CallstackFrame[] };
   };
   "debugger.describe": {
     params: { include?: ("devices" | "breakpoints" | "threads")[] };

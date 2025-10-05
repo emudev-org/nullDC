@@ -8,6 +8,7 @@ import type {
   RegisterValue,
   ThreadInfo,
   WaveformChunk,
+  CallstackFrame,
 } from "../lib/debuggerSchema";
 import { JsonRpcClient } from "./jsonRpcClient";
 import type { JsonRpcClientOptions } from "./jsonRpcClient";
@@ -66,6 +67,10 @@ export class DebuggerClient {
   async fetchDeviceTree() {
     const { devices } = await this.rpc.call("debugger.describe", { include: ["devices"] });
     return devices;
+  }
+
+  async fetchCallstack(target: "sh4" | "arm7", maxFrames = 32): Promise<{ target: string; frames: CallstackFrame[] }> {
+    return this.rpc.call("state.getCallstack", { target, maxFrames });
   }
 
   async subscribe(topics: string[]) {

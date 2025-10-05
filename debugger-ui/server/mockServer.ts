@@ -500,6 +500,18 @@ const dispatchMethod = async (
       const lines = generateDisassembly(target, address, count);
       return { lines };
     }
+    case "state.getCallstack": {
+      const target = (params.target as string) || "sh4";
+      const max = Math.min(Number(params.maxFrames) || 16, 64);
+      const frames = Array.from({ length: max }).map((_, index) => ({
+        index,
+        pc: 0x8c000000 + index * 4,
+        sp: 0x0cfe0000 - index * 16,
+        symbol: `${target.toUpperCase()}_func_${index}`,
+        location: `${target}.c:${100 + index}`,
+      }));
+      return { target, frames };
+    }
     case "state.watch": {
       const expressions = (params.expressions as string[]) ?? [];
       expressions.forEach((expr) => client.watches.add(expr));
