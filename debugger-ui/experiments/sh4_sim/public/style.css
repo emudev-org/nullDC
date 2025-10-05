@@ -1,0 +1,233 @@
+body {
+    font-family: monospace;
+    padding: 0;
+}
+
+@media screen {
+    body {
+        background-color: #f4f4f4;
+        margin: 2em;
+    }
+}
+
+.src {
+    width: 99%;
+    height: 10em;
+}
+
+body.error {
+    background-color: red;
+}
+
+@media print {
+    body {
+        margin: 0;
+    }
+    .src, .options, .quick-actions, .print-hidden {
+        display: none;
+    }
+    table {
+        width: 100%;
+        page-break-inside: avoid;
+    }
+
+    table {
+        margin-bottom: 1em;
+    }
+}
+
+@media screen {
+    .result-outer {
+        display:flex;
+    }
+
+    .result {
+        display: flex;
+    }
+
+    .screen-hidden {
+        display: none;
+    }
+    .screen-hidden-text span {
+        display: none;
+    }
+    table {
+        margin-top: 4em;
+        margin-bottom: 4em;
+    }
+}
+
+@media screen and (max-width: 600px) {
+    .result-outer {
+        overflow-x: scroll;
+        display:flex;
+    }
+}
+
+@media screen and (min-width: 600px) {
+    .result {
+        overflow-x: scroll;
+        overflow-y: hidden;
+        padding-right: 4em;
+    }
+}
+
+table {
+    white-space: nowrap;
+}
+
+table {
+    border-collapse: separate;
+    border-spacing: 0;
+}
+
+tr {
+    height: 2.3em;
+}
+
+body td {
+    border: 1px solid black;
+}
+
+body.less-borders td {
+    border-color: transparent;
+}
+
+table {
+    cursor: grab;
+}
+td[data-insn] {
+    cursor: help;
+}
+
+td {
+    min-width: 3em;    
+    padding: 5px;
+}
+
+td:not(:first-child) {
+    text-align: center;
+}
+
+tr:first-child td:first-child {
+    font-weight: bold;
+    text-align: center;
+}
+
+tr td:first-child {
+    left: 0px;
+    border-right: 2px solid black;
+}
+
+@media screen {
+    td[data-cycle].current-cycle:not(.lock) {
+        border-left: 3px solid blue;
+        border-right: 3px solid blue;
+        padding-left: 3px;
+        padding-right: 3px;
+    }
+    .current.start.start td:not(.lock),  .current.start.start td:not([data-cycle]) {
+        border-top: 3px solid blue;
+        padding-top: 3px;
+    }
+    .current.end.end td:not(.lock), .current.end.end td:not([data-cycle]) {
+        border-bottom: 3px solid blue;
+        padding-bottom: 3px;
+    }
+
+    body:not(.plain-format) .marked.marked.marked.marked {
+        background-color: #3a443c;
+        color: wheat;
+    }
+}
+
+td.lock.lock {
+    outline: 3px solid black;
+    outline-offset: -3px;
+}
+body:not(.plain-format) td.full.full {
+    background-color: #20A040;
+    color: wheat;
+}
+body:not(.plain-format) td.stall.stall {
+    background-color: #804020;
+    color: wheat;
+}
+
+body.plain-format td.stall{
+    color: transparent;
+}
+
+tr:nth-child(even), tr:nth-child(even) td {
+    background-color: #d2d2d2;
+}
+tr:nth-child(odd), tr:nth-child(odd) td {
+    background-color: #f4f4f4;
+}
+
+tr:nth-child(even) td.current {
+    background-color: #c2c2c2;
+    font-weight: bold;
+}
+tr:nth-child(odd) td.current {
+    background-color: #e4e4e4;
+    font-weight: bold;
+}
+
+/* Tooltip container */
+.tooltip {
+    position: relative;
+}
+
+td.tooltip {
+    display: inline-block;
+    height: 100%;
+    width: 100%;
+}
+
+/* Tooltip text */
+.tooltip .tooltiptext {
+    visibility: hidden;
+    /* width: 120px; */
+    background-color: #555;
+    color: #fff;
+    text-align: left;
+    line-height: 1.5;
+    border-radius: 5px;
+    padding: 5px 7px;
+    position: absolute;
+    top: 185%; /* Position the tooltip above the text */
+    left: -0.5em;
+    margin-left: 0; /* Use margin to center the tooltip */
+    opacity: 0; /* Start with tooltip hidden */
+    transition: opacity 0.3s;
+    z-index: 1;
+}
+
+/* Tooltip arrow */
+.tooltip .tooltiptext::after {
+    content: "";
+    position: absolute;
+    bottom: 100%; /* Top of the tooltip */
+    left: 2em;
+    margin-left: -5px;
+    border-width: 5px;
+    border-style: solid;
+    border-color: transparent transparent #555 transparent; /* Arrow color */
+}
+
+@media screen {
+    /* Show the tooltip text when hovering over the tooltip container */
+    .tooltip:not(.copy-link):hover .tooltiptext, .tooltip.copied .tooltiptext {
+        visibility: visible;
+        opacity: 0.9;
+    }
+}
+.tooltip:not(.copied) .tooltiptext:hover {
+    display: none;
+}
+
+.src {
+    margin-top: 1em;
+    margin-bottom: 1em;
+}
