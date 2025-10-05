@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { WheelEvent as ReactWheelEvent } from "react";
 import { Panel } from "../layout/Panel";
-import { Box, Button, CircularProgress, IconButton, Stack, TextField, Typography } from "@mui/material";
+import { Box, Button, CircularProgress, IconButton, Stack, TextField, Tooltip, Typography } from "@mui/material";
 import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
 import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
+import CircleIcon from "@mui/icons-material/Circle";
+import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import type { DisassemblyLine } from "../../lib/debuggerSchema";
 import { useSessionStore } from "../../state/sessionStore";
+import { useDebuggerDataStore } from "../../state/debuggerDataStore";
 
 const WHEEL_PIXEL_THRESHOLD = 60;
 const INSTRUCTIONS_PER_TICK = 6;
@@ -67,6 +70,10 @@ const DisassemblyView = ({
 }) => {
   const client = useSessionStore((state) => state.client);
   const connectionState = useSessionStore((state) => state.connectionState);
+  const breakpoints = useDebuggerDataStore((state) => state.breakpoints);
+  const addBreakpoint = useDebuggerDataStore((state) => state.addBreakpoint);
+  const removeBreakpoint = useDebuggerDataStore((state) => state.removeBreakpoint);
+  const toggleBreakpoint = useDebuggerDataStore((state) => state.toggleBreakpoint);
   const [lines, setLines] = useState<DisassemblyLine[]>([]);
   const [loading, setLoading] = useState(false);
   const [address, setAddress] = useState(defaultAddress);
@@ -74,9 +81,26 @@ const DisassemblyView = ({
   const [error, setError] = useState<string | undefined>();
   const requestIdRef = useRef(0);
   const wheelRemainder = useRef(0);
+  const pendingScrollSteps = useRef(0);
 
   const instructionSize = useMemo(() => instructionSizeForTarget(target), [target]);
   const maxAddress = useMemo(() => maxAddressForTarget(target), [target]);
+
+  // Map addresses to breakpoints
+  const breakpointsByAddress = useMemo(() => {
+    const map = new Map<number, { id: string; enabled: boolean }>();
+    const cpuPath = target === "dsp" ? "dc.aica.dsp" : target === "sh4" ? "dc.sh4.cpu" : "dc.arm7.cpu";
+
+    for (const bp of breakpoints) {
+      // Match pattern like "dc.sh4.cpu.pc == 0x8C0000A0"
+      const match = bp.location.match(new RegExp(`${cpuPath}\\.pc\\s*==\\s*0x([0-9A-Fa-f]+)`));
+      if (match) {
+        const addr = Number.parseInt(match[1], 16);
+        map.set(addr, { id: bp.id, enabled: bp.enabled });
+      }
+    }
+    return map;
+  }, [breakpoints, target]);
 
   const fetchDisassembly = useCallback(
     async (addr: number) => {
@@ -111,6 +135,15 @@ const DisassemblyView = ({
     void fetchDisassembly(normalized);
   }, [address, fetchDisassembly, instructionSize, maxAddress, target]);
 
+  // Process pending scroll steps after loading completes
+  useEffect(() => {
+    if (!loading && pendingScrollSteps.current !== 0) {
+      const steps = pendingScrollSteps.current;
+      pendingScrollSteps.current = 0;
+      setAddress((prev) => normalizeAddress(prev + steps * instructionSize, maxAddress, instructionSize));
+    }
+  }, [loading, instructionSize, maxAddress]);
+
   const adjustAddress = useCallback(
     (steps: number) => {
       setAddress((prev) => normalizeAddress(prev + steps * instructionSize, maxAddress, instructionSize));
@@ -125,11 +158,19 @@ const DisassemblyView = ({
 
       while (Math.abs(wheelRemainder.current) >= WHEEL_PIXEL_THRESHOLD) {
         const direction = wheelRemainder.current > 0 ? 1 : -1;
-        adjustAddress(direction * INSTRUCTIONS_PER_TICK);
+        const steps = direction * INSTRUCTIONS_PER_TICK;
+
+        if (loading) {
+          // Queue the scroll while loading
+          pendingScrollSteps.current += steps;
+        } else {
+          adjustAddress(steps);
+        }
+
         wheelRemainder.current -= direction * WHEEL_PIXEL_THRESHOLD;
       }
     },
-    [adjustAddress],
+    [adjustAddress, loading],
   );
 
   const handleAddressSubmit = useCallback(() => {
@@ -147,6 +188,33 @@ const DisassemblyView = ({
   const handlePageDown = useCallback(() => {
     adjustAddress(FETCH_LINE_COUNT);
   }, [adjustAddress]);
+
+  const handleBreakpointClick = useCallback(
+    async (lineAddress: number) => {
+      const existing = breakpointsByAddress.get(lineAddress);
+      if (existing) {
+        // Remove if exists
+        await removeBreakpoint(existing.id);
+      } else {
+        // Add new breakpoint
+        const cpuPath = target === "dsp" ? "dc.aica.dsp" : target === "sh4" ? "dc.sh4.cpu" : "dc.arm7.cpu";
+        const location = `${cpuPath}.pc == ${formatHexAddress(lineAddress)}`;
+        await addBreakpoint(location, "code");
+      }
+    },
+    [breakpointsByAddress, target, addBreakpoint, removeBreakpoint],
+  );
+
+  const handleBreakpointToggle = useCallback(
+    async (lineAddress: number, event: React.MouseEvent) => {
+      event.stopPropagation();
+      const existing = breakpointsByAddress.get(lineAddress);
+      if (existing) {
+        await toggleBreakpoint(existing.id, !existing.enabled);
+      }
+    },
+    [breakpointsByAddress, toggleBreakpoint],
+  );
 
   return (
     <Panel
@@ -204,7 +272,7 @@ const DisassemblyView = ({
             fontSize: "13px",
             p: 1.5,
             position: "relative",
-            cursor: "ns-resize",
+            cursor: "default",
           }}
         >
           {loading && (
@@ -224,21 +292,55 @@ const DisassemblyView = ({
               {lines.map((line) => {
                 const commentText = line.comment ? `; ${line.comment}` : "";
                 const mnemonicSegment = line.operands ? `${line.mnemonic} ${line.operands}` : line.mnemonic;
+                const breakpoint = breakpointsByAddress.get(line.address);
+                const hasBreakpoint = !!breakpoint;
+                const breakpointEnabled = breakpoint?.enabled ?? false;
+
                 return (
                   <Box
                     key={`${line.address}-${line.mnemonic}-${line.operands}`}
                     sx={{
                       display: "grid",
-                      gridTemplateColumns: target === "dsp" ? "80px 120px 1fr" : "140px 140px 1fr",
+                      gridTemplateColumns: target === "dsp" ? "24px 80px 120px 1fr" : "24px 140px 140px 1fr",
                       gap: 1,
                       alignItems: "center",
                       color: line.isCurrent ? "primary.main" : "inherit",
                       fontWeight: line.isCurrent ? 600 : 400,
-                      borderLeft: line.isBreakpoint ? "2px solid var(--mui-palette-warning-main)" : "2px solid transparent",
                       px: 0.5,
                       py: 0.25,
+                      "&:hover .breakpoint-gutter": {
+                        opacity: 1,
+                      },
                     }}
                   >
+                    <Box
+                      className="breakpoint-gutter"
+                      sx={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        opacity: hasBreakpoint ? 1 : 0,
+                        cursor: "pointer",
+                        transition: "opacity 0.1s",
+                      }}
+                      onClick={(e) => {
+                        if ((e.shiftKey || e.ctrlKey || e.metaKey) && hasBreakpoint) {
+                          void handleBreakpointToggle(line.address, e);
+                        } else {
+                          void handleBreakpointClick(line.address);
+                        }
+                      }}
+                    >
+                      {hasBreakpoint ? (
+                        breakpointEnabled ? (
+                          <CircleIcon sx={{ fontSize: 16, color: "error.main" }} />
+                        ) : (
+                          <RadioButtonUncheckedIcon sx={{ fontSize: 16, color: "error.main" }} />
+                        )
+                      ) : (
+                        <RadioButtonUncheckedIcon sx={{ fontSize: 16, color: "text.disabled", opacity: 0.3 }} />
+                      )}
+                    </Box>
                     <Typography component="span" sx={{ color: "text.secondary" }}>
                       {formatAddressForDisplay(target, line.address)}
                     </Typography>

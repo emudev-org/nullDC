@@ -36,6 +36,7 @@ interface ClientContext {
 }
 
 const serverWatches = new Set<string>();
+const serverBreakpoints = new Map<string, BreakpointDescriptor>();
 
 // Shared register values storage
 const registerValues = new Map<string, string>([
@@ -500,7 +501,7 @@ const dispatchMethod = async (
       return {
         emulator: { name: "nullDC", version: "dev", build: "native" as const },
         devices: buildDeviceTree(),
-        breakpoints: sampleBreakpoints,
+        breakpoints: Array.from(serverBreakpoints.values()),
         threads: sampleThreads,
       };
     case "debugger.subscribe": {
@@ -578,12 +579,61 @@ const dispatchMethod = async (
       return { target: params.target, state: "halted" as const };
     case "control.runUntil":
       return { target: params.target, state: "running" as const, reason: "breakpoint" };
-    case "breakpoints.set": {
-      const breakpoint = params.breakpoint as BreakpointDescriptor;
-      return { ...breakpoint, id: breakpoint.id ?? `bp-${randomUUID().slice(0, 8)}` };
+    case "breakpoints.add": {
+      const location = params.location as string;
+      const kind = (params.kind as BreakpointDescriptor["kind"]) ?? "code";
+      const enabled = params.enabled !== false;
+      const id = `bp-${randomUUID().slice(0, 8)}`;
+      const breakpoint: BreakpointDescriptor = {
+        id,
+        location,
+        kind,
+        enabled,
+        hitCount: 0,
+      };
+      serverBreakpoints.set(id, breakpoint);
+
+      // Broadcast to all clients
+      for (const client of clients) {
+        if (client.topics.has("state.breakpoint")) {
+          sendNotification(client, {
+            topic: "state.breakpoint",
+            payload: breakpoint,
+          });
+        }
+      }
+
+      return { breakpoint, all: Array.from(serverBreakpoints.values()) };
     }
-    case "breakpoints.remove":
-      return { removed: true };
+    case "breakpoints.remove": {
+      const id = params.id as string;
+      const removed = serverBreakpoints.delete(id);
+      return { removed, all: Array.from(serverBreakpoints.values()) };
+    }
+    case "breakpoints.toggle": {
+      const id = params.id as string;
+      const enabled = params.enabled as boolean;
+      const breakpoint = serverBreakpoints.get(id);
+      if (!breakpoint) {
+        throw new Error(`Breakpoint ${id} not found`);
+      }
+      const updated = { ...breakpoint, enabled };
+      serverBreakpoints.set(id, updated);
+
+      // Broadcast to all clients
+      for (const client of clients) {
+        if (client.topics.has("state.breakpoint")) {
+          sendNotification(client, {
+            topic: "state.breakpoint",
+            payload: updated,
+          });
+        }
+      }
+
+      return { breakpoint: updated, all: Array.from(serverBreakpoints.values()) };
+    }
+    case "breakpoints.list":
+      return { breakpoints: Array.from(serverBreakpoints.values()) };
     case "audio.requestWaveform":
       return buildWaveform(String(params.channelId ?? "0"), Number(params.window) || 256);
     case "logs.fetchFrameLog":

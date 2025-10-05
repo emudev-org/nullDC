@@ -160,13 +160,21 @@ export type DebuggerRpcSchema = RpcSchema & {
     params: { target: string; type: "interrupt" | "exception" | "primitive" | "tile" | "vertex" | "list" | "sample"; value?: string };
     result: { target: string; state: "running" | "halted"; reason?: string };
   };
-  "breakpoints.set": {
-    params: { breakpoint: BreakpointDescriptor };
-    result: BreakpointDescriptor;
+  "breakpoints.add": {
+    params: { location: string; kind?: BreakpointDescriptor["kind"]; enabled?: boolean };
+    result: { breakpoint: BreakpointDescriptor; all: BreakpointDescriptor[] };
   };
   "breakpoints.remove": {
     params: { id: string };
-    result: { removed: boolean };
+    result: { removed: boolean; all: BreakpointDescriptor[] };
+  };
+  "breakpoints.toggle": {
+    params: { id: string; enabled: boolean };
+    result: { breakpoint: BreakpointDescriptor; all: BreakpointDescriptor[] };
+  };
+  "breakpoints.list": {
+    params: Record<string, never>;
+    result: { breakpoints: BreakpointDescriptor[] };
   };
   "audio.requestWaveform": {
     params: { channelId: string; window: number };

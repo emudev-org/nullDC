@@ -30,6 +30,9 @@ interface DebuggerDataState {
   reset: () => void;
   addWatch: (expression: string) => Promise<void>;
   removeWatch: (expression: string) => Promise<void>;
+  addBreakpoint: (location: string, kind?: BreakpointDescriptor["kind"]) => Promise<void>;
+  removeBreakpoint: (id: string) => Promise<void>;
+  toggleBreakpoint: (id: string, enabled: boolean) => Promise<void>;
 }
 export const useDebuggerDataStore = create<DebuggerDataState>()((set, get) => ({
   initialized: false,
@@ -235,6 +238,52 @@ export const useDebuggerDataStore = create<DebuggerDataState>()((set, get) => ({
       }
     } catch (error) {
       console.error("Failed to remove watch", error);
+    }
+  },
+  async addBreakpoint(location, kind = "code") {
+    const trimmed = location.trim();
+    if (!trimmed) {
+      return;
+    }
+    const { client } = get();
+    if (!client) {
+      return;
+    }
+    try {
+      const result = await client.addBreakpoint(trimmed, kind);
+      if (result.all) {
+        set({ breakpoints: result.all });
+      }
+    } catch (error) {
+      console.error("Failed to add breakpoint", error);
+    }
+  },
+  async removeBreakpoint(id) {
+    const { client } = get();
+    if (!client) {
+      return;
+    }
+    try {
+      const result = await client.removeBreakpoint(id);
+      if (result.all) {
+        set({ breakpoints: result.all });
+      }
+    } catch (error) {
+      console.error("Failed to remove breakpoint", error);
+    }
+  },
+  async toggleBreakpoint(id, enabled) {
+    const { client } = get();
+    if (!client) {
+      return;
+    }
+    try {
+      const result = await client.toggleBreakpoint(id, enabled);
+      if (result.all) {
+        set({ breakpoints: result.all });
+      }
+    } catch (error) {
+      console.error("Failed to toggle breakpoint", error);
     }
   },
 }));

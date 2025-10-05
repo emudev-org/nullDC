@@ -101,6 +101,22 @@ export class DebuggerClient {
     return this.rpc.call("state.unwatch", { expressions });
   }
 
+  async addBreakpoint(location: string, kind: BreakpointDescriptor["kind"] = "code", enabled = true) {
+    return this.rpc.call("breakpoints.add", { location, kind, enabled });
+  }
+
+  async removeBreakpoint(id: string) {
+    return this.rpc.call("breakpoints.remove", { id });
+  }
+
+  async toggleBreakpoint(id: string, enabled: boolean) {
+    return this.rpc.call("breakpoints.toggle", { id, enabled });
+  }
+
+  async listBreakpoints() {
+    return this.rpc.call("breakpoints.list", {});
+  }
+
   async fetchMemorySlice(params: {
     target: string;
     address: number;

@@ -22,12 +22,33 @@ All transport choices are build-time options driven by Vite env vars:
 
 The UI automatically connects to the host that served it. For WebSocket builds the URL is inferred from `window.location`; for WASM builds the BroadcastChannel is opened immediately so emulator-hosted tabs can communicate without extra UI toggles.
 
+## Features
+
+### Breakpoints
+
+The debugger UI provides multiple ways to manage breakpoints:
+
+#### Disassembly View
+- **Click gutter**: Add or remove breakpoint at that address
+- **Ctrl+Click gutter** (or Cmd+Click on Mac): Toggle breakpoint enabled/disabled
+- **Visual indicators**:
+  - Red filled circle (●): Active breakpoint
+  - Red outlined circle (○): Disabled breakpoint
+  - Hover over empty gutter to see where you can add breakpoints
+
+#### Breakpoints Panels
+- **Events: Breakpoints**: Add event breakpoints using free-form event names (e.g., `dc.aica.channel[0].step`)
+- **SH4: Breakpoints**: Add code breakpoints using hex addresses (e.g., `0x8C0000A0`)
+- **ARM7: Breakpoints**: Add code breakpoints using hex addresses (e.g., `0x00200000`)
+
+All breakpoints are persisted on the server and synchronized across all connected clients in real-time.
+
 ## Mock debugger protocol
 
 The mock endpoint implements a subset of the planned JSON-RPC schema:
 
 - Handshake, describe, subscribe/unsubscribe.
 - Register/memory/disassembly fetches plus watch management.
-- Breakpoint CRUD, basic stepping commands, event log, waveform, and log streaming topics.
+- Breakpoint CRUD (add, remove, toggle), basic stepping commands, event log, waveform, and log streaming topics.
 
 It periodically emits fake register, waveform, watch, and event log updates so panels demonstrate live updates while the real emulator backend is under construction.

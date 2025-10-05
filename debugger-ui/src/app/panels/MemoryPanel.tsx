@@ -51,6 +51,7 @@ const MemoryView = ({
   const [addressInput, setAddressInput] = useState(formatHexAddress(defaultAddress));
   const requestIdRef = useRef(0);
   const wheelRemainder = useRef(0);
+  const pendingScrollDelta = useRef(0);
 
   const maxAddress = useMemo(() => 0xffffffff - Math.max(length - 1, 0), [length]);
 
@@ -90,6 +91,15 @@ const MemoryView = ({
     void fetchSlice(address);
   }, [address, fetchSlice]);
 
+  // Process pending scroll delta after loading completes
+  useEffect(() => {
+    if (!loading && pendingScrollDelta.current !== 0) {
+      const delta = pendingScrollDelta.current;
+      pendingScrollDelta.current = 0;
+      setAddress((prev) => clampAddress(prev + delta, maxAddress));
+    }
+  }, [loading, maxAddress]);
+
   const rows = useMemo<MemoryRow[]>(() => {
     if (!slice) {
       return [];
@@ -126,11 +136,19 @@ const MemoryView = ({
 
       while (Math.abs(wheelRemainder.current) >= WHEEL_PIXEL_THRESHOLD) {
         const direction = wheelRemainder.current > 0 ? 1 : -1;
-        adjustAddress(direction * MEMORY_SCROLL_BYTES);
+        const delta = direction * MEMORY_SCROLL_BYTES;
+
+        if (loading) {
+          // Queue the scroll while loading
+          pendingScrollDelta.current += delta;
+        } else {
+          adjustAddress(delta);
+        }
+
         wheelRemainder.current -= direction * WHEEL_PIXEL_THRESHOLD;
       }
     },
-    [adjustAddress],
+    [adjustAddress, loading],
   );
 
   const handleAddressSubmit = useCallback(() => {

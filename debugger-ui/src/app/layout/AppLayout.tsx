@@ -18,17 +18,19 @@ import { Sh4CallstackPanel, Arm7CallstackPanel } from "../panels/CallstackPanel"
 import { AudioPanel } from "../panels/AudioPanel";
 import { TaInspectorPanel } from "../panels/TaInspectorPanel";
 import { CoreInspectorPanel } from "../panels/CoreInspectorPanel";
-import { BreakpointsPanel } from "../panels/BreakpointsPanel";
+import { EventsBreakpointsPanel, Sh4BreakpointsPanel, Arm7BreakpointsPanel } from "../panels/BreakpointsPanel";
 import { Sh4SimPanel } from "../panels/Sh4SimPanel";
 import { useNavigate, useParams } from "react-router-dom";
 
 const mainTabs = [
-  { value: "events", label: "Event Log", component: <EventLogPanel /> },
+  { value: "events", label: "Events: Log", component: <EventLogPanel /> },
+  { value: "events-breakpoints", label: "Events: Breakpoints", component: <EventsBreakpointsPanel /> },
   { value: "sh4-disassembly", label: "SH4: Disassembly", component: <Sh4DisassemblyPanel /> },
   { value: "sh4-memory", label: "SH4: Memory", component: <Sh4MemoryPanel /> },
+  { value: "sh4-breakpoints", label: "SH4: Breakpoints", component: <Sh4BreakpointsPanel /> },
   { value: "arm7-disassembly", label: "ARM7: Disassembly", component: <Arm7DisassemblyPanel /> },
   { value: "arm7-memory", label: "ARM7: Memory", component: <Arm7MemoryPanel /> },
-  { value: "breakpoints", label: "Breakpoints", component: <BreakpointsPanel /> },
+  { value: "arm7-breakpoints", label: "ARM7: Breakpoints", component: <Arm7BreakpointsPanel /> },
   { value: "ta", label: "TA", component: <TaInspectorPanel /> },
   { value: "core", label: "CORE", component: <CoreInspectorPanel /> },
   { value: "aica", label: "AICA", component: <AudioPanel /> },
