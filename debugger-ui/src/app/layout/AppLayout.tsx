@@ -81,6 +81,11 @@ export const AppLayout = () => {
 
   const validValues = useMemo(() => new Set(workspaceTabs.map(t => t.value)), [workspaceTabs]);
   const currentTab = validValues.has(tab ?? "") ? (tab as string) : workspaceTabs[0].value;
+  const sidePanelsLocked = currentTab === "sh4-sim" || currentTab === "dsp-playground";
+  const showLeftPanel = !isNarrow && !sidePanelsLocked && leftPanelOpen;
+  const showRightPanel = !isNarrow && !sidePanelsLocked && rightPanelOpen;
+  const showLeftToggle = !isNarrow && !sidePanelsLocked;
+  const showRightToggle = !isNarrow && !sidePanelsLocked;
 
   useEffect(() => {
     const handleResize = () => {
@@ -174,55 +179,59 @@ export const AppLayout = () => {
           {connectionError}
         </Alert>
       )}
-      <Box
-        sx={{
-          flex: 1,
-          overflow: "hidden",
-          display: "flex",
-          gap: 1,
-          p: 1,
-          position: "relative",
-        }}
-      >
-        {!isNarrow && leftPanelOpen && (
-          <Box sx={{ minHeight: 0, width: 280 }}>
-            <DeviceTreePanel />
-          </Box>
-        )}
-        {!isNarrow && (
-          <Box sx={{ display: "flex", alignItems: "center" }}>
-            <Tooltip title={leftPanelOpen ? "Hide left panel" : "Show left panel"}>
-              <IconButton onClick={() => setLeftPanelOpen(!leftPanelOpen)} size="small">
-                {leftPanelOpen ? <ChevronLeftIcon /> : <ChevronRightIcon />}
-              </IconButton>
-            </Tooltip>
-          </Box>
-        )}
+      <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <Box sx={{ px: 1, pt: 1 }}>
+          <Tabs
+            value={currentTab}
+            onChange={(_, value) => navigate(`/${value}`)}
+            variant="scrollable"
+            scrollButtons
+            ref={tabsContainerRef}
+            sx={{ border: "1px solid", borderColor: "divider", borderRadius: 1 }}
+          >
+            {workspaceTabs.map((tab) => (
+              <Tab key={tab.value} value={tab.value} label={tab.label} />
+            ))}
+          </Tabs>
+        </Box>
         <Box
           sx={{
-            minHeight: 0,
-            minWidth: 0,
-            display: "flex",
-            flexDirection: "column",
-            gap: 1,
             flex: 1,
+            overflow: "hidden",
+            display: "flex",
+            gap: 1,
+            p: 1,
+            position: "relative",
           }}
         >
-          <Box sx={{ borderRadius: 1, border: "1px solid", borderColor: "divider", minHeight: 0, display: "flex", flexDirection: "column", flex: 1 }}>
-            <Tabs
-              value={currentTab}
-              onChange={(_, value) => navigate(`/${value}`)}
-              variant="scrollable"
-              scrollButtons
-              sx={{ borderBottom: "1px solid", borderColor: "divider" }}
-              ref={tabsContainerRef}
-            >
-              {workspaceTabs.map((tab) => (
-                <Tab key={tab.value} value={tab.value} label={tab.label} />
-              ))}
-            </Tabs>
-            <Box sx={{ p: 1.5, height: "calc(100% - 48px)", minHeight: 0, display: "flex", flex: 1 }}>
-
+          {showLeftPanel && (
+            <Box sx={{ minHeight: 0, width: 280 }}>
+              <DeviceTreePanel />
+            </Box>
+          )}
+          {showLeftToggle && (
+            <Box sx={{ display: "flex", alignItems: "center" }}>
+              <Tooltip title={leftPanelOpen ? "Hide left panel" : "Show left panel"}>
+                <IconButton onClick={() => setLeftPanelOpen(!leftPanelOpen)} size="small">
+                  {leftPanelOpen ? <ChevronLeftIcon /> : <ChevronRightIcon />}
+                </IconButton>
+              </Tooltip>
+            </Box>
+          )}
+          <Box
+            sx={{
+              minHeight: 0,
+              minWidth: 0,
+              display: "flex",
+              flexDirection: "column",
+              gap: 1,
+              flex: 1,
+              borderRadius: 1,
+              border: "1px solid",
+              borderColor: "divider",
+            }}
+          >
+            <Box sx={{ flex: 1, minHeight: 0, p: 1.5, display: "flex" }}>
               {workspaceTabs.map((tab) => (
                 <Box
                   key={tab.value}
@@ -245,55 +254,55 @@ export const AppLayout = () => {
               ))}
             </Box>
           </Box>
+          {showRightToggle && (
+            <Box sx={{ display: "flex", alignItems: "center" }}>
+              <Tooltip title={rightPanelOpen ? "Hide right panel" : "Show right panel"}>
+                <IconButton onClick={() => setRightPanelOpen(!rightPanelOpen)} size="small">
+                  {rightPanelOpen ? <ChevronRightIcon /> : <ChevronLeftIcon />}
+                </IconButton>
+              </Tooltip>
+            </Box>
+          )}
+          {showRightPanel && (
+            <Box
+              sx={{
+                display: "grid",
+                gridTemplateRows: "minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr)",
+                gap: 1,
+                minHeight: 0,
+                width: 340,
+              }}
+            >
+              <WatchesPanel />
+              <Sh4CallstackPanel />
+              <Arm7CallstackPanel />
+            </Box>
+          )}
+          {connectionState !== "connected" && (
+            <Box
+              sx={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: "rgba(0, 0, 0, 0.3)",
+                backdropFilter: "blur(4px)",
+                zIndex: 1000,
+              }}
+            >
+              <Stack spacing={2} alignItems="center" sx={{ backgroundColor: "background.paper", p: 4, borderRadius: 2, boxShadow: 3 }}>
+                <CircularProgress size={48} />
+                <Typography variant="body1" color="text.secondary">
+                  {connectionState === "connecting" ? "Connecting to debugger..." : connectionState === "error" ? "Connection failed" : "Not connected"}
+                </Typography>
+              </Stack>
+            </Box>
+          )}
         </Box>
-        {!isNarrow && (
-          <Box sx={{ display: "flex", alignItems: "center" }}>
-            <Tooltip title={rightPanelOpen ? "Hide right panel" : "Show right panel"}>
-              <IconButton onClick={() => setRightPanelOpen(!rightPanelOpen)} size="small">
-                {rightPanelOpen ? <ChevronRightIcon /> : <ChevronLeftIcon />}
-              </IconButton>
-            </Tooltip>
-          </Box>
-        )}
-        {!isNarrow && rightPanelOpen && (
-          <Box
-            sx={{
-              display: "grid",
-              gridTemplateRows: "minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr)",
-              gap: 1,
-              minHeight: 0,
-              width: 340,
-            }}
-          >
-            <WatchesPanel />
-            <Sh4CallstackPanel />
-            <Arm7CallstackPanel />
-          </Box>
-        )}
-        {connectionState !== "connected" && (
-          <Box
-            sx={{
-              position: "absolute",
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              backgroundColor: "rgba(0, 0, 0, 0.3)",
-              backdropFilter: "blur(4px)",
-              zIndex: 1000,
-            }}
-          >
-            <Stack spacing={2} alignItems="center" sx={{ backgroundColor: "background.paper", p: 4, borderRadius: 2, boxShadow: 3 }}>
-              <CircularProgress size={48} />
-              <Typography variant="body1" color="text.secondary">
-                {connectionState === "connecting" ? "Connecting to debugger..." : connectionState === "error" ? "Connection failed" : "Not connected"}
-              </Typography>
-            </Stack>
-          </Box>
-        )}
       </Box>
       <Divider />
       <Box
