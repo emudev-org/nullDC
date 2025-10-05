@@ -9,7 +9,7 @@ import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import { useSessionStore } from "../../state/sessionStore";
 import { useDebuggerDataStore } from "../../state/debuggerDataStore";
 import { DeviceTreePanel } from "../panels/DeviceTreePanel";
-import { WatchPanel } from "../panels/WatchPanel";
+import { WatchesPanel } from "../panels/WatchesPanel";
 import { EventLogPanel } from "../panels/EventLogPanel";
 import { Sh4DisassemblyPanel, Arm7DisassemblyPanel, DspDisassemblyPanel } from "../panels/DisassemblyPanel";
 import { Sh4MemoryPanel, Arm7MemoryPanel } from "../panels/MemoryPanel";
@@ -39,7 +39,7 @@ const mainTabs = [
 
 const sidePanelTabs = [
   { value: "device-tree", label: "Device Tree", component: <DeviceTreePanel /> },
-  { value: "watch", label: "Watch", component: <WatchPanel /> },
+  { value: "watches", label: "Watches", component: <WatchesPanel /> },
   { value: "sh4-callstack", label: "SH4: Callstack", component: <Sh4CallstackPanel /> },
   { value: "arm7-callstack", label: "ARM7: Callstack", component: <Arm7CallstackPanel /> },
 ];
@@ -224,7 +224,7 @@ export const AppLayout = () => {
               width: 340,
             }}
           >
-            <WatchPanel />
+            <WatchesPanel />
             <Sh4CallstackPanel />
             <Arm7CallstackPanel />
           </Box>
@@ -282,8 +282,6 @@ export const AppLayout = () => {
     </Box>
   );
 };
-
-
 
 
 

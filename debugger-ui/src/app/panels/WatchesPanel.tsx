@@ -5,7 +5,7 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import AddIcon from "@mui/icons-material/Add";
 import { useDebuggerDataStore } from "../../state/debuggerDataStore";
 
-export const WatchPanel = () => {
+export const WatchesPanel = () => {
   const watchExpressions = useDebuggerDataStore((state) => state.watchExpressions);
   const watchValues = useDebuggerDataStore((state) => state.watchValues);
   const addWatch = useDebuggerDataStore((state) => state.addWatch);
@@ -36,7 +36,7 @@ export const WatchPanel = () => {
 
   return (
     <Panel
-      title="Watch"
+      title="Watches"
       action={
         <Tooltip title="Add watch">
           <IconButton size="small" color="primary" onClick={handleAdd}>
