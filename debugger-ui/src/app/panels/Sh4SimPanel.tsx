@@ -12,7 +12,6 @@ import {
 } from "@mui/material";
 import { Table, TableBody, TableCell, TableContainer, TableRow } from "@mui/material";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
-import PrintIcon from "@mui/icons-material/Print";
 import { deflate, inflate } from "pako";
 import { alpha, lighten, useTheme } from "@mui/material/styles";
 import type { Theme } from "@mui/material/styles";
@@ -815,9 +814,6 @@ export const Sh4SimPanel = () => {
               </Button>
             </span>
           </Tooltip>
-          <Button variant="outlined" size="small" startIcon={<PrintIcon fontSize="small" />} onClick={() => window.print()}>
-            Print
-          </Button>
         </Stack>
       }
     >
@@ -854,24 +850,6 @@ export const Sh4SimPanel = () => {
             }}
           />
         </Box>
-        <Stack direction="row" spacing={2} alignItems="center">
-          <Tooltip title={copiedMain ? "Copied!" : "Copy share link"} open={copiedMain} arrow disableHoverListener>
-            <span>
-              <Button
-                variant="outlined"
-                size="small"
-                startIcon={<ContentCopyIcon fontSize="small" />}
-                onClick={() => handleCopyShare(null)}
-                disabled={!shareEnabled}
-              >
-                Share
-              </Button>
-            </span>
-          </Tooltip>
-          <Button variant="outlined" size="small" startIcon={<PrintIcon fontSize="small" />} onClick={() => window.print()}>
-            Print
-          </Button>
-        </Stack>
         <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap">
           <FormControlLabel
             control={<Checkbox checked={hideCrosshairs} onChange={(event) => setHideCrosshairs(event.target.checked)} />}
