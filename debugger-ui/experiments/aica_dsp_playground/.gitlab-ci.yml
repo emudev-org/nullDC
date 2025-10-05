@@ -1,0 +1,16 @@
+image: emscripten/emsdk
+
+pages:
+  script:
+  - mkdir public
+  - mkdir embuild
+  - cd embuild
+  - emcmake cmake ..
+  - make
+  - cp *.wasm ../public
+  - cp ../ui/* ../public
+  artifacts:
+    paths:
+    - public
+  rules:
+    - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH

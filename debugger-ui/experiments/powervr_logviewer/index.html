@@ -1,0 +1,767 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RefSW2 Log Visualizer</title>
+  <style>
+    body.drop {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #f0f0f0;
+    }
+
+    #drop-area {
+      width: 80vw;
+      height: 50vh;
+      border: 4px dashed #bbb;
+      border-radius: 16px;
+      background: #fff;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      color: #666;
+      font-size: 1.2rem;
+      text-align: center;
+    }
+
+    canvas {
+      border: 1px solid #333;
+      display: block;
+      image-rendering: pixelated;
+    }
+
+    @keyframes spin {
+      0% {
+        transform: rotate(0deg);
+      }
+
+      100% {
+        transform: rotate(360deg);
+      }
+    }
+
+    #spinner {
+      position: fixed;
+      left: 0;
+      top: 0;
+      width: 100vw;
+      height: 100vh;
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(255, 255, 255, 0.7);
+    }
+
+    #spinner div {
+      border: 8px solid #f3f3f3;
+      border-top: 8px solid #333;
+      border-radius: 50%;
+      width: 60px;
+      height: 60px;
+      animation: spin 1s linear infinite;
+    }
+  </style>
+</head>
+
+<body class="drop">
+  <div id="drop-area">
+    <div>Drop your refsw2 log here</div>&nbsp;OR&nbsp;
+    <input type="file" id="file-input" accept=".log,text/plain"/>
+  </div>
+  <div>
+    <div id="canvas-container"></div>
+    <div id="details"></div>
+  </div>
+  <div id="spinner" style="display:none;">
+    <div></div>
+  </div>
+  <script>
+    const dropArea = document.getElementById('drop-area');
+    const canvasContainer = document.getElementById('canvas-container');
+    const fileInput = document.getElementById('file-input');
+
+    // Prevent default drag behaviors
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+      dropArea.addEventListener(eventName, e => e.preventDefault());
+      document.body.addEventListener(eventName, e => e.preventDefault());
+    });
+
+    // Highlight drop area on dragover
+    ['dragenter', 'dragover'].forEach(eventName => {
+      dropArea.addEventListener(eventName, () => dropArea.classList.add('highlight'));
+    });
+    ['dragleave', 'drop'].forEach(eventName => {
+      dropArea.addEventListener(eventName, () => dropArea.classList.remove('highlight'));
+    });
+
+    dropArea.addEventListener('drop', handleDrop);
+
+    fileInput.addEventListener('change', (e) => {
+      if (e.target.files.length) handleFiles(e.target.files);
+    });
+
+    function showSpinner() {
+      document.getElementById('spinner').style.display = 'flex';
+    }
+
+    function hideSpinner() {
+      document.getElementById('spinner').style.display = 'none';
+    }
+
+    function renderDetails(detailsElement, tile_id, tile_x, tile_y, local_x, local_y) {
+      const local_index = local_x + local_y * 32;
+
+      const renderModes = {
+        0: 'OPAQUE',
+        1: 'PUNCHTHROUGH_PASS0',
+        2: 'PUNCHTHROUGH_PASSN',
+        3: 'PUNCHTHROUGH_MV',
+        4: 'TRANSLUCENT_AUTOSORT',
+        5: 'TRANSLUCENT_PRESORT',
+        6: 'MODIFIER',
+      };
+
+      const depthModes = { 
+        0: 'NEVER',
+        1: 'LESS',
+        2: 'EQUAL',
+        3: 'LESS_EQUAL',
+        4: 'GREATER',
+        5: 'NOT_EQUAL',
+        6: 'GREATER_EQUAL',
+        7: 'ALWAYS',
+      };
+
+      const tiles = window.tiles[tile_id];
+      if (!tiles || tiles.length === 0) {
+        detailsElement.innerHTML = `<p>No data for this tile.</p>`;
+        return;
+      }
+
+      let html = `<h3>Tile Details</h3>
+        <p><b>Tile ID:</b> ${tile_id}</p>
+        <p><b>Local X:</b> ${local_x}</p>
+        <p><b>Local Y:</b> ${local_y}</p>
+        <hr />`;
+
+      // Collect all prims for this tile
+      let allPrims = [];
+      tiles.forEach(tile => {
+        (tile.pixels || []).forEach(pixelArr => {
+          pixelArr.forEach(write => {
+            if (write.params?.index == local_index && write.type === 'ISP' && write.prim) {
+              allPrims.push(write.prim);
+            }
+          });
+        });
+      });
+      // Remove duplicates by seq
+      allPrims = Object.values(Object.fromEntries(allPrims.map(p => [p.seq, p])));
+      allPrims = allPrims.filter((prim, idx, self) => {
+        const tag = prim.params?.tag;
+        return tag !== undefined && self.findIndex(p => p.params?.tag === tag) === idx;
+      });
+
+      tiles.forEach((tile, idx) => {
+        // Collect all pixel writes for this pixel
+        const pixelWrites = tile.pixels[local_x + local_y * 32] || [];
+        // Collect all global ops
+        const globalOps = tile.global_ops || [];
+        // Interleave by seq
+        let events = [];
+        pixelWrites.forEach(w => events.push({ type: 'write', seq: w.seq, data: w }));
+        globalOps.forEach(g => events.push({ type: 'global', seq: g.seq, data: g }));
+        events.sort((a, b) => a.seq - b.seq);
+
+        html += `<details open>
+          <summary><b>Tile Render #${idx + 1}</b></summary>
+          <ul>
+            <li><b>Base:</b> 0x${tile.base?.toString(16) ?? "?"}</li>
+            <li><b>Control:</b> 0x${tile.control?.toString(16) ?? "?"}</li>
+            <li><b>Opaque:</b> 0x${tile.opaque?.toString(16) ?? "?"}</li>
+            <li><b>Opaque Mod:</b> 0x${tile.opaque_mod?.toString(16) ?? "?"}</li>
+            <li><b>Trans:</b> 0x${tile.trans?.toString(16) ?? "?"}</li>
+            <li><b>Trans Mod:</b> 0x${tile.trans_mod?.toString(16) ?? "?"}</li>
+            <li><b>Puncht:</b> 0x${tile.puncht?.toString(16) ?? "?"}</li>
+            <li><b>X:</b> ${tile.x}</li>
+            <li><b>Y:</b> ${tile.y}</li>
+          </ul>
+          <details open>
+            <summary><b>Pixel/Global Events (interleaved)</b></summary>
+            <ul>`;
+        events.forEach((ev, widx) => {
+          if (ev.type === 'write') {
+            const write = ev.data;
+            let heading = '';
+            if (write.type === 'ISP') heading = 'ISP';
+            else if (write.type === 'TSP') heading = 'TSP';
+            else heading = write.type;
+            let tagHex = write.params?.tag !== undefined ? write.params.tag.toString(16) : null;
+            let primLink = '';
+            if (tagHex) primLink = ` <a href="#prim-${tagHex}" title="Jump to prim">🔗</a>`;
+            html += `<li id="write-${write.type}-${write.seq}"><b>${heading} #${write.seq}:</b> <ul>`;
+            for (const [k, v] of Object.entries(write.params || {})) {
+              if (["tag"].includes(k)) {
+                html += `<li>${k}: 0x${v.toString(16)}${primLink}</li>`;
+              } else if (["isp", "tsp", "tcw"].includes(k)) {
+                html += `<li>${k}: 0x${v.toString(16).padStart(8,'0')}</li>`;
+              } else if (["A", "R", "G", "B"].includes(k)) {
+                html += `<li>${k}: ${v}</li>`;
+              } else if (k === 'render_mode') {
+                html += `<li>${k}: ${renderModes[v]}</li>`;
+              } else if (k === 'mode') {
+                html += `<li>${k}: ${depthModes[v]}</li>`;
+              } else {
+                html += `<li>${k}: ${typeof v === "number" && !isNaN(v) ? v : v}</li>`;
+              }
+            }
+            // TSP-specific extra fields
+            if (write.type === 'TSP') {
+              if (write.IB !== undefined) {
+                let hex = write.IB.toString(16).padStart(8, '0');
+                let a = parseInt(hex.slice(0, 2), 16) / 255;
+                let r = parseInt(hex.slice(2, 4), 16) / 255;
+                let g = parseInt(hex.slice(4, 6), 16) / 255;
+                let b = parseInt(hex.slice(6, 8), 16) / 255;
+                let floats = [a, r, g, b].map(x => x.toFixed(3));
+                html += `<li>Base Color: 0x${hex} <span style='display:inline-block;width:16px;height:16px;background:#${hex.slice(2, 8)};border:1px solid #888;vertical-align:middle'></span> <span style='display:inline-block;width:16px;height:16px;background:rgb(${Math.round(a*255)},${Math.round(a*255)},${Math.round(a*255)});border:1px solid #888;vertical-align:middle'></span> (A=${floats[0]}, R=${floats[1]}, G=${floats[2]}, B=${floats[3]})</li>`;
+              }
+              if (write.IO !== undefined) {
+                let hex = write.IO.toString(16).padStart(8, '0');
+                let a = parseInt(hex.slice(0, 2), 16) / 255;
+                let r = parseInt(hex.slice(2, 4), 16) / 255;
+                let g = parseInt(hex.slice(4, 6), 16) / 255;
+                let b = parseInt(hex.slice(6, 8), 16) / 255;
+                let floats = [a, r, g, b].map(x => x.toFixed(3));
+                html += `<li>Offset Color: 0x${hex} <span style='display:inline-block;width:16px;height:16px;background:#${hex.slice(2, 8)};border:1px solid #888;vertical-align:middle'></span> <span style='display:inline-block;width:16px;height:16px;background:rgb(${Math.round(a*255)},${Math.round(a*255)},${Math.round(a*255)});border:1px solid #888;vertical-align:middle'></span> (A=${floats[0]}, R=${floats[1]}, G=${floats[2]}, B=${floats[3]})</li>`;
+              }
+              if (write.T) {
+                write.T.forEach((t, tidx) => {
+                  let hex = t.textel?.toString(16).padStart(8, '0');
+                  let a = hex ? parseInt(hex.slice(0, 2), 16) / 255 : 0;
+                  let r = hex ? parseInt(hex.slice(2, 4), 16) / 255 : 0;
+                  let g = hex ? parseInt(hex.slice(4, 6), 16) / 255 : 0;
+                  let b = hex ? parseInt(hex.slice(6, 8), 16) / 255 : 0;
+                  let floats = [a, r, g, b].map(x => x.toFixed(3));
+                  html += `<li>Texture Fetch #${tidx + 1}: <ul>`;
+                  for (const [tk, tv] of Object.entries(t)) {
+                    if (tk === 'textel' && hex) {
+                      html += `<li>${tk}: 0x${hex} <span style='display:inline-block;width:16px;height:16px;background:#${hex.slice(2, 8)};border:1px solid #888;vertical-align:middle'></span> <span style='display:inline-block;width:16px;height:16px;background:rgb(${Math.round(a*255)},${Math.round(a*255)},${Math.round(a*255)});border:1px solid #888;vertical-align:middle'></span> (A=${floats[0]}, R=${floats[1]}, G=${floats[2]}, B=${floats[3]})</li>`;
+                    } else {
+                      html += `<li>${tk}: ${tv}</li>`;
+                    }
+                  }
+                  html += `</ul></li>`;
+                });
+              }
+              if (write.TF !== undefined) {
+                let hex = write.TF.toString(16).padStart(8, '0');
+                let a = parseInt(hex.slice(0, 2), 16) / 255;
+                let r = parseInt(hex.slice(2, 4), 16) / 255;
+                let g = parseInt(hex.slice(4, 6), 16) / 255;
+                let b = parseInt(hex.slice(6, 8), 16) / 255;
+                let floats = [a, r, g, b].map(x => x.toFixed(3));
+                html += `<li>Texture Filter: 0x${hex} <span style='display:inline-block;width:16px;height:16px;background:#${hex.slice(2, 8)};border:1px solid #888;vertical-align:middle'></span> <span style='display:inline-block;width:16px;height:16px;background:rgb(${Math.round(a*255)},${Math.round(a*255)},${Math.round(a*255)});border:1px solid #888;vertical-align:middle'></span> (A=${floats[0]}, R=${floats[1]}, G=${floats[2]}, B=${floats[3]})</li>`;
+              }
+              if (write.CC !== undefined) {
+                let hex = write.CC.toString(16).padStart(8, '0');
+                let a = parseInt(hex.slice(0, 2), 16) / 255;
+                let r = parseInt(hex.slice(2, 4), 16) / 255;
+                let g = parseInt(hex.slice(4, 6), 16) / 255;
+                let b = parseInt(hex.slice(6, 8), 16) / 255;
+                let floats = [a, r, g, b].map(x => x.toFixed(3));
+                html += `<li>Color Combiner: 0x${hex} <span style='display:inline-block;width:16px;height:16px;background:#${hex.slice(2, 8)};border:1px solid #888;vertical-align:middle'></span> <span style='display:inline-block;width:16px;height:16px;background:rgb(${Math.round(a*255)},${Math.round(a*255)},${Math.round(a*255)});border:1px solid #888;vertical-align:middle'></span> (A=${floats[0]}, R=${floats[1]}, G=${floats[2]}, B=${floats[3]})</li>`;
+              }
+              if (write.BM !== undefined) {
+                let hex = write.BM.toString(16).padStart(8, '0');
+                let a = parseInt(hex.slice(0, 2), 16) / 255;
+                let r = parseInt(hex.slice(2, 4), 16) / 255;
+                let g = parseInt(hex.slice(4, 6), 16) / 255;
+                let b = parseInt(hex.slice(6, 8), 16) / 255;
+                let floats = [a, r, g, b].map(x => x.toFixed(3));
+                html += `<li>Bump Mapper: 0x${hex} <span style='display:inline-block;width:16px;height:16px;background:#${hex.slice(2, 8)};border:1px solid #888;vertical-align:middle'></span> <span style='display:inline-block;width:16px;height:16px;background:rgb(${Math.round(a*255)},${Math.round(a*255)},${Math.round(a*255)});border:1px solid #888;vertical-align:middle'></span> (A=${floats[0]}, R=${floats[1]}, G=${floats[2]}, B=${floats[3]})</li>`;
+              }
+              if (write.FU !== undefined) {
+                let hex = write.FU.toString(16).padStart(8, '0');
+                let a = parseInt(hex.slice(0, 2), 16) / 255;
+                let r = parseInt(hex.slice(2, 4), 16) / 255;
+                let g = parseInt(hex.slice(4, 6), 16) / 255;
+                let b = parseInt(hex.slice(6, 8), 16) / 255;
+                let floats = [a, r, g, b].map(x => x.toFixed(3));
+                html += `<li>Fog Unit: 0x${hex} <span style='display:inline-block;width:16px;height:16px;background:#${hex.slice(2, 8)};border:1px solid #888;vertical-align:middle'></span> <span style='display:inline-block;width:16px;height:16px;background:rgb(${Math.round(a*255)},${Math.round(a*255)},${Math.round(a*255)});border:1px solid #888;vertical-align:middle'></span> (A=${floats[0]}, R=${floats[1]}, G=${floats[2]}, B=${floats[3]})</li>`;
+              }
+              if (write.BU) {
+                html += `<li>Blend Unit:<ul>`;
+                for (const [k, v] of Object.entries(write.BU)) {
+                  if (["src", "src_blend", "dst", "dst_blend", "final"].includes(k)) {
+                    let hex = v.toString(16).padStart(8, '0');
+                    let a = parseInt(hex.slice(0, 2), 16) / 255;
+                    let r = parseInt(hex.slice(2, 4), 16) / 255;
+                    let g = parseInt(hex.slice(4, 6), 16) / 255;
+                    let b = parseInt(hex.slice(6, 8), 16) / 255;
+                    let floats = [a, r, g, b].map(x => x.toFixed(3));
+                    if (k === "src_blend" || k === "dst_blend") {
+                      html += `<li>${k}: 0x${hex} (A=${floats[0]}, R=${floats[1]}, G=${floats[2]}, B=${floats[3]})</li>`;
+                    } else {
+                      html += `<li>${k}: 0x${hex} <span style='display:inline-block;width:16px;height:16px;background:#${hex.slice(2, 8)};border:1px solid #888;vertical-align:middle'></span> <span style='display:inline-block;width:16px;height:16px;background:rgb(${Math.round(a*255)},${Math.round(a*255)},${Math.round(a*255)});border:1px solid #888;vertical-align:middle'></span> (A=${floats[0]}, R=${floats[1]}, G=${floats[2]}, B=${floats[3]})</li>`;
+                    }
+                  } else {
+                    html += `<li>${k}: ${v}</li>`;
+                  }
+                }
+                html += `</ul></li>`;
+              }
+           }
+            if (write.status) html += `<li>Status: ${write.status}</li>`;
+            if (write.writtenDepth !== undefined) html += `<li>Written Depth: ${write.writtenDepth}</li>`;
+            if (write.readStencil !== undefined) html += `<li>Read Stencil: ${write.readStencil}</li>`;
+            html += `</ul></li>`;
+          } else if (ev.type === 'global') {
+            const op = ev.data;
+            html += `<li><b>Global Op:</b> ${op.type} (seq: ${op.seq})</li>`;
+          }
+        });
+        html += `</ul></details></details>`;
+      });
+
+      // Prim list with previews
+      html += `<h4>Primitives referenced by this pixel</h4><div style='display:flex;flex-wrap:wrap;gap:16px;'>`;
+      allPrims.forEach(prim => {
+        let tagHex = prim.params?.tag?.toString(16);
+        html += `<div id='prim-${tagHex}' style='border:2px dashed #888;padding:8px;min-width:180px;'>`;
+        html += `<b>Prim #${prim.seq} (tag 0x${tagHex})</b><br/>`;
+        // Draw preview canvas
+        html += `<canvas width='160' height='160' style='background:#fff;display:block;border:1px dashed #888;margin-bottom:4px;' id='canvas-prim-${tagHex}'></canvas>`;
+        html += `<ul>`;
+        for (const [k, v] of Object.entries(prim.params || {})) {
+          html += `<li>${k}: ${v}</li>`;
+        }
+        html += `</ul><span id='prim-${tagHex}-registered-lists'></span><span id='prim-${tagHex}-backlinks'></span></div>`;
+      });
+      html += `</div>`;
+
+      detailsElement.innerHTML = html;
+
+      // Draw prim previews
+      allPrims.forEach(prim => {
+        let tagHex = prim.params?.tag?.toString(16);
+        let canvas = document.getElementById(`canvas-prim-${tagHex}`);
+        if (!canvas) return;
+        let ctx = canvas.getContext('2d');
+        ctx.save();
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // Draw tile outline
+        ctx.strokeStyle = '#888';
+        ctx.setLineDash([6, 4]);
+        ctx.lineWidth = 2;
+        ctx.strokeRect(16, 16, 128, 128);
+        ctx.setLineDash([]);
+        // Draw prim as filled polygon (alpha 0.5, black)
+        ctx.save();
+        ctx.globalAlpha = 0.5;
+        ctx.fillStyle = '#000';
+        ctx.beginPath();
+        let px = x => 16 + 4 * x - tile_x * 32 * 4;
+        let py = y => 16 + 4 * y - tile_y * 32 * 4;
+        if (prim.type === 'QARR') {
+          ctx.moveTo(px(prim.params.x0), py(prim.params.y0));
+          ctx.lineTo(px(prim.params.x1), py(prim.params.y1));
+          ctx.lineTo(px(prim.params.x2), py(prim.params.y2));
+          ctx.lineTo(px(prim.params.x3), py(prim.params.y3));
+          ctx.closePath();
+        } else {
+          ctx.moveTo(px(prim.params.x0), py(prim.params.y0));
+          ctx.lineTo(px(prim.params.x1), py(prim.params.y1));
+          ctx.lineTo(px(prim.params.x2), py(prim.params.y2));
+          ctx.closePath();
+        }
+        ctx.fill();
+        ctx.restore();
+        ctx.restore();
+        ctx.save();
+        ctx.strokeStyle = 'red';
+        ctx.fillRect(16 + local_x * 4, 16 + local_y * 4, 4, 4); // Highlight the clicked pixel
+        ctx.restore();
+        // Add backlinks to all ISP/TSP writes referencing this prim
+        let backlinks = [];
+        let registered_lists = new Set();
+        tiles.forEach(tile => {
+          (tile.pixels || []).forEach(pixelArr => {
+            pixelArr.forEach(write => {
+              if (write.params?.index === local_index && (write.type === 'ISP' || write.type === 'TSP') && write.params && write.params.tag !== undefined && prim.params && write.params.tag === prim.params.tag) {
+                backlinks.push({type: write.type, seq: write.seq});
+                if (write.type === 'ISP') {
+                  registered_lists.add(write.params.render_mode);
+                }
+              }
+            });
+          });
+        });
+        let primRegistered = document.getElementById(`prim-${tagHex}-registered-lists`);
+        if (primRegistered && registered_lists.size) {
+          primRegistered.innerHTML = `<b>Registered Lists:</b> <ul style='margin:4px 0 0 0;padding:0 0 0 16px;'>${Array.from(registered_lists).map(r => `<li><span>${renderModes[r]}</span></li>`).join('')}<ul>`;
+        }
+        let backlinkHtml = backlinks.length ? `<b>Referenced by:</b><ul style='margin:4px 0 0 0;padding:0 0 0 16px;'>` + backlinks.map(b => `<li><a href="#write-${b.type}-${b.seq}">${b.type} #${b.seq}</a></li>`).join('') + `</ul>` : '';
+        let primDiv = document.getElementById(`prim-${tagHex}-backlinks`);
+        if (primDiv && backlinkHtml) {
+          primDiv.innerHTML = backlinkHtml;
+        }
+      });
+    }
+
+    function handleDrop(e) {
+      if (e.dataTransfer.files.length) {
+        handleFiles(e.dataTransfer.files);
+      }
+    }
+
+    function handleFiles(files) {
+      showSpinner();
+      if (files.length === 0) { hideSpinner(); return; }
+      // Hide drop area
+      dropArea.style.display = 'none';
+      // Create and show canvas
+      const canvas = document.createElement('canvas');
+      canvas.width = 640;  // 2560px
+      canvas.height = 480; // 1920px
+      canvasContainer.appendChild(canvas);
+
+      // Optionally, parse and draw log data here
+      const file = files[0];
+      const reader = new FileReader();
+      reader.onload = function (event) {
+        parselog(event.target.result, canvas);
+        hideSpinner();
+      };
+      canvas.addEventListener('click', () => {
+        // get x, y
+        const rect = canvas.getBoundingClientRect();
+        const x = Math.floor(event.clientX - rect.left);
+        const y = Math.floor(event.clientY - rect.top);
+        console.log(`Clicked at: (${x}, ${y})`);
+        const tile_x = Math.floor(x / 32);
+        const tile_y = Math.floor(y / 32);
+        const tile_id = tile_x + tile_y * 64;
+        if (window.tiles[tile_id]) {
+          const local_x = x % 32;
+          const local_y = y % 32;
+
+          renderDetails(document.getElementById("details"), tile_id, tile_x, tile_y, local_x, local_y);
+        }
+      });
+      reader.readAsText(file);
+    }
+
+    function parselog(logData, canvas) {
+      // Example parsing logic
+      const lines = logData.split('\n');
+      if (lines.length === 0) {
+        alert('No log data found');
+        return;
+      }
+
+      if (lines[0].trim() !== 'REFSW2LOG: 0') {
+        alert('Bad log file format');
+        return;
+      }
+
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = 'red';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      let bgtag;
+      let tiles = Array.from({ length: 4096 }, () => []);
+      let current_tile = {};
+      let current_isp = {};
+      let current_tsp = {};
+      let current_object = {};
+      let current_prim = {};
+
+      window.tiles = tiles;
+      // window.bgtag = special cased below
+
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (line === '') continue;
+
+        const parts = line.split(': ');
+
+        switch (parts[0]) {
+          case 'BGTAG': {
+            window.bgtag = bgtag = parseInt(parts[1], 16);
+          }
+          break;
+
+          case 'TILE': {
+            const TILE = parts[1].split(' ');
+            const tile_cfg = parseInt(TILE[1], 16);
+            const tile_x = (tile_cfg >> 2) & 0x3F;
+            const tile_y = (tile_cfg >> 8) & 0x3F;
+            const tile_xy = (tile_cfg >> 2) & 0xFFF;
+
+            current_tile = {
+              base: parseInt(TILE[0], 16),
+              control: tile_cfg,
+              opaque: parseInt(TILE[2], 16),
+              opaque_mod: parseInt(TILE[3], 16),
+              trans: parseInt(TILE[4], 16),
+              trans_mod: parseInt(TILE[5], 16),
+              puncht: parseInt(TILE[6], 16),
+
+              pixels: Array.from({ length: 1024 }, () => []),
+              x: tile_x,
+              y: tile_y,
+              global_ops: [],
+            };
+            tiles[tile_xy].push(current_tile);
+          }
+          break;
+
+          case 'OPAQ':
+          case 'OPAQ_MOD':
+          case 'OP_PARAMS':
+          case 'PT':
+          case 'PT_MOD':
+          case 'PT_MOD_PARAMS':
+          case 'PT_N':
+          case 'PT_N_PARAMS':
+          case 'PT_PARAMS':
+          case 'TR_AS':
+          case 'TR_AS_N':
+          case 'TR_PARAMS':
+          case 'TR_PS':
+
+          case 'STENCIL_SUM_AND':
+          case 'STENCIL_SUM_OR':
+
+          case 'ZKEEP':
+          case 'ZCLEAR': {
+            const global_param = {
+              type: parts[0],
+              seq: i,
+            };
+            current_tile.global_ops.push(global_param);
+          }
+          break;
+
+          case 'TSP': {
+            const TSP = parts[1].split(' ');
+            current_tsp = {
+              type: 'TSP',
+              seq: i,
+              params: {
+                index: parseInt(TSP[0]),
+                x: parseFloat(TSP[1]),
+                y: parseFloat(TSP[2]),
+                inVolume: parseInt(TSP[3]),
+                invW: parseFloat(TSP[4]),
+                alphaTest: parseInt(TSP[5]),
+                isp: parseInt(TSP[6], 16),
+                tsp: parseInt(TSP[7], 16),
+                tcw: parseInt(TSP[8], 16),
+                tag: parseInt(TSP[9], 16),
+              },
+            };
+            current_tile.pixels[current_tsp.params.index].push(current_tsp);
+          }
+          break;
+
+          case 'CC':
+          case 'FC':
+          case 'FU':
+          case 'IB':
+          case 'IO':
+          case 'TF':
+          case 'BM': {
+            current_tsp[parts[0]] = parseInt(parts[1], 16);
+          }
+          break;
+
+          case 'BU': {
+            const BU = parts[1].split(' ');
+            current_tsp.BU = {
+              final: parseInt(BU[0], 16),
+              src_blend: parseInt(BU[1], 16),
+              dst_blend: parseInt(BU[2], 16),
+              src: parseInt(BU[3], 16),
+              dst: parseInt(BU[4], 16),
+              at: parseInt(BU[5], 10),
+            };
+          }
+          break;
+
+          case 'T': {
+            const T = parts[1].split(' ');
+            if (!current_tsp.T) {
+              current_tsp.T = [];
+            }
+            current_tsp.T.push({
+              textel: parseInt(T[0], 16),
+              u: parseInt(T[1]),
+              v: parseInt(T[2]),
+              mipLevel: parseInt(T[3]),
+            });
+          }
+          break;
+
+          // OBJECT: %08X %08X
+          case 'OBJECT': {
+            const OBJECT = parts[1].split(' ');
+            current_object = {
+              base: parseInt(OBJECT[0], 16),
+              object: parseInt(OBJECT[1], 16),
+              prims: [],
+            };
+          }
+          break;
+
+          case 'QARR': {
+            const QARR = parts[1].split(' ');
+            current_prim = {
+              type: 'QARR',
+              culled: false,
+              pixels: 0,
+              seq: i,
+              params: {
+                tag: parseInt(QARR[0], 16),
+                x0: parseFloat(QARR[1]),
+                y0: parseFloat(QARR[2]),
+                z0: parseFloat(QARR[3]),
+                x1: parseFloat(QARR[4]),
+                y1: parseFloat(QARR[5]),
+                z1: parseFloat(QARR[6]),
+                x2: parseFloat(QARR[7]),
+                y2: parseFloat(QARR[8]),
+                z2: parseFloat(QARR[9]),
+                x3: parseFloat(QARR[10]),
+                y3: parseFloat(QARR[11]),
+                z3: parseFloat(QARR[12]),
+                num: parseInt(QARR[13], 10),
+              },
+            };
+            current_object.prims.push(current_prim);
+          } break;
+
+          case 'STRIP': {
+            const STRIP = parts[1].split(' ');
+            current_prim = {
+              type: 'STRIP',
+              culled: false,
+              pixels: 0,
+              seq: i,
+              params: {
+                tag: parseInt(STRIP[0], 16),
+                x0: parseFloat(STRIP[1]),
+                y0: parseFloat(STRIP[2]),
+                z0: parseFloat(STRIP[3]),
+                x1: parseFloat(STRIP[4]),
+                y1: parseFloat(STRIP[5]),
+                z1: parseFloat(STRIP[6]),
+                x2: parseFloat(STRIP[7]),
+                y2: parseFloat(STRIP[8]),
+                z2: parseFloat(STRIP[9]),
+                num: parseInt(STRIP[10], 10),
+              },
+            };
+            current_object.prims.push(current_prim);
+          } break;
+
+          case 'TARR': {
+            const TARR = parts[1].split(' ');
+            current_prim = {
+              type: 'TARR',
+              culled: false,
+              pixels: 0,
+              seq: i,
+              params: {
+                tag: parseInt(TARR[0], 16),
+                x0: parseFloat(TARR[1]),
+                y0: parseFloat(TARR[2]),
+                z0: parseFloat(TARR[3]),
+                x1: parseFloat(TARR[4]),
+                y1: parseFloat(TARR[5]),
+                z1: parseFloat(TARR[6]),
+                x2: parseFloat(TARR[7]),
+                y2: parseFloat(TARR[8]),
+                z2: parseFloat(TARR[9]),
+                num: parseInt(TARR[10], 10),
+              },
+            };
+            current_object.prims.push(current_prim);
+          } break;
+
+          case 'CULLED': {
+            current_prim.culled = true;
+          } break;
+
+          case 'ISP': {
+            const ISP = parts[1].split(' ');
+            current_isp = {
+              type: 'ISP',
+              seq: i,
+              params: {
+                index: parseInt(ISP[0], 10),
+                render_mode: parseInt(ISP[1], 10),
+                mode: parseInt(ISP[2]),
+                x: parseFloat(ISP[3]),
+                y: parseFloat(ISP[4]),
+                invW: parseFloat(ISP[5]),
+                tag: parseInt(ISP[6], 16),
+              },
+              status: 'UNKNOWN',
+              prim: current_prim,
+            };
+            current_tile.pixels[current_isp.params.index].push(current_isp);
+            current_prim.pixels++;
+          } break;
+
+          case 'ALREADY_DRAWN':
+          case 'ZFAIL':
+          case 'ZFAIL2':
+          case 'ZFAIL3':
+          case 'ZFAIL4':
+          case 'ZFAIL5':
+          case 'ZFAIL6':
+          case 'ZFAIL7': {
+            current_isp.status = parts[0];
+          } break;
+
+
+          case 'RENDERED': {
+            current_isp.status = 'RENDERED';
+            if (parts.length > 1) {
+              current_isp.writtenDepth = parseFloat(parts[1]);
+            }
+          } break;
+
+          case 'STENCIL': {
+            current_isp.status = 'STENCIL';
+            current_isp.readStencil = parseInt(parts[1], 16);
+          } break;
+
+          case 'PIXELS': {
+            for (let j = 0; j < 1024; j++) {
+              const COLOR = lines[i + 1 + j].trim();
+              const x = j % 32;
+              const y = Math.floor(j / 32);
+              ctx.fillStyle = `#${COLOR.substring(2)}`;
+              ctx.fillRect(current_tile.x * 32 + x, current_tile.y * 32 + y, 1, 1);
+            }
+            i += 1024; // Skip the next 1024 entries
+          } break;
+        }
+      }
+
+      document.body.classList.remove('drop');
+    }
+  </script>
+</body>
+
+</html>
