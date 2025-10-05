@@ -267,6 +267,7 @@ export const AppLayout = () => {
                     flex: 1,
                     display: currentTab === tab.value ? "flex" : "none",
                     flexDirection: "column",
+                    minWidth: "0px", maxWidth: "100%"
                   }}
                 >
                   {currentTab === tab.value && (
