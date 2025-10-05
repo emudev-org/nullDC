@@ -28,6 +28,39 @@ import { useAboutModal } from "./useAboutModal";
 import { TopNav } from "./TopNav";
 import { useThemeMode } from "../../theme/ThemeModeProvider";
 
+const LAYOUT_STORAGE_KEY = "nulldc-debugger-layout";
+
+type StoredLayoutPrefs = {
+  leftPanelOpen: boolean;
+  rightPanelOpen: boolean;
+};
+
+const defaultLayoutPrefs: StoredLayoutPrefs = {
+  leftPanelOpen: true,
+  rightPanelOpen: true,
+};
+
+const loadLayoutPrefs = (): StoredLayoutPrefs => {
+  if (typeof window === "undefined") {
+    return defaultLayoutPrefs;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(LAYOUT_STORAGE_KEY);
+    if (!raw) {
+      return defaultLayoutPrefs;
+    }
+    const parsed = JSON.parse(raw) as Partial<StoredLayoutPrefs>;
+    return {
+      leftPanelOpen: parsed.leftPanelOpen ?? defaultLayoutPrefs.leftPanelOpen,
+      rightPanelOpen: parsed.rightPanelOpen ?? defaultLayoutPrefs.rightPanelOpen,
+    };
+  } catch (error) {
+    console.warn("Failed to read layout preferences", error);
+    return defaultLayoutPrefs;
+  }
+};
+
 const mainTabs = [
   { value: "events", label: "Events: Log", component: <EventLogPanel /> },
   { value: "events-breakpoints", label: "Events: Breakpoints", component: <EventsBreakpointsPanel /> },
@@ -72,8 +105,8 @@ export const AppLayout = () => {
   const resetData = useDebuggerDataStore((state) => state.reset);
   const navigate = useNavigate();
   const { tab } = useParams();
-  const [leftPanelOpen, setLeftPanelOpen] = useState(true);
-  const [rightPanelOpen, setRightPanelOpen] = useState(true);
+  const [leftPanelOpen, setLeftPanelOpen] = useState(() => loadLayoutPrefs().leftPanelOpen);
+  const [rightPanelOpen, setRightPanelOpen] = useState(() => loadLayoutPrefs().rightPanelOpen);
   const [isNarrow, setIsNarrow] = useState(window.innerWidth < 1200);
   const tabsContainerRef = useRef<HTMLDivElement | null>(null);
   const { open: aboutOpen, show: showAbout, hide: hideAbout } = useAboutModal();
@@ -99,6 +132,23 @@ export const AppLayout = () => {
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const prefs: StoredLayoutPrefs = {
+      leftPanelOpen,
+      rightPanelOpen,
+    };
+
+    try {
+      window.localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(prefs));
+    } catch (error) {
+      console.warn("Failed to persist layout preferences", error);
+    }
+  }, [leftPanelOpen, rightPanelOpen]);
 
   useEffect(() => {
     void connect();
@@ -152,6 +202,21 @@ export const AppLayout = () => {
     toggleMode();
   }, [toggleMode]);
 
+  const handleResetLayout = useCallback(() => {
+    setLeftPanelOpen(defaultLayoutPrefs.leftPanelOpen);
+    setRightPanelOpen(defaultLayoutPrefs.rightPanelOpen);
+
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    try {
+      window.localStorage.removeItem(LAYOUT_STORAGE_KEY);
+    } catch (error) {
+      console.warn("Failed to clear layout preferences", error);
+    }
+  }, []);
+
   return (
     <Box sx={{ height: "100vh", display: "flex", flexDirection: "column" }}>
       <AppBar position="static" elevation={1} color="default">
@@ -159,10 +224,7 @@ export const AppLayout = () => {
           onHomeClick={() => navigate("/")}
           onDocsClick={() => navigate("/docs")}
           onAboutClick={showAbout}
-          onResetLayout={() => {
-            setLeftPanelOpen(true);
-            setRightPanelOpen(true);
-          }}
+          onResetLayout={handleResetLayout}
           rightSection={
             <Stack direction="row" spacing={1.5} alignItems="center">
               <Stack direction="row" spacing={0.5} alignItems="center">
