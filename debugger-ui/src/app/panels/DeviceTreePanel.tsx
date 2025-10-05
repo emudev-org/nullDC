@@ -202,7 +202,7 @@ export const DeviceTreePanel = () => {
           Device information unavailable. Ensure the debugger connection is active.
         </Typography>
       ) : (
-        <>
+        <Box sx={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
           <Box sx={{ px: 1.5, py: 1 }}>
             <TextField
               size="small"
@@ -222,11 +222,11 @@ export const DeviceTreePanel = () => {
             defaultExpandedItems={expandedItems}
             slots={{ collapseIcon: ExpandMoreIcon, expandIcon: ChevronRightIcon }}
             multiSelect
-            sx={{ px: 1, py: 1, height: "100%", minHeight: 0, flex: 1, overflowY: "auto" }}
+            sx={{ px: 1, py: 1, flex: 1, overflowY: "auto" }}
           >
             {filteredTree.map((node) => renderNode(node))}
           </SimpleTreeView>
-        </>
+        </Box>
       )}
     </Panel>
   );
