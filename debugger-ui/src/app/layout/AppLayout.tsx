@@ -142,7 +142,7 @@ export const AppLayout = () => {
               value={currentTab}
               onChange={(_, value) => navigate(`/${value}`)}
               variant="scrollable"
-              scrollButtons="auto"
+              scrollButtons
               sx={{ borderBottom: "1px solid", borderColor: "divider" }}
             >
               {workspaceTabs.map((tab) => (
