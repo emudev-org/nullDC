@@ -1,11 +1,11 @@
 {
   "name": "nulldc-debugger",
   "private": true,
-  "version": "2.0.0-pre",
+  "version": "__APP_VERSION__",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "node scripts/prebuild-version.js && tsc -b && vite build && node scripts/postbuild-version.js",
     "lint": "eslint .",
     "preview": "vite preview",
     "dev:mock": "tsx watch --tsconfig tsconfig.server.json server/mockServer.ts",

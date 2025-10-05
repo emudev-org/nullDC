@@ -21,6 +21,8 @@ import { EventsBreakpointsPanel, Sh4BreakpointsPanel, Arm7BreakpointsPanel, DspB
 import { Sh4SimPanel } from "../panels/Sh4SimPanel";
 import { DspPlaygroundPanel } from "../panels/DspPlaygroundPanel";
 import { useNavigate, useParams } from "react-router-dom";
+import { AboutDialog } from "./AboutDialog";
+import { useAboutModal } from "./useAboutModal";
 
 const mainTabs = [
   { value: "events", label: "Events: Log", component: <EventLogPanel /> },
@@ -70,6 +72,7 @@ export const AppLayout = () => {
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
   const [isNarrow, setIsNarrow] = useState(window.innerWidth < 1200);
   const tabsContainerRef = useRef<HTMLDivElement | null>(null);
+  const { open: aboutOpen, show: showAbout, hide: hideAbout } = useAboutModal();
 
   const workspaceTabs = useMemo(() => {
     return isNarrow ? [...mainTabs, ...sidePanelTabs] : mainTabs;
@@ -144,7 +147,7 @@ export const AppLayout = () => {
             <Button variant="text" color="primary" onClick={() => navigate("/")}>
               Home
             </Button>
-            <Button variant="text" color="primary" onClick={() => navigate("/about")}>
+            <Button variant="text" color="primary" onClick={showAbout}>
               About
             </Button>
             <Button
@@ -325,6 +328,7 @@ export const AppLayout = () => {
         <Box sx={{ flexGrow: 1 }} />
         <Typography variant="caption">nullDC Debugger UI prototype</Typography>
       </Box>
+      <AboutDialog open={aboutOpen} onClose={hideAbout} />
     </Box>
   );
 };
