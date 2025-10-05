@@ -1,11 +1,13 @@
 ﻿import { useEffect, useCallback, useMemo, useState, useRef } from "react";
-import { AppBar, Box, Button, CircularProgress, Divider, IconButton, Stack, Tab, Tabs, Tooltip, Typography, Alert } from "@mui/material";
+import { AppBar, Box, Button, CircularProgress, Divider, IconButton, Stack, Switch, Tab, Tabs, Tooltip, Typography, Alert } from "@mui/material";
 import PowerSettingsNewIcon from "@mui/icons-material/PowerSettingsNew";
 import CloudDoneIcon from "@mui/icons-material/CloudDone";
 import CloudOffIcon from "@mui/icons-material/CloudOff";
 import SyncIcon from "@mui/icons-material/Sync";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
+import DarkModeIcon from "@mui/icons-material/DarkMode";
+import LightModeIcon from "@mui/icons-material/LightMode";
 import { useSessionStore } from "../../state/sessionStore";
 import { useDebuggerDataStore } from "../../state/debuggerDataStore";
 import { DeviceTreePanel } from "../panels/DeviceTreePanel";
@@ -24,6 +26,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { AboutDialog } from "./AboutDialog";
 import { useAboutModal } from "./useAboutModal";
 import { TopNav } from "./TopNav";
+import { useThemeMode } from "../../theme/ThemeModeProvider";
 
 const mainTabs = [
   { value: "events", label: "Events: Log", component: <EventLogPanel /> },
@@ -74,6 +77,8 @@ export const AppLayout = () => {
   const [isNarrow, setIsNarrow] = useState(window.innerWidth < 1200);
   const tabsContainerRef = useRef<HTMLDivElement | null>(null);
   const { open: aboutOpen, show: showAbout, hide: hideAbout } = useAboutModal();
+  const { mode, toggleMode } = useThemeMode();
+  const isDarkMode = mode === "dark";
 
   const workspaceTabs = useMemo(() => {
     return isNarrow ? [...mainTabs, ...sidePanelTabs] : mainTabs;
@@ -143,6 +148,10 @@ export const AppLayout = () => {
     }
   }, [connectionState, disconnect, connect]);
 
+  const handleToggleTheme = useCallback(() => {
+    toggleMode();
+  }, [toggleMode]);
+
   return (
     <Box sx={{ height: "100vh", display: "flex", flexDirection: "column" }}>
       <AppBar position="static" elevation={1} color="default">
@@ -156,6 +165,21 @@ export const AppLayout = () => {
           }}
           rightSection={
             <Stack direction="row" spacing={1.5} alignItems="center">
+              <Stack direction="row" spacing={0.5} alignItems="center">
+                {isDarkMode ? (
+                  <DarkModeIcon fontSize="small" color="primary" />
+                ) : (
+                  <LightModeIcon fontSize="small" color="warning" />
+                )}
+                <Tooltip title={isDarkMode ? "Dark mode" : "Light mode"}>
+                  <Switch
+                    size="small"
+                    checked={isDarkMode}
+                    onChange={handleToggleTheme}
+                    inputProps={{ "aria-label": "Toggle dark mode" }}
+                  />
+                </Tooltip>
+              </Stack>
               <Tooltip title={`Connection: ${connectionState}`}>
                 <IconButton color={connectionState === "connected" ? "primary" : "inherit"}>
                   {connectionIcons[connectionState]}

@@ -1,15 +1,13 @@
 ﻿import React from "react";
 import ReactDOM from "react-dom/client";
-import { CssBaseline, ThemeProvider } from "@mui/material";
 import App from "./App";
 import "./index.css";
-import { debuggerTheme } from "./theme";
+import { ThemeModeProvider } from "./theme/ThemeModeProvider";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <ThemeProvider theme={debuggerTheme}>
-      <CssBaseline enableColorScheme />
+    <ThemeModeProvider>
       <App />
-    </ThemeProvider>
+    </ThemeModeProvider>
   </React.StrictMode>,
 );
