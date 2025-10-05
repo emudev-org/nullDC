@@ -112,7 +112,12 @@ const DisassemblyView = ({
       setLoading(true);
       setError(undefined);
       try {
-        const result = await client.fetchDisassembly({ target, address: addr, count: FETCH_LINE_COUNT });
+        // Calculate how many instructions can fit before hitting max address
+        const remainingAddressSpace = maxAddress - addr;
+        const maxPossibleInstructions = Math.floor(remainingAddressSpace / instructionSize) + 1;
+        const count = Math.min(FETCH_LINE_COUNT, Math.max(1, maxPossibleInstructions));
+
+        const result = await client.fetchDisassembly({ target, address: addr, count });
         if (requestIdRef.current !== requestId) {
           return;
         }
@@ -127,7 +132,7 @@ const DisassemblyView = ({
         }
       }
     },
-    [client, connectionState, target],
+    [client, connectionState, target, maxAddress, instructionSize],
   );
 
   useEffect(() => {

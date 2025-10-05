@@ -13,14 +13,16 @@ type MemoryRow = {
 
 const formatHexAddress = (value: number) => `0x${value.toString(16).toUpperCase().padStart(8, "0")}`;
 
-const clampAddress = (value: number, max: number) => {
-  if (value < 0) {
-    return 0;
+const clampAddress = (value: number, max: number, alignment = 1) => {
+  let clamped = value;
+  if (clamped < 0) {
+    clamped = 0;
   }
-  if (value > max) {
-    return max;
+  if (clamped > max) {
+    clamped = max;
   }
-  return value;
+  // Round down to alignment boundary
+  return clamped - (clamped % alignment);
 };
 
 const WHEEL_PIXEL_THRESHOLD = 60;
@@ -65,10 +67,14 @@ const MemoryView = ({
       const requestId = ++requestIdRef.current;
       setLoading(true);
       try {
+        // Calculate how many bytes can fit before hitting max address
+        const remainingAddressSpace = 0xffffffff - addr;
+        const adjustedLength = Math.min(length, Math.max(1, remainingAddressSpace + 1));
+
         const result = await client.fetchMemorySlice({
           target,
           address: addr,
-          length,
+          length: adjustedLength,
           encoding,
           wordSize,
         });
@@ -97,7 +103,7 @@ const MemoryView = ({
     if (!loading && pendingScrollDelta.current !== 0) {
       const delta = pendingScrollDelta.current;
       pendingScrollDelta.current = 0;
-      setAddress((prev) => clampAddress(prev + delta, maxAddress));
+      setAddress((prev) => clampAddress(prev + delta, maxAddress, BYTES_PER_ROW));
     }
   }, [loading, maxAddress]);
 
@@ -125,7 +131,7 @@ const MemoryView = ({
 
   const adjustAddress = useCallback(
     (delta: number) => {
-      setAddress((prev) => clampAddress(prev + delta, maxAddress));
+      setAddress((prev) => clampAddress(prev + delta, maxAddress, BYTES_PER_ROW));
     },
     [maxAddress],
   );
@@ -175,7 +181,7 @@ const MemoryView = ({
     if (Number.isNaN(parsed)) {
       return;
     }
-    setAddress(clampAddress(parsed, maxAddress));
+    setAddress(clampAddress(parsed, maxAddress, BYTES_PER_ROW));
   }, [addressInput, maxAddress]);
 
   const handleRefresh = useCallback(() => {
