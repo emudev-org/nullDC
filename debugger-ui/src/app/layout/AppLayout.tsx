@@ -1,4 +1,4 @@
-﻿import { useEffect, useCallback, useMemo, useState } from "react";
+﻿import { useEffect, useCallback, useMemo, useState, useRef } from "react";
 import { AppBar, Box, Button, CircularProgress, Divider, IconButton, Stack, Tab, Tabs, Toolbar, Tooltip, Typography, Alert } from "@mui/material";
 import PowerSettingsNewIcon from "@mui/icons-material/PowerSettingsNew";
 import CloudDoneIcon from "@mui/icons-material/CloudDone";
@@ -66,6 +66,7 @@ export const AppLayout = () => {
   const [leftPanelOpen, setLeftPanelOpen] = useState(true);
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
   const [isNarrow, setIsNarrow] = useState(window.innerWidth < 1200);
+  const tabsContainerRef = useRef<HTMLDivElement | null>(null);
 
   const workspaceTabs = useMemo(() => {
     return isNarrow ? [...mainTabs, ...sidePanelTabs] : mainTabs;
@@ -97,6 +98,30 @@ export const AppLayout = () => {
       resetData();
     }
   }, [connectionState, resetData]);
+
+  useEffect(() => {
+    const container = tabsContainerRef.current;
+    if (!container) {
+      return;
+    }
+    const scroller = container.querySelector<HTMLElement>(".MuiTabs-scroller");
+    if (!scroller) {
+      return;
+    }
+
+    const handleWheel = (event: WheelEvent) => {
+      if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) {
+        return;
+      }
+      event.preventDefault();
+      scroller.scrollLeft -= event.deltaY;
+    };
+
+    scroller.addEventListener("wheel", handleWheel, { passive: false });
+    return () => {
+      scroller.removeEventListener("wheel", handleWheel);
+    };
+  }, [workspaceTabs, isNarrow]);
 
   const handleToggleConnection = useCallback(() => {
     if (connectionState === "connected") {
@@ -175,6 +200,7 @@ export const AppLayout = () => {
               variant="scrollable"
               scrollButtons
               sx={{ borderBottom: "1px solid", borderColor: "divider" }}
+              ref={tabsContainerRef}
             >
               {workspaceTabs.map((tab) => (
                 <Tab key={tab.value} value={tab.value} label={tab.label} />
@@ -282,10 +308,5 @@ export const AppLayout = () => {
     </Box>
   );
 };
-
-
-
-
-
 
 
