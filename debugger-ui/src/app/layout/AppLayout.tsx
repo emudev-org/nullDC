@@ -17,6 +17,7 @@ import { ThreadsPanel } from "../panels/ThreadsPanel";
 import { TaInspectorPanel } from "../panels/TaInspectorPanel";
 import { CoreInspectorPanel } from "../panels/CoreInspectorPanel";
 import { BreakpointsPanel } from "../panels/BreakpointsPanel";
+import { Sh4SimPanel } from "../panels/Sh4SimPanel";
 
 const workspaceTabs = [
   { value: "events", label: "Event Log", component: <EventLogPanel /> },
@@ -28,7 +29,8 @@ const workspaceTabs = [
   { value: "ta", label: "TA", component: <TaInspectorPanel /> },
   { value: "core", label: "CORE", component: <CoreInspectorPanel /> },
   { value: "aica", label: "AICA", component: <AudioPanel /> },
-    { value: "dsp-disassembly", label: "DSP: Disassembly", component: <DspDisassemblyPanel /> },
+  { value: "dsp-disassembly", label: "DSP: Disassembly", component: <DspDisassemblyPanel /> },
+  { value: "sh4-sim", label: "SH4: Sim", component: <Sh4SimPanel /> },
 ];
 
 const connectionIcons = {
@@ -209,7 +211,6 @@ export const AppLayout = () => {
     </Box>
   );
 };
-
 
 
 
