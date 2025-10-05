@@ -4,16 +4,7 @@ import { SimpleTreeView } from "@mui/x-tree-view/SimpleTreeView";
 import { TreeItem } from "@mui/x-tree-view/TreeItem";
 import { Panel } from "../layout/Panel";
 import type { DeviceNodeDescriptor, RegisterValue } from "../../lib/debuggerSchema";
-import {
-  Box,
-  CircularProgress,
-  Divider,
-  IconButton,
-  Stack,
-  TextField,
-  Tooltip,
-  Typography,
-} from "@mui/material";
+import { Box, Divider, IconButton, Stack, TextField, Tooltip, Typography } from "@mui/material";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import AddIcon from "@mui/icons-material/Add";
@@ -24,7 +15,6 @@ import { useDebuggerDataStore } from "../../state/debuggerDataStore";
 export const DeviceTreePanel = () => {
   const deviceTree = useDebuggerDataStore((state) => state.deviceTree);
   const registersByPath = useDebuggerDataStore((state) => state.registersByPath);
-  const initialized = useDebuggerDataStore((state) => state.initialized);
   const addWatch = useDebuggerDataStore((state) => state.addWatch);
   const watchExpressions = useDebuggerDataStore((state) => state.watchExpressions);
   const [searchQuery, setSearchQuery] = useState("");

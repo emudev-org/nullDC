@@ -89,14 +89,14 @@ export class DebuggerClient {
 
   async watch(expressions: string[]) {
     if (!expressions.length) {
-      return { accepted: [] as string[] };
+      return { accepted: [] as string[], all: [] as string[] };
     }
     return this.rpc.call("state.watch", { expressions });
   }
 
   async unwatch(expressions: string[]) {
     if (!expressions.length) {
-      return { accepted: [] as string[] };
+      return { accepted: [] as string[], all: [] as string[] };
     }
     return this.rpc.call("state.unwatch", { expressions });
   }
