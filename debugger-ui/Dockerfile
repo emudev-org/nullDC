@@ -3,6 +3,7 @@ FROM node:20-alpine AS build
 WORKDIR /app
 
 COPY package.json package-lock.json ./
+RUN apk add --no-cache git
 RUN npm install
 
 COPY . .
@@ -17,6 +18,7 @@ ENV DEBUGGER_WS_PATH=/ws
 
 # Copy everything we need from the build stage
 COPY --from=build /app/package.json /app/package-lock.json ./
+RUN apk add --no-cache git
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/server ./server
