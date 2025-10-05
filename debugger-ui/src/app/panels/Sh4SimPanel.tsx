@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Box,
   Button,
@@ -40,6 +40,10 @@ const decodeSource = (value: string) => {
   const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
   return new TextDecoder().decode(inflate(bytes));
 };
+
+const RELATION_CLASS = "sh4-sim__cell--relation";
+const ROW_CLASS = "sh4-sim__cell--row";
+const CYCLE_CLASS = "sh4-sim__cell--cycle";
 
 const resolveInitialSource = () => {
   if (typeof window === "undefined") {
@@ -103,16 +107,18 @@ export const Sh4SimPanel = () => {
   const hoverRafRef = useRef<number | null>(null);
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
   const editorContainerRef = useRef<HTMLDivElement | null>(null);
-  const [hoverState, setHoverState] = useState<{
+  const hoverStateRef = useRef<{
     blockId: string | null;
     rowIndex: number | null;
     cycle: number | null;
     highlightKeys: string[];
   }>({ blockId: null, rowIndex: null, cycle: null, highlightKeys: [] });
-
-  const highlightKeySet = useMemo(() => createHighlightSet(hoverState.highlightKeys), [hoverState.highlightKeys]);
-  const effectiveRowIndex = hideCrosshairs ? null : hoverState.rowIndex;
-  const effectiveCycle = hideCrosshairs ? null : hoverState.cycle;
+  const hoverTargetsRef = useRef<{
+    relation: HTMLElement[];
+    row: HTMLElement[];
+    cycle: HTMLElement[];
+  }>({ relation: [], row: [], cycle: [] });
+  const blockBodyRefs = useRef(new Map<string, HTMLTableSectionElement>());
 
   const simulation = useMemo<SimulateResult>(() => {
     try {
@@ -189,6 +195,84 @@ export const Sh4SimPanel = () => {
     [shareToken],
   );
 
+  const clearHighlights = useCallback(() => {
+    const targets = hoverTargetsRef.current;
+    targets.relation.forEach((element) => element.classList.remove(RELATION_CLASS));
+    targets.row.forEach((element) => element.classList.remove(ROW_CLASS));
+    targets.cycle.forEach((element) => element.classList.remove(CYCLE_CLASS));
+    hoverTargetsRef.current = { relation: [], row: [], cycle: [] };
+  }, []);
+
+  const applyHighlights = useCallback(
+    (nextState: { blockId: string | null; rowIndex: number | null; cycle: number | null; highlightKeys: string[] }) => {
+      const prevState = hoverStateRef.current;
+      const isSame =
+        prevState.blockId === nextState.blockId &&
+        prevState.rowIndex === nextState.rowIndex &&
+        prevState.cycle === nextState.cycle &&
+        prevState.highlightKeys.length === nextState.highlightKeys.length &&
+        prevState.highlightKeys.every((key, index) => key === nextState.highlightKeys[index]);
+
+      if (isSame) {
+        return;
+      }
+
+      clearHighlights();
+
+      hoverStateRef.current = nextState;
+
+      if (!nextState.blockId) {
+        return;
+      }
+
+      const blockBody = blockBodyRefs.current.get(nextState.blockId);
+      if (!blockBody) {
+        return;
+      }
+
+      const nextTargets: { relation: HTMLElement[]; row: HTMLElement[]; cycle: HTMLElement[] } = {
+        relation: [],
+        row: [],
+        cycle: [],
+      };
+
+      if (nextState.highlightKeys.length > 0) {
+        const highlightSet = createHighlightSet(nextState.highlightKeys);
+        const relationCells = blockBody.querySelectorAll<HTMLElement>("[data-self-keys]");
+        relationCells.forEach((element) => {
+          const keysAttr = element.dataset.selfKeys;
+          if (!keysAttr) {
+            return;
+          }
+          const cellKeys = keysAttr.split("|");
+          if (cellKeys.some((key) => highlightSet.has(key))) {
+            element.classList.add(RELATION_CLASS);
+            nextTargets.relation.push(element);
+          }
+        });
+      }
+
+      if (nextState.rowIndex !== null) {
+        const rowCells = blockBody.querySelectorAll<HTMLElement>(`[data-row-index="${nextState.rowIndex}"]`);
+        rowCells.forEach((element) => {
+          element.classList.add(ROW_CLASS);
+          nextTargets.row.push(element);
+        });
+      }
+
+      if (nextState.cycle !== null) {
+        const cycleCells = blockBody.querySelectorAll<HTMLElement>(`[data-cycle="${nextState.cycle}"]`);
+        cycleCells.forEach((element) => {
+          element.classList.add(CYCLE_CLASS);
+          nextTargets.cycle.push(element);
+        });
+      }
+
+      hoverTargetsRef.current = nextTargets;
+    },
+    [clearHighlights],
+  );
+
   const handleMouseEnter = useCallback(
     (blockId: string, cell: SimCell) => {
       const nextState = {
@@ -203,18 +287,7 @@ export const Sh4SimPanel = () => {
       }
 
       const flush = () => {
-        setHoverState((prev) => {
-          if (
-            prev.blockId === nextState.blockId &&
-            prev.rowIndex === nextState.rowIndex &&
-            prev.cycle === nextState.cycle &&
-            prev.highlightKeys.length === nextState.highlightKeys.length &&
-            prev.highlightKeys.every((key, idx) => key === nextState.highlightKeys[idx])
-          ) {
-            return prev;
-          }
-          return nextState;
-        });
+        applyHighlights(nextState);
         hoverRafRef.current = null;
       };
 
@@ -227,7 +300,7 @@ export const Sh4SimPanel = () => {
         flush();
       }
     },
-    [hideCrosshairs],
+    [applyHighlights, hideCrosshairs],
   );
 
   const handleMouseLeave = useCallback(() => {
@@ -235,8 +308,35 @@ export const Sh4SimPanel = () => {
       window.cancelAnimationFrame(hoverRafRef.current);
       hoverRafRef.current = null;
     }
-    setHoverState({ blockId: null, rowIndex: null, cycle: null, highlightKeys: [] });
-  }, []);
+    clearHighlights();
+    hoverStateRef.current = { blockId: null, rowIndex: null, cycle: null, highlightKeys: [] };
+  }, [clearHighlights]);
+
+  const registerBlockBodyRef = useCallback(
+    (blockId: string) =>
+      (node: HTMLTableSectionElement | null) => {
+        if (node) {
+          blockBodyRefs.current.set(blockId, node);
+        } else {
+          blockBodyRefs.current.delete(blockId);
+        }
+      },
+    [],
+  );
+
+  useLayoutEffect(() => {
+    const current = hoverStateRef.current;
+    if (!current.blockId) {
+      return;
+    }
+    const adjustedState = {
+      blockId: current.blockId,
+      rowIndex: hideCrosshairs ? null : current.rowIndex,
+      cycle: hideCrosshairs ? null : current.cycle,
+      highlightKeys: current.highlightKeys,
+    };
+    applyHighlights(adjustedState);
+  }, [applyHighlights, hideCrosshairs, plainFormat, lessBorders]);
 
   const renderBlockHeader = (
     block: SimBlock,
@@ -297,10 +397,9 @@ export const Sh4SimPanel = () => {
     const isInstructionColumn = isStickyColumn(cell);
     const cellKey = getCellKey(cell);
     const baseBackground = getBaseRowColor(rowIndex, theme);
+    const relationColors = getRelationColors(plainFormat, theme);
     let backgroundColor = baseBackground;
     let color = "inherit";
-
-    const isActiveBlock = hoverState.blockId === blockId;
 
     if (cell.full) {
       const colors = getFullColors(plainFormat, theme);
@@ -312,16 +411,6 @@ export const Sh4SimPanel = () => {
       color = colors.color;
     }
 
-    const isRelationHighlighted = isActiveBlock && cell.selfKeys.some((key) => highlightKeySet.has(key));
-    if (isRelationHighlighted) {
-      const colors = getRelationColors(plainFormat, theme);
-      backgroundColor = colors.background;
-      color = colors.color;
-    }
-
-    const isRowHighlighted = isActiveBlock && effectiveRowIndex !== null && cell.rowIndex === effectiveRowIndex;
-    const isCycleHighlighted = isActiveBlock && effectiveCycle !== null && cell.cycle !== null && cell.cycle === effectiveCycle;
-
     const borders = lessBorders ? "transparent" : alpha(theme.palette.divider, 0.6);
     const highlightBorder = theme.palette.primary.main;
 
@@ -331,6 +420,10 @@ export const Sh4SimPanel = () => {
         onMouseEnter={() => handleMouseEnter(blockId, cell)}
         onMouseLeave={handleMouseLeave}
         title={cell.explanation ?? undefined}
+        data-block-id={blockId}
+        data-row-index={cell.rowIndex}
+        data-cycle={cell.cycle ?? undefined}
+        data-self-keys={cell.selfKeys.join("|") || undefined}
         sx={{
           position: isInstructionColumn ? "sticky" : "static",
           left: isInstructionColumn ? 0 : "auto",
@@ -338,7 +431,7 @@ export const Sh4SimPanel = () => {
           backgroundColor,
           color,
           border: "1px solid",
-          borderColor: isRelationHighlighted || isRowHighlighted || isCycleHighlighted ? highlightBorder : borders,
+          borderColor: borders,
           minWidth: cell.columnIndex === 0 ? 180 : 80,
           maxWidth: 200,
           px: 1.5,
@@ -356,6 +449,17 @@ export const Sh4SimPanel = () => {
           transition: "background-color 80ms ease, border-color 80ms ease, color 80ms ease",
           '&:hover': {
             boxShadow: `inset 0 0 0 1px ${alpha(theme.palette.primary.main, 0.45)}`,
+          },
+          [`&.${RELATION_CLASS}`]: {
+            backgroundColor: relationColors.background,
+            color: relationColors.color,
+            borderColor: highlightBorder,
+          },
+          [`&.${ROW_CLASS}`]: {
+            borderColor: highlightBorder,
+          },
+          [`&.${CYCLE_CLASS}`]: {
+            borderColor: highlightBorder,
           },
         }}
       >
@@ -403,7 +507,7 @@ export const Sh4SimPanel = () => {
               width: "max-content",
             }}
           >
-            <TableBody>
+            <TableBody ref={registerBlockBodyRef(block.id)}>
               {block.table.rows.map((row, rowIdx) => (
                 <TableRow key={row.rowKey} sx={{ backgroundColor: getBaseRowColor(rowIdx, theme) }}>
                   {row.cells.map((cell) => renderCell(block.id, cell, rowIdx))}
