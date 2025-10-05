@@ -60,6 +60,11 @@ export class DebuggerClient {
     return this.rpc.call("debugger.describe", { include });
   }
 
+  async fetchEmulatorInfo() {
+    const result = await this.rpc.call("debugger.describe", { include: [] });
+    return (result as { emulator?: { name?: string; version?: string; build?: string } }).emulator;
+  }
+
   async fetchRegisters(path: string) {
     return this.rpc.call("state.getRegisters", { path });
   }

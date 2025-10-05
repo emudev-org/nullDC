@@ -183,3 +183,14 @@ export const Sh4BreakpointsPanel = () => (
 export const Arm7BreakpointsPanel = () => (
   <BreakpointsView title="ARM7: Breakpoints" filter={(loc) => loc.toLowerCase().includes("arm7")} addMode="pc-arm7" />
 );
+
+export const DspBreakpointsPanel = () => (
+  <BreakpointsView
+    title="DSP: Breakpoints"
+    filter={(loc) => {
+      const lower = loc.toLowerCase();
+      return lower.includes("aica") || lower.includes("dsp");
+    }}
+    addMode="event"
+  />
+);

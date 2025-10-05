@@ -17,8 +17,9 @@ import { Sh4CallstackPanel, Arm7CallstackPanel } from "../panels/CallstackPanel"
 import { AudioPanel } from "../panels/AudioPanel";
 import { TaInspectorPanel } from "../panels/TaInspectorPanel";
 import { CoreInspectorPanel } from "../panels/CoreInspectorPanel";
-import { EventsBreakpointsPanel, Sh4BreakpointsPanel, Arm7BreakpointsPanel } from "../panels/BreakpointsPanel";
+import { EventsBreakpointsPanel, Sh4BreakpointsPanel, Arm7BreakpointsPanel, DspBreakpointsPanel } from "../panels/BreakpointsPanel";
 import { Sh4SimPanel } from "../panels/Sh4SimPanel";
+import { DspPlaygroundPanel } from "../panels/DspPlaygroundPanel";
 import { useNavigate, useParams } from "react-router-dom";
 
 const mainTabs = [
@@ -34,6 +35,8 @@ const mainTabs = [
   { value: "core", label: "CORE", component: <CoreInspectorPanel /> },
   { value: "aica", label: "AICA", component: <AudioPanel /> },
   { value: "dsp-disassembly", label: "DSP: Disassembly", component: <DspDisassemblyPanel /> },
+  { value: "dsp-breakpoints", label: "DSP: Breakpoints", component: <DspBreakpointsPanel /> },
+  { value: "dsp-playground", label: "DSP: Playground", component: <DspPlaygroundPanel /> },
   { value: "sh4-sim", label: "SH4: Sim", component: <Sh4SimPanel /> },
 ];
 
@@ -135,9 +138,26 @@ export const AppLayout = () => {
     <Box sx={{ height: "100vh", display: "flex", flexDirection: "column" }}>
       <AppBar position="static" elevation={1} color="default">
         <Toolbar sx={{ gap: 2 }}>
-          <Typography variant="h6" sx={{ flexShrink: 0 }}>
-            nullDC Debugger
-          </Typography>
+          <Stack direction="row" spacing={1.5} alignItems="center" sx={{ flexShrink: 0 }}>
+            <Typography variant="h6">nullDC Debugger</Typography>
+            <Divider orientation="vertical" flexItem />
+            <Button variant="text" color="primary" onClick={() => navigate("/")}>
+              Home
+            </Button>
+            <Button variant="text" color="primary" onClick={() => navigate("/about")}>
+              About
+            </Button>
+            <Button
+              variant="text"
+              color="primary"
+              onClick={() => {
+                setLeftPanelOpen(true);
+                setRightPanelOpen(true);
+              }}
+            >
+              Reset layout
+            </Button>
+          </Stack>
           <Box sx={{ flexGrow: 1 }} />
           <Tooltip title={`Connection: ${connectionState}`}>
             <IconButton color={connectionState === "connected" ? "primary" : "inherit"}>
@@ -308,5 +328,3 @@ export const AppLayout = () => {
     </Box>
   );
 };
-
-
