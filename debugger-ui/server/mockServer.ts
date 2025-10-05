@@ -1,7 +1,7 @@
 ﻿import express from "express";
 import { createServer as createHttpServer } from "node:http";
 import { WebSocketServer, type WebSocket } from "ws";
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { createServer as createViteServer } from "vite";
@@ -423,21 +423,26 @@ const advancePc = (value: string): string => {
   return `0x${next.toString(16).toUpperCase().padStart(8, "0")}`;
 };
 
+const sha256Byte = (input: string): number => {
+  const hash = createHash("sha256").update(input).digest();
+  return hash[0];
+};
+
 const memoryProfiles: Record<string, { defaultBase: number; wordSize: MemorySlice["wordSize"]; generator: (index: number, base: number) => number }> = {
   sh4: {
     defaultBase: 0x8c000000,
     wordSize: 4,
-    generator: (index, base) => (base + index) & 0xff,
+    generator: (index, base) => sha256Byte(`SH4:${(base + index).toString(16)}`),
   },
   arm7: {
     defaultBase: 0x00200000,
     wordSize: 4,
-    generator: (index) => (index * 3 + 0x12) & 0xff,
+    generator: (index, base) => sha256Byte(`ARM7:${(base + index).toString(16)}`),
   },
   dsp: {
     defaultBase: 0x00000000,
     wordSize: 2,
-    generator: (index) => Math.floor((Math.sin(index / 5) + 1) * 127) & 0xff,
+    generator: (index, base) => sha256Byte(`DSP:${(base + index).toString(16)}`),
   },
 };
 
