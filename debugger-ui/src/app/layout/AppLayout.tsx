@@ -112,10 +112,6 @@ export const AppLayout = () => {
           <Typography variant="h6" sx={{ flexShrink: 0 }}>
             nullDC Debugger
           </Typography>
-          <Divider orientation="vertical" flexItem />
-          <Typography variant="body2" color="text.secondary">
-            {endpoint ?? "resolving connection"}
-          </Typography>
           <Box sx={{ flexGrow: 1 }} />
           <Tooltip title={`Connection: ${connectionState}`}>
             <IconButton color={connectionState === "connected" ? "primary" : "inherit"}>
