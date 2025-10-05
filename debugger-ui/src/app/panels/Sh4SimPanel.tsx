@@ -26,6 +26,7 @@ import type { editor as MonacoEditor } from "monaco-editor";
 import { sha256FromJson } from "../../lib/sha256";
 
 const BASE_SHARE_URL = "https://sh4-sim.dreamcast.wiki";
+const SH4_SIM_SOURCE_STORAGE_KEY = "nulldc-debugger-sh4-sim-source";
 
 const encodeSource = (value: string) => {
   const bytes = deflate(new TextEncoder().encode(value));
@@ -58,6 +59,14 @@ const resolveInitialSource = () => {
       console.error("Failed to decode source parameter", error);
       return SH4_SIM_DEFAULT_SOURCE;
     }
+  }
+  try {
+    const storedSource = window.localStorage.getItem(SH4_SIM_SOURCE_STORAGE_KEY);
+    if (storedSource && storedSource !== "") {
+      return storedSource;
+    }
+  } catch (error) {
+    console.warn("Failed to read SH4 sim source from storage", error);
   }
   return SH4_SIM_DEFAULT_SOURCE;
 };
@@ -392,6 +401,17 @@ export const Sh4SimPanel = () => {
       return { blocks: [] as SimBlock[], error: message };
     }
   });
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    try {
+      window.localStorage.setItem(SH4_SIM_SOURCE_STORAGE_KEY, source);
+    } catch (error) {
+      console.warn("Failed to persist SH4 sim source", error);
+    }
+  }, [source]);
 
   useEffect(() => {
     try {
