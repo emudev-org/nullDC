@@ -13,6 +13,7 @@ const FRAME_LOG_LIMIT = 200;
 interface RegistersByPath {
   [path: string]: RegisterValue[];
 }
+
 interface DebuggerDataState {
   initialized: boolean;
   client?: DebuggerClient;
@@ -27,7 +28,6 @@ interface DebuggerDataState {
   notificationUnsub?: () => void;
   initialize: (client: DebuggerClient) => Promise<void>;
   reset: () => void;
-  refreshDeviceTree: () => Promise<void>;
   addWatch: (expression: string) => Promise<void>;
   removeWatch: (expression: string) => Promise<void>;
 }
@@ -189,14 +189,6 @@ export const useDebuggerDataStore = create<DebuggerDataState>()((set, get) => ({
       waveform: null,
       notificationUnsub: undefined,
     });
-  },
-  async refreshDeviceTree() {
-    const { client } = get();
-    if (!client) {
-      throw new Error("Debugger client not connected");
-    }
-    const devices = await client.fetchDeviceTree();
-    set({ deviceTree: devices ?? [] });
   },
   async addWatch(expression) {
     const trimmed = expression.trim();

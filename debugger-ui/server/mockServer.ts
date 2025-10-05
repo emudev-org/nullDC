@@ -37,15 +37,59 @@ interface ClientContext {
 
 const serverWatches = new Set<string>();
 
-const deviceTree: DeviceNodeDescriptor[] = [
+// Shared register values storage
+const registerValues = new Map<string, string>([
+  // SH4 Core
+  ["dc.sh4.cpu.pc", "0x8C0000A0"],
+  ["dc.sh4.cpu.pr", "0x8C0000A2"],
+  ["dc.sh4.vbr", "0x8C000000"],
+  ["dc.sh4.sr", "0x40000000"],
+  ["dc.sh4.fpscr", "0x00040001"],
+  // SH4 Caches
+  ["dc.sh4.icache.icache_ctrl", "0x00000003"],
+  ["dc.sh4.dcache.dcache_ctrl", "0x00000003"],
+  // Holly/DMAC
+  ["dc.holly.holly_id", "0x00050000"],
+  ["dc.holly.dmac_ctrl", "0x00000001"],
+  ["dc.holly.dmac.dmaor", "0x8201"],
+  ["dc.holly.dmac.chcr0", "0x00000001"],
+  // Holly/TA
+  ["dc.holly.ta.ta_list_base", "0x0C000000"],
+  ["dc.holly.ta.ta_status", "0x00000000"],
+  // Holly/CORE
+  ["dc.holly.core.pvr_ctrl", "0x00000001"],
+  ["dc.holly.core.pvr_status", "0x00010000"],
+  // AICA
+  ["dc.aica.aica_ctrl", "0x00000002"],
+  ["dc.aica.aica_status", "0x00000001"],
+  ["dc.aica.channels.ch0_vol", "0x7F"],
+  ["dc.aica.channels.ch1_vol", "0x6A"],
+  ["dc.aica.dsp.dsp_pc", "0x020"],
+  ["dc.aica.dsp.dsp_acc", "0x1F"],
+  // System
+  ["dc.sysclk", "200MHz"],
+  ["dc.asic_rev", "0x0001"],
+]);
+
+const getRegisterValue = (path: string, name: string): string => {
+  const key = `${path}.${name.toLowerCase()}`;
+  return registerValues.get(key) ?? "0x00000000";
+};
+
+const setRegisterValue = (path: string, name: string, value: string): void => {
+  const key = `${path}.${name.toLowerCase()}`;
+  registerValues.set(key, value);
+};
+
+const buildDeviceTree = (): DeviceNodeDescriptor[] => [
   {
     path: "dc",
     label: "Dreamcast",
     kind: "bus",
     description: "Sega Dreamcast system bus",
     registers: [
-      { name: "SYSCLK", value: "200MHz", width: 0 },
-      { name: "ASIC_REV", value: "0x0001", width: 16 },
+      { name: "SYSCLK", value: getRegisterValue("dc", "SYSCLK"), width: 0 },
+      { name: "ASIC_REV", value: getRegisterValue("dc", "ASIC_REV"), width: 16 },
     ],
     children: [
       {
@@ -54,9 +98,9 @@ const deviceTree: DeviceNodeDescriptor[] = [
         kind: "processor",
         description: "Hitachi SH-4 main CPU",
         registers: [
-          { name: "VBR", value: "0x8C000000", width: 32 },
-          { name: "SR", value: "0x40000000", width: 32 },
-          { name: "FPSCR", value: "0x00040001", width: 32 },
+          { name: "VBR", value: getRegisterValue("dc.sh4", "VBR"), width: 32 },
+          { name: "SR", value: getRegisterValue("dc.sh4", "SR"), width: 32 },
+          { name: "FPSCR", value: getRegisterValue("dc.sh4", "FPSCR"), width: 32 },
         ],
         children: [
           {
@@ -65,8 +109,8 @@ const deviceTree: DeviceNodeDescriptor[] = [
             kind: "processor",
             description: "Integer pipeline",
             registers: [
-              { name: "PC", value: "0x8C0000A0", width: 32 },
-              { name: "PR", value: "0x8C0000A2", width: 32 },
+              { name: "PC", value: getRegisterValue("dc.sh4.cpu", "PC"), width: 32 },
+              { name: "PR", value: getRegisterValue("dc.sh4.cpu", "PR"), width: 32 },
             ],
           },
           {
@@ -76,7 +120,7 @@ const deviceTree: DeviceNodeDescriptor[] = [
             description: "Instruction cache",
             registers: [
               { name: "ICRAM", value: "16KB", width: 0 },
-              { name: "ICACHE_CTRL", value: "0x00000003", width: 32 },
+              { name: "ICACHE_CTRL", value: getRegisterValue("dc.sh4.icache", "ICACHE_CTRL"), width: 32 },
             ],
           },
           {
@@ -86,7 +130,7 @@ const deviceTree: DeviceNodeDescriptor[] = [
             description: "Data cache",
             registers: [
               { name: "DCRAM", value: "8KB", width: 0 },
-              { name: "DCACHE_CTRL", value: "0x00000003", width: 32 },
+              { name: "DCACHE_CTRL", value: getRegisterValue("dc.sh4.dcache", "DCACHE_CTRL"), width: 32 },
             ],
           },
           {
@@ -107,8 +151,8 @@ const deviceTree: DeviceNodeDescriptor[] = [
         kind: "peripheral",
         description: "System ASIC",
         registers: [
-          { name: "HOLLY_ID", value: "0x00050000", width: 32 },
-          { name: "DMAC_CTRL", value: "0x00000001", width: 32 },
+          { name: "HOLLY_ID", value: getRegisterValue("dc.holly", "HOLLY_ID"), width: 32 },
+          { name: "DMAC_CTRL", value: getRegisterValue("dc.holly", "DMAC_CTRL"), width: 32 },
         ],
         children: [
           {
@@ -116,8 +160,8 @@ const deviceTree: DeviceNodeDescriptor[] = [
             label: "DMA Controller",
             kind: "peripheral",
             registers: [
-              { name: "DMAOR", value: "0x8201", width: 16 },
-              { name: "CHCR0", value: "0x00000001", width: 32 },
+              { name: "DMAOR", value: getRegisterValue("dc.holly.dmac", "DMAOR"), width: 16 },
+              { name: "CHCR0", value: getRegisterValue("dc.holly.dmac", "CHCR0"), width: 32 },
             ],
           },
           {
@@ -125,8 +169,8 @@ const deviceTree: DeviceNodeDescriptor[] = [
             label: "TA",
             kind: "pipeline",
             registers: [
-              { name: "TA_LIST_BASE", value: "0x0C000000", width: 32 },
-              { name: "TA_STATUS", value: "0x00000000", width: 32 },
+              { name: "TA_LIST_BASE", value: getRegisterValue("dc.holly.ta", "TA_LIST_BASE"), width: 32 },
+              { name: "TA_STATUS", value: getRegisterValue("dc.holly.ta", "TA_STATUS"), width: 32 },
             ],
           },
           {
@@ -134,8 +178,8 @@ const deviceTree: DeviceNodeDescriptor[] = [
             label: "CORE",
             kind: "pipeline",
             registers: [
-              { name: "PVR_CTRL", value: "0x00000001", width: 32 },
-              { name: "PVR_STATUS", value: "0x00010000", width: 32 },
+              { name: "PVR_CTRL", value: getRegisterValue("dc.holly.core", "PVR_CTRL"), width: 32 },
+              { name: "PVR_STATUS", value: getRegisterValue("dc.holly.core", "PVR_STATUS"), width: 32 },
             ],
           },
         ],
@@ -146,8 +190,8 @@ const deviceTree: DeviceNodeDescriptor[] = [
         kind: "coprocessor",
         description: "Sound processor",
         registers: [
-          { name: "AICA_CTRL", value: "0x00000002", width: 32 },
-          { name: "AICA_STATUS", value: "0x00000001", width: 32 },
+          { name: "AICA_CTRL", value: getRegisterValue("dc.aica", "AICA_CTRL"), width: 32 },
+          { name: "AICA_STATUS", value: getRegisterValue("dc.aica", "AICA_STATUS"), width: 32 },
         ],
         children: [
           {
@@ -155,8 +199,8 @@ const deviceTree: DeviceNodeDescriptor[] = [
             label: "Channels",
             kind: "channel",
             registers: [
-              { name: "CH0_VOL", value: "0x7F", width: 8 },
-              { name: "CH1_VOL", value: "0x6A", width: 8 },
+              { name: "CH0_VOL", value: getRegisterValue("dc.aica.channels", "CH0_VOL"), width: 8 },
+              { name: "CH1_VOL", value: getRegisterValue("dc.aica.channels", "CH1_VOL"), width: 8 },
             ],
           },
           {
@@ -164,8 +208,8 @@ const deviceTree: DeviceNodeDescriptor[] = [
             label: "DSP",
             kind: "coprocessor",
             registers: [
-              { name: "DSP_PC", value: "0x020", width: 16 },
-              { name: "DSP_ACC", value: "0x1F", width: 16 },
+              { name: "DSP_PC", value: getRegisterValue("dc.aica.dsp", "DSP_PC"), width: 16 },
+              { name: "DSP_ACC", value: getRegisterValue("dc.aica.dsp", "DSP_ACC"), width: 16 },
             ],
           },
         ],
@@ -455,7 +499,7 @@ const dispatchMethod = async (
     case "debugger.describe":
       return {
         emulator: { name: "nullDC", version: "dev", build: "native" as const },
-        devices: deviceTree,
+        devices: buildDeviceTree(),
         breakpoints: sampleBreakpoints,
         threads: sampleThreads,
       };
@@ -623,18 +667,59 @@ const buildWaveform = (channelId: string, window: number): WaveformChunk => {
   };
 };
 
+const collectRegistersFromTree = (tree: DeviceNodeDescriptor[]): Array<{ path: string; registers: RegisterValue[] }> => {
+  const result: Array<{ path: string; registers: RegisterValue[] }> = [];
+  for (const node of tree) {
+    if (node.registers && node.registers.length > 0) {
+      result.push({ path: node.path, registers: node.registers });
+    }
+    if (node.children) {
+      result.push(...collectRegistersFromTree(node.children));
+    }
+  }
+  return result;
+};
+
 const broadcastTick = () => {
+  // Mutate some register values to simulate execution
+  const pcValue = registerValues.get("dc.sh4.cpu.pc");
+  if (pcValue && pcValue.startsWith("0x")) {
+    const pc = Number.parseInt(pcValue, 16);
+    setRegisterValue("dc.sh4.cpu", "PC", `0x${(pc + 2).toString(16).toUpperCase().padStart(8, "0")}`);
+  }
+
+  const prValue = registerValues.get("dc.sh4.cpu.pr");
+  if (prValue && prValue.startsWith("0x")) {
+    const pr = Number.parseInt(prValue, 16);
+    setRegisterValue("dc.sh4.cpu", "PR", `0x${(pr + 2).toString(16).toUpperCase().padStart(8, "0")}`);
+  }
+
+  // Mutate some AICA values
+  const ch0Vol = registerValues.get("dc.aica.channels.ch0_vol");
+  if (ch0Vol && ch0Vol.startsWith("0x")) {
+    const vol = Number.parseInt(ch0Vol, 16);
+    setRegisterValue("dc.aica.channels", "CH0_VOL", `0x${((vol + 1) & 0xFF).toString(16).toUpperCase().padStart(2, "0")}`);
+  }
+
   const event = createFrameEvent();
   frameLogEntries.push(event);
   if (frameLogEntries.length > FRAME_LOG_LIMIT) {
     frameLogEntries.splice(0, frameLogEntries.length - FRAME_LOG_LIMIT);
   }
+
+  // Get current device tree with live values
+  const deviceTree = buildDeviceTree();
+  const allRegisters = collectRegistersFromTree(deviceTree);
+
   for (const client of clients) {
     if (client.topics.has("state.registers")) {
-      sendNotification(client, {
-        topic: "state.registers",
-        payload: { path: "dc.sh4.cpu", registers: mutateRegisters(baseRegisters) },
-      });
+      // Send register updates for all paths in device tree
+      for (const { path, registers } of allRegisters) {
+        sendNotification(client, {
+          topic: "state.registers",
+          payload: { path, registers },
+        });
+      }
     }
 
     if (client.topics.has("stream.frameLog")) {
@@ -650,11 +735,12 @@ const broadcastTick = () => {
       });
     }
 
-    if (client.watches.size > 0) {
-      for (const expression of client.watches) {
+    if (serverWatches.size > 0) {
+      for (const expression of serverWatches) {
+        const value = registerValues.get(expression) ?? "0x00000000";
         sendNotification(client, {
           topic: "state.watch",
-          payload: { expression, value: Math.floor(Math.random() * 0xffff) },
+          payload: { expression, value },
         });
       }
     }
