@@ -1,5 +1,5 @@
 import { Panel } from "../layout/Panel";
-import { Box, Button, Chip, IconButton, List, ListItem, ListItemText, Stack, Switch, TextField, Tooltip, Typography } from "@mui/material";
+import { Autocomplete, Box, Button, Chip, IconButton, List, ListItem, ListItemText, Stack, Switch, TextField, Tooltip, Typography } from "@mui/material";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import AddIcon from "@mui/icons-material/Add";
 import { useDebuggerDataStore } from "../../state/debuggerDataStore";
@@ -14,6 +14,7 @@ interface BreakpointsViewProps {
 
 const BreakpointsView = ({ title, filter, addMode }: BreakpointsViewProps) => {
   const breakpoints = useDebuggerDataStore((state) => state.breakpoints);
+  const availableEvents = useDebuggerDataStore((state) => state.availableEvents);
   const removeBreakpoint = useDebuggerDataStore((state) => state.removeBreakpoint);
   const addBreakpoint = useDebuggerDataStore((state) => state.addBreakpoint);
   const toggleBreakpoint = useDebuggerDataStore((state) => state.toggleBreakpoint);
@@ -72,20 +73,45 @@ const BreakpointsView = ({ title, filter, addMode }: BreakpointsViewProps) => {
     <Panel title={title}>
       <Box sx={{ p: 1.5, borderBottom: "1px solid", borderColor: "divider" }}>
         <Stack direction="row" spacing={1}>
-          <TextField
-            size="small"
-            fullWidth
-            placeholder={placeholder}
-            value={newBreakpoint}
-            onChange={(e) => setNewBreakpoint(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                void handleAdd();
-              }
-            }}
-            sx={{ "& .MuiOutlinedInput-root": { fontSize: "0.875rem", fontFamily: "monospace" } }}
-          />
+          {addMode === "event" ? (
+            <Autocomplete
+              size="small"
+              fullWidth
+              freeSolo
+              options={availableEvents}
+              value={newBreakpoint}
+              onChange={(_, newValue) => setNewBreakpoint(newValue ?? "")}
+              onInputChange={(_, newValue) => setNewBreakpoint(newValue)}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  placeholder={placeholder}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void handleAdd();
+                    }
+                  }}
+                  sx={{ "& .MuiOutlinedInput-root": { fontSize: "0.875rem", fontFamily: "monospace" } }}
+                />
+              )}
+            />
+          ) : (
+            <TextField
+              size="small"
+              fullWidth
+              placeholder={placeholder}
+              value={newBreakpoint}
+              onChange={(e) => setNewBreakpoint(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void handleAdd();
+                }
+              }}
+              sx={{ "& .MuiOutlinedInput-root": { fontSize: "0.875rem", fontFamily: "monospace" } }}
+            />
+          )}
           <Button
             size="small"
             variant="contained"

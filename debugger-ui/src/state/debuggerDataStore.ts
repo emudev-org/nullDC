@@ -19,6 +19,7 @@ interface DebuggerDataState {
   client?: DebuggerClient;
   deviceTree: DeviceNodeDescriptor[];
   registersByPath: RegistersByPath;
+  availableEvents: string[];
   watchExpressions: string[];
   watchValues: Record<string, unknown>;
   breakpoints: BreakpointDescriptor[];
@@ -34,10 +35,25 @@ interface DebuggerDataState {
   removeBreakpoint: (id: string) => Promise<void>;
   toggleBreakpoint: (id: string, enabled: boolean) => Promise<void>;
 }
+// Helper function to collect all events from device tree
+const collectEventsFromTree = (nodes: DeviceNodeDescriptor[]): string[] => {
+  const events: string[] = [];
+  for (const node of nodes) {
+    if (node.events) {
+      events.push(...node.events);
+    }
+    if (node.children) {
+      events.push(...collectEventsFromTree(node.children));
+    }
+  }
+  return events;
+};
+
 export const useDebuggerDataStore = create<DebuggerDataState>()((set, get) => ({
   initialized: false,
   deviceTree: [],
   registersByPath: {},
+  availableEvents: [],
   watchExpressions: [],
   watchValues: {},
   breakpoints: [],
@@ -57,8 +73,11 @@ export const useDebuggerDataStore = create<DebuggerDataState>()((set, get) => ({
     });
     try {
       const describe = await client.describe(["devices", "breakpoints", "threads"]);
+      const devices = describe.devices ?? [];
+      const events = collectEventsFromTree(devices);
       set({
-        deviceTree: describe.devices ?? [],
+        deviceTree: devices,
+        availableEvents: events,
         breakpoints: describe.breakpoints ?? [],
         threads: describe.threads ?? [],
       });
@@ -184,6 +203,7 @@ export const useDebuggerDataStore = create<DebuggerDataState>()((set, get) => ({
       client: undefined,
       deviceTree: [],
       registersByPath: {},
+      availableEvents: [],
       watchExpressions: [],
       watchValues: {},
       breakpoints: [],

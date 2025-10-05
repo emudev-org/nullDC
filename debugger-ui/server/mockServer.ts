@@ -103,6 +103,11 @@ const buildDeviceTree = (): DeviceNodeDescriptor[] => [
           { name: "SR", value: getRegisterValue("dc.sh4", "SR"), width: 32 },
           { name: "FPSCR", value: getRegisterValue("dc.sh4", "FPSCR"), width: 32 },
         ],
+        events: [
+          "dc.sh4.interrupt",
+          "dc.sh4.exception",
+          "dc.sh4.tlb_miss",
+        ],
         children: [
           {
             path: "dc.sh4.cpu",
@@ -164,6 +169,10 @@ const buildDeviceTree = (): DeviceNodeDescriptor[] => [
               { name: "DMAOR", value: getRegisterValue("dc.holly.dmac", "DMAOR"), width: 16 },
               { name: "CHCR0", value: getRegisterValue("dc.holly.dmac", "CHCR0"), width: 32 },
             ],
+            events: [
+              "dc.holly.dmac.transfer_start",
+              "dc.holly.dmac.transfer_end",
+            ],
           },
           {
             path: "dc.holly.ta",
@@ -173,6 +182,12 @@ const buildDeviceTree = (): DeviceNodeDescriptor[] => [
               { name: "TA_LIST_BASE", value: getRegisterValue("dc.holly.ta", "TA_LIST_BASE"), width: 32 },
               { name: "TA_STATUS", value: getRegisterValue("dc.holly.ta", "TA_STATUS"), width: 32 },
             ],
+            events: [
+              "dc.holly.ta.list_init",
+              "dc.holly.ta.list_end",
+              "dc.holly.ta.opaque_complete",
+              "dc.holly.ta.translucent_complete",
+            ],
           },
           {
             path: "dc.holly.core",
@@ -181,6 +196,11 @@ const buildDeviceTree = (): DeviceNodeDescriptor[] => [
             registers: [
               { name: "PVR_CTRL", value: getRegisterValue("dc.holly.core", "PVR_CTRL"), width: 32 },
               { name: "PVR_STATUS", value: getRegisterValue("dc.holly.core", "PVR_STATUS"), width: 32 },
+            ],
+            events: [
+              "dc.holly.core.render_start",
+              "dc.holly.core.render_end",
+              "dc.holly.core.vblank",
             ],
           },
         ],
@@ -194,6 +214,10 @@ const buildDeviceTree = (): DeviceNodeDescriptor[] => [
           { name: "AICA_CTRL", value: getRegisterValue("dc.aica", "AICA_CTRL"), width: 32 },
           { name: "AICA_STATUS", value: getRegisterValue("dc.aica", "AICA_STATUS"), width: 32 },
         ],
+        events: [
+          "dc.aica.interrupt",
+          "dc.aica.timer",
+        ],
         children: [
           {
             path: "dc.aica.channels",
@@ -203,6 +227,11 @@ const buildDeviceTree = (): DeviceNodeDescriptor[] => [
               { name: "CH0_VOL", value: getRegisterValue("dc.aica.channels", "CH0_VOL"), width: 8 },
               { name: "CH1_VOL", value: getRegisterValue("dc.aica.channels", "CH1_VOL"), width: 8 },
             ],
+            events: [
+              "dc.aica.channels.key_on",
+              "dc.aica.channels.key_off",
+              "dc.aica.channels.loop",
+            ],
           },
           {
             path: "dc.aica.dsp",
@@ -211,6 +240,9 @@ const buildDeviceTree = (): DeviceNodeDescriptor[] => [
             registers: [
               { name: "DSP_PC", value: getRegisterValue("dc.aica.dsp", "DSP_PC"), width: 16 },
               { name: "DSP_ACC", value: getRegisterValue("dc.aica.dsp", "DSP_ACC"), width: 16 },
+            ],
+            events: [
+              "dc.aica.dsp.step",
             ],
           },
         ],

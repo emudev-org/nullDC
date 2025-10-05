@@ -16,6 +16,7 @@ export interface DeviceNodeDescriptor {
   kind: DeviceKind;
   description?: string;
   registers?: RegisterValue[];
+  events?: string[];
   children?: DeviceNodeDescriptor[];
 }
 
