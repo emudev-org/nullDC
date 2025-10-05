@@ -22,8 +22,7 @@ const readInitialMode = (): PaletteMode => {
   if (stored === "light" || stored === "dark") {
     return stored;
   }
-  const prefersDark = window.matchMedia?.("(prefers-color-scheme: dark)").matches;
-  return prefersDark ? "dark" : "light";
+  return "dark";
 };
 
 export const ThemeModeProvider = ({ children }: { children: ReactNode }) => {
