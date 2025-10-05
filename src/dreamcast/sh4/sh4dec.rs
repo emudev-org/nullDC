@@ -1435,17 +1435,17 @@ pub fn format_disas(state:SH4DecoderState, opcode: u16) -> String {
     }
     if out.contains("<simm8hex>") {
         let imm = (opcode & 0xFF) as i8;
-        out = out.replace("<simm8hex>", &format!("{:#x}", imm));
+        out = out.replace("<simm8hex>", &format!("{:#x}", imm as i32));
     }
 
     // ---------------- Displacements ----------------
     if out.contains("<bdisp8>") {
         let disp = ((opcode & 0xFF) as i8 as i32) << 1;
-        out = out.replace("<bdisp8>", &format!("{:#x}", disp));
+        out = out.replace("<bdisp8>", &format!("{:#x}", state.pc.wrapping_add(disp as u32)));
     }
     if out.contains("<bdisp12>") {
         let disp = ((opcode & 0x0FFF) as i16 as i32) << 1;
-        out = out.replace("<bdisp12>", &format!("{:#x}", disp));
+        out = out.replace("<bdisp12>", &format!("{:#x}", state.pc.wrapping_add(disp as u32)));
     }
 
     // 4-bit disps
@@ -1479,25 +1479,25 @@ pub fn format_disas(state:SH4DecoderState, opcode: u16) -> String {
     // PC relative
     if out.contains("<PCdisp8d>") {
         let d = (opcode & 0xFF) << 2;
-        out = out.replace("<PCdisp8d>", &format!("{:#x}", d));
+        out = out.replace("<PCdisp8d>", &format!("{:#x}", state.pc.wrapping_add(d as u32)));
     }
     if out.contains("<PCdisp8w>") {
         let d = (opcode & 0xFF) << 1;
-        out = out.replace("<PCdisp8w>", &format!("{:#x}", d));
+        out = out.replace("<PCdisp8w>", &format!("{:#x}", state.pc.wrapping_add(d as u32)));
     }
 
     // GBR disps
     if out.contains("<GBRdisp8b>") {
         let d = opcode & 0xFF;
-        out = out.replace("<GBRdisp8b>", &format!("{:#x}", d));
+        out = out.replace("<GBRdisp8b>", &format!("GBR + {:#x}", d));
     }
     if out.contains("<GBRdisp8w>") {
         let d = (opcode & 0xFF) << 1;
-        out = out.replace("<GBRdisp8w>", &format!("{:#x}", d));
+        out = out.replace("<GBRdisp8w>", &format!("GBR + {:#x}", d));
     }
     if out.contains("<GBRdisp8dw>") {
         let d = (opcode & 0xFF) << 2;
-        out = out.replace("<GBRdisp8dw>", &format!("{:#x}", d));
+        out = out.replace("<GBRdisp8dw>", &format!("GBR + {:#x}", d));
     }
 
     // ---------------- Floating-point regs ----------------
