@@ -238,14 +238,19 @@ export const Sh4SimPanel = () => {
     setHoverState({ blockId: null, rowIndex: null, cycle: null, highlightKeys: [] });
   }, []);
 
-  const renderBlockHeader = (block: SimBlock, index: number) => {
+  const renderBlockHeader = (
+    block: SimBlock,
+    index: number,
+    displayTitle: string,
+    showCycleLabel: boolean,
+  ) => {
     const blockId = block.id;
     const shareTarget = blockId;
     const copied = copiedTarget === shareTarget;
     return (
       <Stack direction="row" alignItems="center" spacing={1} sx={{ mt: index === 0 ? 0 : 2 }}>
         <Typography variant="h6" id={blockId} sx={{ fontFamily: "monospace" }}>
-          {block.title ?? `Fragment ${index + 1}`}
+          {displayTitle}
         </Typography>
         <Tooltip title={copied ? "Copied!" : "Copy link"} open={copied} arrow disableHoverListener>
           <span>
@@ -254,15 +259,17 @@ export const Sh4SimPanel = () => {
             </IconButton>
           </span>
         </Tooltip>
-        <Typography variant="caption" color="text.secondary">
-          {formatCycleLabel(block)}
-        </Typography>
+        {showCycleLabel && (
+          <Typography variant="caption" color="text.secondary">
+            {formatCycleLabel(block)}
+          </Typography>
+        )}
       </Stack>
     );
   };
 
-  const renderBlockSubtitle = (block: SimBlock) => {
-    if (!block.subtitle) {
+  const renderBlockSubtitle = (block: SimBlock, displayTitle: string) => {
+    if (!block.subtitle || block.subtitle === displayTitle) {
       return null;
     }
     const shareTarget = `${block.id}-subtitle`;
@@ -279,6 +286,9 @@ export const Sh4SimPanel = () => {
             </IconButton>
           </span>
         </Tooltip>
+        <Typography variant="caption" color="text.secondary">
+          {formatCycleLabel(block)}
+        </Typography>
       </Stack>
     );
   };
@@ -363,10 +373,13 @@ export const Sh4SimPanel = () => {
   };
 
   const renderBlock = (block: SimBlock, index: number) => {
+    const displayTitle = block.title ?? `Fragment ${index + 1}`;
+    const showCycleOnHeader = !block.subtitle;
+    const showGeneratedHeader = Boolean(block.title) || !block.subtitle;
     return (
       <Box key={block.id} sx={{ display: "flex", flexDirection: "column", gap: 1, minWidth: 0 }}>
-        {renderBlockHeader(block, index)}
-        {renderBlockSubtitle(block)}
+        {showGeneratedHeader && renderBlockHeader(block, index, displayTitle, showCycleOnHeader)}
+        {renderBlockSubtitle(block, displayTitle)}
         <TableContainer
           component={Box}
           sx={{
