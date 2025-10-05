@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Box,
   Button,
@@ -19,10 +19,11 @@ import type { Theme } from "@mui/material/styles";
 import { Panel } from "../layout/Panel";
 import { SH4_SIM_DEFAULT_SOURCE } from "../sh4Sim/defaultSource";
 import { getAssembleError, simulate, SH4_MNEMONICS, SH4_REGISTERS } from "../sh4Sim/sim";
-import type { SimBlock, SimCell, SimulateResult } from "../sh4Sim/sim";
+import type { SimBlock, SimCell, SimRow, SimulateResult } from "../sh4Sim/sim";
 import Editor from "@monaco-editor/react";
 import type { Monaco } from "@monaco-editor/react";
 import type { editor as MonacoEditor } from "monaco-editor";
+import { sha256FromJson } from "../../lib/sha256";
 
 const BASE_SHARE_URL = "https://sh4-sim.dreamcast.wiki";
 
@@ -95,6 +96,269 @@ const buildShareUrl = (token: string | null, hash?: string | null) => {
 
 const formatCycleLabel = (block: SimBlock) => `${block.cycleCount} cycles`;
 
+type SimCellWithHash = {
+  cell: SimCell;
+  cellHash: string;
+};
+
+type SimRowWithCells = {
+  row: SimRow;
+  cells: SimCellWithHash[];
+};
+
+type SimBlockRenderEntry = {
+  block: SimBlock;
+  index: number;
+  blockHash: string;
+  tableHash: string;
+  rows: SimRowWithCells[];
+};
+
+type Sh4SimCellProps = {
+  blockId: string;
+  cellEntry: SimCellWithHash;
+  rowBackground: string;
+  plainFormat: boolean;
+  lessBorders: boolean;
+  onMouseEnter: (blockId: string, cell: SimCell) => void;
+  onMouseLeave: () => void;
+};
+
+const Sh4SimCell = memo<Sh4SimCellProps>(
+  ({
+    blockId,
+    cellEntry,
+    rowBackground,
+    plainFormat,
+    lessBorders,
+    onMouseEnter,
+    onMouseLeave,
+  }) => {
+    const theme = useTheme<Theme>();
+    const { cell } = cellEntry;
+    const isInstructionColumn = isStickyColumn(cell);
+    const relationColors = getRelationColors(plainFormat, theme);
+
+    let backgroundColor = rowBackground;
+    let color = "inherit";
+
+    if (cell.full) {
+      const colors = getFullColors(plainFormat, theme);
+      backgroundColor = colors.background;
+      color = colors.color;
+    } else if (cell.stall) {
+      const colors = getStallColors(plainFormat, theme);
+      backgroundColor = colors.background;
+      color = colors.color;
+    }
+
+    const borders = lessBorders ? "transparent" : alpha(theme.palette.divider, 0.6);
+    const highlightBorder = theme.palette.primary.main;
+
+    return (
+      <TableCell
+        onMouseEnter={() => onMouseEnter(blockId, cell)}
+        onMouseLeave={onMouseLeave}
+        title={cell.explanation ?? undefined}
+        data-block-id={blockId}
+        data-row-index={cell.rowIndex}
+        data-cycle={cell.cycle ?? undefined}
+        data-self-keys={cell.selfKeys.join("|") || undefined}
+        sx={{
+          position: isInstructionColumn ? "sticky" : "static",
+          left: isInstructionColumn ? 0 : "auto",
+          zIndex: isInstructionColumn ? 2 : 1,
+          backgroundColor,
+          color,
+          border: "1px solid",
+          borderColor: borders,
+          minWidth: cell.columnIndex === 0 ? 180 : 80,
+          maxWidth: 200,
+          px: 1.5,
+          py: 0.75,
+          fontFamily: "monospace",
+          fontSize: 13,
+          whiteSpace: "nowrap",
+          cursor: "pointer",
+          textAlign: cell.columnIndex === 0 ? "left" : "center",
+          fontWeight: cell.rowIndex === 0 ? 600 : 400,
+          outline: cell.lock ? `2px solid ${alpha(theme.palette.warning.dark, 0.75)}` : "none",
+          outlineOffset: cell.lock ? -2 : 0,
+          opacity: cell.screenHidden ? 0 : 1,
+          userSelect: "none",
+          transition: "background-color 80ms ease, border-color 80ms ease, color 80ms ease",
+          '&:hover': {
+            boxShadow: `inset 0 0 0 1px ${alpha(theme.palette.primary.main, 0.45)}`,
+          },
+          [`&.${RELATION_CLASS}`]: {
+            backgroundColor: relationColors.background,
+            color: relationColors.color,
+            borderColor: highlightBorder,
+          },
+          [`&.${ROW_CLASS}`]: {
+            borderColor: highlightBorder,
+          },
+          [`&.${CYCLE_CLASS}`]: {
+            borderColor: highlightBorder,
+          },
+        }}
+      >
+        <Box
+          component="span"
+          sx={{
+            visibility: cell.screenHiddenText ? "hidden" : "visible",
+            pointerEvents: "none",
+          }}
+        >
+          {cell.text}
+        </Box>
+      </TableCell>
+    );
+  },
+  (prev, next) =>
+    prev.cellEntry.cellHash === next.cellEntry.cellHash &&
+    prev.plainFormat === next.plainFormat &&
+    prev.lessBorders === next.lessBorders &&
+    prev.blockId === next.blockId &&
+    prev.rowBackground === next.rowBackground &&
+    prev.onMouseEnter === next.onMouseEnter &&
+    prev.onMouseLeave === next.onMouseLeave,
+);
+
+type Sh4SimBlockProps = {
+  entry: SimBlockRenderEntry;
+  plainFormat: boolean;
+  lessBorders: boolean;
+  shareEnabled: boolean;
+  headerCopied: boolean;
+  subtitleCopied: boolean;
+  onMouseEnter: (blockId: string, cell: SimCell) => void;
+  onMouseLeave: () => void;
+  registerBlockBodyRef: (blockId: string) => (node: HTMLTableSectionElement | null) => void;
+  handleCopyShare: (hash: string | null) => Promise<void> | void;
+};
+
+const Sh4SimBlock = memo<Sh4SimBlockProps>(
+  ({
+    entry,
+    plainFormat,
+    lessBorders,
+    shareEnabled,
+    headerCopied,
+    subtitleCopied,
+    onMouseEnter,
+    onMouseLeave,
+    registerBlockBodyRef,
+    handleCopyShare,
+  }) => {
+    const theme = useTheme<Theme>();
+    const { block, index, rows } = entry;
+    const displayTitle = block.title ?? `Fragment ${index + 1}`;
+    const showCycleOnHeader = !block.subtitle;
+    const showGeneratedHeader = Boolean(block.title) || !block.subtitle;
+    const tableBodyRef = useMemo(() => registerBlockBodyRef(block.id), [registerBlockBodyRef, block.id]);
+
+    return (
+      <Box sx={{ display: "flex", flexDirection: "column", gap: 1, minWidth: 0 }}>
+        {showGeneratedHeader && (
+          <Stack direction="row" alignItems="center" spacing={1} sx={{ mt: index === 0 ? 0 : 2 }}>
+            <Typography variant="h6" id={block.id} sx={{ fontFamily: "monospace" }}>
+              {displayTitle}
+            </Typography>
+            <Tooltip title={headerCopied ? "Copied!" : "Copy link"} open={headerCopied} arrow disableHoverListener>
+              <span>
+                <IconButton size="small" onClick={() => handleCopyShare(block.id)} disabled={!shareEnabled}>
+                  <ContentCopyIcon fontSize="inherit" />
+                </IconButton>
+              </span>
+            </Tooltip>
+            {showCycleOnHeader && (
+              <Typography variant="caption" color="text.secondary">
+                {formatCycleLabel(block)}
+              </Typography>
+            )}
+          </Stack>
+        )}
+        {block.subtitle && block.subtitle !== displayTitle && (
+          <Stack direction="row" alignItems="center" spacing={1} sx={{ ml: 1 }}>
+            <Typography variant="subtitle1" id={`${block.id}-subtitle`} sx={{ fontFamily: "monospace" }}>
+              {block.subtitle}
+            </Typography>
+            <Tooltip title={subtitleCopied ? "Copied!" : "Copy link"} open={subtitleCopied} arrow disableHoverListener>
+              <span>
+                <IconButton size="small" onClick={() => handleCopyShare(`${block.id}-subtitle`)} disabled={!shareEnabled}>
+                  <ContentCopyIcon fontSize="inherit" />
+                </IconButton>
+              </span>
+            </Tooltip>
+            <Typography variant="caption" color="text.secondary">
+              {formatCycleLabel(block)}
+            </Typography>
+          </Stack>
+        )}
+        <TableContainer
+          component={Box}
+          sx={{
+            width: "100%",
+            maxWidth: "100%",
+            minWidth: 0,
+            overflowX: "auto",
+            overflowY: "auto",
+            maxHeight: 480,
+            border: "1px solid",
+            borderColor: "divider",
+            borderRadius: 1,
+          }}
+        >
+          <Table
+            size="small"
+            sx={{
+              borderCollapse: "separate",
+              borderSpacing: 0,
+              minWidth: block.table.columnCount * 80,
+              width: "max-content",
+            }}
+          >
+            <TableBody ref={tableBodyRef}>
+              {rows.map((rowEntry, rowIdx) => {
+                const rowBackground = getBaseRowColor(rowIdx, theme);
+                return (
+                  <TableRow key={rowEntry.row.rowKey} sx={{ backgroundColor: rowBackground }}>
+                    {rowEntry.cells.map((cellEntry) => (
+                      <Sh4SimCell
+                        key={getCellKey(cellEntry.cell)}
+                        blockId={block.id}
+                        cellEntry={cellEntry}
+                        rowBackground={rowBackground}
+                        plainFormat={plainFormat}
+                        lessBorders={lessBorders}
+                        onMouseEnter={onMouseEnter}
+                        onMouseLeave={onMouseLeave}
+                      />
+                    ))}
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </Box>
+    );
+  },
+  (prev, next) =>
+    prev.entry.blockHash === next.entry.blockHash &&
+    prev.entry.tableHash === next.entry.tableHash &&
+    prev.plainFormat === next.plainFormat &&
+    prev.lessBorders === next.lessBorders &&
+    prev.shareEnabled === next.shareEnabled &&
+    prev.headerCopied === next.headerCopied &&
+    prev.subtitleCopied === next.subtitleCopied &&
+    prev.onMouseEnter === next.onMouseEnter &&
+    prev.onMouseLeave === next.onMouseLeave &&
+    prev.registerBlockBodyRef === next.registerBlockBodyRef &&
+    prev.handleCopyShare === next.handleCopyShare,
+);
+
 export const Sh4SimPanel = () => {
   const theme = useTheme<Theme>();
   const [source, setSource] = useState(resolveInitialSource);
@@ -120,14 +384,50 @@ export const Sh4SimPanel = () => {
   }>({ relation: [], row: [], cycle: [] });
   const blockBodyRefs = useRef(new Map<string, HTMLTableSectionElement>());
 
-  const simulation = useMemo<SimulateResult>(() => {
+  const [simulation, setSimulation] = useState<SimulateResult>(() => {
     try {
       return simulate(source);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Simulation failed.";
       return { blocks: [] as SimBlock[], error: message };
     }
+  });
+
+  useEffect(() => {
+    try {
+      const result = simulate(source);
+      if (result.error) {
+        const message = result.error ?? getAssembleError() ?? "Simulation failed.";
+        setSimulation((prev) => ({ blocks: prev.blocks, error: message }));
+      } else {
+        setSimulation({ blocks: result.blocks, error: null });
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Simulation failed.";
+      setSimulation((prev) => ({ blocks: prev.blocks, error: message }));
+    }
   }, [source]);
+
+  const blockEntries = useMemo<SimBlockRenderEntry[]>(() => {
+    return simulation.blocks.map((block, index) => {
+      const tableHash = sha256FromJson(block.table);
+      const rows = block.table.rows.map((row) => ({
+        row,
+        cells: row.cells.map((cell) => ({
+          cell,
+          cellHash: sha256FromJson(cell),
+        })),
+      }));
+      const blockHash = sha256FromJson({
+        id: block.id,
+        title: block.title,
+        subtitle: block.subtitle,
+        cycleCount: block.cycleCount,
+        tableHash,
+      });
+      return { block, index, blockHash, tableHash, rows };
+    });
+  }, [simulation]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -338,188 +638,7 @@ export const Sh4SimPanel = () => {
     applyHighlights(adjustedState);
   }, [applyHighlights, hideCrosshairs, plainFormat, lessBorders]);
 
-  const renderBlockHeader = (
-    block: SimBlock,
-    index: number,
-    displayTitle: string,
-    showCycleLabel: boolean,
-  ) => {
-    const blockId = block.id;
-    const shareTarget = blockId;
-    const copied = copiedTarget === shareTarget;
-    return (
-      <Stack direction="row" alignItems="center" spacing={1} sx={{ mt: index === 0 ? 0 : 2 }}>
-        <Typography variant="h6" id={blockId} sx={{ fontFamily: "monospace" }}>
-          {displayTitle}
-        </Typography>
-        <Tooltip title={copied ? "Copied!" : "Copy link"} open={copied} arrow disableHoverListener>
-          <span>
-            <IconButton size="small" onClick={() => handleCopyShare(shareTarget)} disabled={!shareToken}>
-              <ContentCopyIcon fontSize="inherit" />
-            </IconButton>
-          </span>
-        </Tooltip>
-        {showCycleLabel && (
-          <Typography variant="caption" color="text.secondary">
-            {formatCycleLabel(block)}
-          </Typography>
-        )}
-      </Stack>
-    );
-  };
-
-  const renderBlockSubtitle = (block: SimBlock, displayTitle: string) => {
-    if (!block.subtitle || block.subtitle === displayTitle) {
-      return null;
-    }
-    const shareTarget = `${block.id}-subtitle`;
-    const copied = copiedTarget === shareTarget;
-    return (
-      <Stack direction="row" alignItems="center" spacing={1} sx={{ ml: 1 }}>
-        <Typography variant="subtitle1" id={shareTarget} sx={{ fontFamily: "monospace" }}>
-          {block.subtitle}
-        </Typography>
-        <Tooltip title={copied ? "Copied!" : "Copy link"} open={copied} arrow disableHoverListener>
-          <span>
-            <IconButton size="small" onClick={() => handleCopyShare(shareTarget)} disabled={!shareToken}>
-              <ContentCopyIcon fontSize="inherit" />
-            </IconButton>
-          </span>
-        </Tooltip>
-        <Typography variant="caption" color="text.secondary">
-          {formatCycleLabel(block)}
-        </Typography>
-      </Stack>
-    );
-  };
-
-  const renderCell = (blockId: string, cell: SimCell, rowIndex: number) => {
-    const isInstructionColumn = isStickyColumn(cell);
-    const cellKey = getCellKey(cell);
-    const baseBackground = getBaseRowColor(rowIndex, theme);
-    const relationColors = getRelationColors(plainFormat, theme);
-    let backgroundColor = baseBackground;
-    let color = "inherit";
-
-    if (cell.full) {
-      const colors = getFullColors(plainFormat, theme);
-      backgroundColor = colors.background;
-      color = colors.color;
-    } else if (cell.stall) {
-      const colors = getStallColors(plainFormat, theme);
-      backgroundColor = colors.background;
-      color = colors.color;
-    }
-
-    const borders = lessBorders ? "transparent" : alpha(theme.palette.divider, 0.6);
-    const highlightBorder = theme.palette.primary.main;
-
-    return (
-      <TableCell
-        key={cellKey}
-        onMouseEnter={() => handleMouseEnter(blockId, cell)}
-        onMouseLeave={handleMouseLeave}
-        title={cell.explanation ?? undefined}
-        data-block-id={blockId}
-        data-row-index={cell.rowIndex}
-        data-cycle={cell.cycle ?? undefined}
-        data-self-keys={cell.selfKeys.join("|") || undefined}
-        sx={{
-          position: isInstructionColumn ? "sticky" : "static",
-          left: isInstructionColumn ? 0 : "auto",
-          zIndex: isInstructionColumn ? 2 : 1,
-          backgroundColor,
-          color,
-          border: "1px solid",
-          borderColor: borders,
-          minWidth: cell.columnIndex === 0 ? 180 : 80,
-          maxWidth: 200,
-          px: 1.5,
-          py: 0.75,
-          fontFamily: "monospace",
-          fontSize: 13,
-          whiteSpace: "nowrap",
-          cursor: "pointer",
-          textAlign: cell.columnIndex === 0 ? "left" : "center",
-          fontWeight: cell.rowIndex === 0 ? 600 : 400,
-          outline: cell.lock ? `2px solid ${alpha(theme.palette.warning.dark, 0.75)}` : "none",
-          outlineOffset: cell.lock ? -2 : 0,
-          opacity: cell.screenHidden ? 0 : 1,
-          userSelect: "none",
-          transition: "background-color 80ms ease, border-color 80ms ease, color 80ms ease",
-          '&:hover': {
-            boxShadow: `inset 0 0 0 1px ${alpha(theme.palette.primary.main, 0.45)}`,
-          },
-          [`&.${RELATION_CLASS}`]: {
-            backgroundColor: relationColors.background,
-            color: relationColors.color,
-            borderColor: highlightBorder,
-          },
-          [`&.${ROW_CLASS}`]: {
-            borderColor: highlightBorder,
-          },
-          [`&.${CYCLE_CLASS}`]: {
-            borderColor: highlightBorder,
-          },
-        }}
-      >
-        <Box
-          component="span"
-          sx={{
-            visibility: cell.screenHiddenText ? "hidden" : "visible",
-            pointerEvents: "none",
-          }}
-        >
-          {cell.text}
-        </Box>
-      </TableCell>
-    );
-  };
-
-  const renderBlock = (block: SimBlock, index: number) => {
-    const displayTitle = block.title ?? `Fragment ${index + 1}`;
-    const showCycleOnHeader = !block.subtitle;
-    const showGeneratedHeader = Boolean(block.title) || !block.subtitle;
-    return (
-      <Box key={block.id} sx={{ display: "flex", flexDirection: "column", gap: 1, minWidth: 0 }}>
-        {showGeneratedHeader && renderBlockHeader(block, index, displayTitle, showCycleOnHeader)}
-        {renderBlockSubtitle(block, displayTitle)}
-        <TableContainer
-          component={Box}
-          sx={{
-            width: "100%",
-            maxWidth: "100%",
-            minWidth: 0,
-            overflowX: "auto",
-            overflowY: "auto",
-            maxHeight: 480,
-            border: "1px solid",
-            borderColor: "divider",
-            borderRadius: 1,
-          }}
-        >
-          <Table
-            size="small"
-            sx={{
-              borderCollapse: "separate",
-              borderSpacing: 0,
-              minWidth: block.table.columnCount * 80,
-              width: "max-content",
-            }}
-          >
-            <TableBody ref={registerBlockBodyRef(block.id)}>
-              {block.table.rows.map((row, rowIdx) => (
-                <TableRow key={row.rowKey} sx={{ backgroundColor: getBaseRowColor(rowIdx, theme) }}>
-                  {row.cells.map((cell) => renderCell(block.id, cell, rowIdx))}
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      </Box>
-    );
-  };
-
+  const shareEnabled = Boolean(shareToken);
   const copiedMain = copiedTarget === "main";
   const assembleError = simulation.error ?? getAssembleError();
 
@@ -670,7 +789,7 @@ export const Sh4SimPanel = () => {
                 size="small"
                 startIcon={<ContentCopyIcon fontSize="small" />}
                 onClick={() => handleCopyShare(null)}
-                disabled={!shareToken}
+                disabled={!shareEnabled}
               >
                 Share
               </Button>
@@ -723,7 +842,7 @@ export const Sh4SimPanel = () => {
                 size="small"
                 startIcon={<ContentCopyIcon fontSize="small" />}
                 onClick={() => handleCopyShare(null)}
-                disabled={!shareToken}
+                disabled={!shareEnabled}
               >
                 Share
               </Button>
@@ -772,7 +891,21 @@ export const Sh4SimPanel = () => {
           {simulation.blocks.length > 0 && (
             <Box sx={{ flex: 1, minHeight: 0, minWidth: 0, overflowX: "auto", overflowY: "visible" }}>
               <Box sx={{ display: "flex", flexDirection: "column", gap: 4, width: "100%", minWidth: 0 }}>
-                {simulation.blocks.map((block, index) => renderBlock(block, index))}
+                {blockEntries.map((entry) => (
+                  <Sh4SimBlock
+                    key={entry.block.id}
+                    entry={entry}
+                    plainFormat={plainFormat}
+                    lessBorders={lessBorders}
+                    shareEnabled={shareEnabled}
+                    headerCopied={copiedTarget === entry.block.id}
+                    subtitleCopied={copiedTarget === `${entry.block.id}-subtitle`}
+                    onMouseEnter={handleMouseEnter}
+                    onMouseLeave={handleMouseLeave}
+                    registerBlockBodyRef={registerBlockBodyRef}
+                    handleCopyShare={handleCopyShare}
+                  />
+                ))}
               </Box>
             </Box>
           )}
