@@ -180,31 +180,80 @@ const baseRegisters: RegisterValue[] = [
   { name: "PR", value: "0x8C0000A2", width: 32 },
 ];
 
-const sampleSh4Disassembly: DisassemblyLine[] = [
-  { address: 0x8c0000a0, bytes: "02 45", mnemonic: "mov.l", operands: "@r15+, r1", isCurrent: true },
-  { address: 0x8c0000a2, bytes: "6E F6", mnemonic: "mov", operands: "r15, r14" },
-  { address: 0x8c0000a4, bytes: "4F 22", mnemonic: "sts.l", operands: "pr, @-r15" },
-  { address: 0x8c0000a6, bytes: "2F 46", mnemonic: "mov", operands: "r4, r15" },
+const sh4Instructions = [
+  { mnemonic: "mov.l", operands: (r1: number, r2: number, _r3: number, _val: number, _offset: number) => `@r${r1}+, r${r2}`, bytes: 2 },
+  { mnemonic: "mov", operands: (r1: number, r2: number, _r3: number, _val: number, _offset: number) => `r${r1}, r${r2}`, bytes: 2 },
+  { mnemonic: "sts.l", operands: (r1: number, _r2: number, _r3: number, _val: number, _offset: number) => `pr, @-r${r1}`, bytes: 2 },
+  { mnemonic: "add", operands: (r1: number, r2: number, _r3: number, _val: number, _offset: number) => `r${r1}, r${r2}`, bytes: 2 },
+  { mnemonic: "cmp/eq", operands: (r1: number, r2: number, _r3: number, _val: number, _offset: number) => `r${r1}, r${r2}`, bytes: 2 },
+  { mnemonic: "bf", operands: (_r1: number, _r2: number, _r3: number, _val: number, offset: number) => `0x${offset.toString(16)}`, bytes: 2 },
+  { mnemonic: "jmp", operands: (r: number, _r2: number, _r3: number, _val: number, _offset: number) => `@r${r}`, bytes: 2 },
+  { mnemonic: "nop", operands: (_r1: number, _r2: number, _r3: number, _val: number, _offset: number) => "", bytes: 2 },
 ];
 
-const sampleArm7Disassembly: DisassemblyLine[] = [
-  { address: 0x00200000, bytes: "E3 A0 00 01", mnemonic: "mov", operands: "r0, #1", isCurrent: true },
-  { address: 0x00200004, bytes: "E5 9F 10 04", mnemonic: "ldr", operands: "r1, [pc, #4]" },
-  { address: 0x00200008, bytes: "E1 2F FF 1E", mnemonic: "bx", operands: "lr" },
-  { address: 0x0020000C, bytes: "E5 8D 20 00", mnemonic: "str", operands: "r2, [sp]" },
+const arm7Instructions = [
+  { mnemonic: "mov", operands: (r1: number, _r2: number, _r3: number, val: number, _offset: number) => `r${r1}, #${val}`, bytes: 4 },
+  { mnemonic: "ldr", operands: (r1: number, r2: number, _r3: number, _val: number, offset: number) => `r${r1}, [r${r2}, #${offset}]`, bytes: 4 },
+  { mnemonic: "str", operands: (r1: number, r2: number, _r3: number, _val: number, _offset: number) => `r${r1}, [r${r2}]`, bytes: 4 },
+  { mnemonic: "add", operands: (r1: number, r2: number, r3: number, _val: number, _offset: number) => `r${r1}, r${r2}, r${r3}`, bytes: 4 },
+  { mnemonic: "sub", operands: (r1: number, r2: number, r3: number, _val: number, _offset: number) => `r${r1}, r${r2}, r${r3}`, bytes: 4 },
+  { mnemonic: "bx", operands: (r: number, _r2: number, _r3: number, _val: number, _offset: number) => `r${r}`, bytes: 4 },
+  { mnemonic: "bl", operands: (_r1: number, _r2: number, _r3: number, _val: number, offset: number) => `0x${offset.toString(16)}`, bytes: 4 },
+  { mnemonic: "nop", operands: (_r1: number, _r2: number, _r3: number, _val: number, _offset: number) => "", bytes: 4 },
 ];
 
-const sampleDspDisassembly: DisassemblyLine[] = [
-  { address: 0x00000000, bytes: "20 0C", mnemonic: "ld", operands: "r0, @0x0C", isCurrent: true },
-  { address: 0x00000002, bytes: "21 10", mnemonic: "ld", operands: "r1, @0x10" },
-  { address: 0x00000004, bytes: "31 01", mnemonic: "add", operands: "acc, r0, r1" },
-  { address: 0x00000006, bytes: "E0 00", mnemonic: "store", operands: "acc, @0x00" },
+const dspInstructions = [
+  { mnemonic: "ld", operands: (r: number, _r2: number, _r3: number, _val: number, addr: number) => `r${r}, @0x${addr.toString(16)}`, bytes: 2 },
+  { mnemonic: "add", operands: (r1: number, r2: number, _r3: number, _val: number, _offset: number) => `acc, r${r1}, r${r2}`, bytes: 2 },
+  { mnemonic: "mul", operands: (r1: number, r2: number, _r3: number, _val: number, _offset: number) => `r${r1}, r${r2}`, bytes: 2 },
+  { mnemonic: "store", operands: (_r1: number, _r2: number, _r3: number, _val: number, addr: number) => `acc, @0x${addr.toString(16)}`, bytes: 2 },
+  { mnemonic: "jmp", operands: (_r1: number, _r2: number, _r3: number, _val: number, addr: number) => `0x${addr.toString(16)}`, bytes: 2 },
+  { mnemonic: "nop", operands: (_r1: number, _r2: number, _r3: number, _val: number, _offset: number) => "", bytes: 2 },
 ];
 
-const disassemblyByTarget: Record<string, DisassemblyLine[]> = {
-  sh4: sampleSh4Disassembly,
-  arm7: sampleArm7Disassembly,
-  dsp: sampleDspDisassembly,
+const generateDisassembly = (target: string, address: number, count: number): DisassemblyLine[] => {
+  const instructionSets = {
+    sh4: sh4Instructions,
+    arm7: arm7Instructions,
+    dsp: dspInstructions,
+  };
+
+  const instructions = instructionSets[target as keyof typeof instructionSets] ?? sh4Instructions;
+  const lines: DisassemblyLine[] = [];
+  let currentAddr = address;
+
+  for (let i = 0; i < count; i++) {
+    const hash = sha256Byte(`${target}:${currentAddr.toString(16)}`);
+    const instrIndex = hash % instructions.length;
+    const instr = instructions[instrIndex];
+
+    const r1 = (hash >> 4) % 16;
+    const r2 = (hash >> 2) % 16;
+    const r3 = hash % 16;
+    const val = (hash * 3) & 0xff;
+    const offset = (hash * 7) & 0xfff;
+
+    const operands = instr.operands(r1, r2, r3, val, offset);
+
+    // Generate pseudo-random bytes
+    const byteValues: number[] = [];
+    for (let b = 0; b < instr.bytes; b++) {
+      byteValues.push(sha256Byte(`${target}:${currentAddr.toString(16)}:${b}`));
+    }
+    const bytes = byteValues.map(b => b.toString(16).toUpperCase().padStart(2, "0")).join(" ");
+
+    lines.push({
+      address: currentAddr,
+      bytes,
+      mnemonic: instr.mnemonic,
+      operands,
+      isCurrent: false,
+    });
+
+    currentAddr += instr.bytes;
+  }
+
+  return lines;
 };
 const sampleBreakpoints: BreakpointDescriptor[] = [
   { id: "bp-1", location: "dc.sh4.cpu.pc == 0x8C0000A0", kind: "code", enabled: true, hitCount: 3 },
@@ -379,7 +428,9 @@ const dispatchMethod = async (
     }
     case "state.getDisassembly": {
       const target = typeof params.target === "string" ? params.target : "sh4";
-      const lines = disassemblyByTarget[target] ?? sampleSh4Disassembly;
+      const address = typeof params.address === "number" ? params.address : 0;
+      const count = typeof params.count === "number" ? params.count : 128;
+      const lines = generateDisassembly(target, address, count);
       return { lines };
     }
     case "state.watch": {
