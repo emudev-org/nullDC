@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/prebuild-version.js && tsc -b && vite build && node scripts/postbuild-version.js",
+    "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
     "dev:mock": "tsx watch --tsconfig tsconfig.server.json server/mockServer.ts",
