@@ -1,10 +1,12 @@
-﻿import { useEffect, useCallback, useMemo } from "react";
+﻿import { useEffect, useCallback, useMemo, useState } from "react";
 import { AppBar, Box, Button, Divider, IconButton, Tab, Tabs, Toolbar, Tooltip, Typography, Alert } from "@mui/material";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import PowerSettingsNewIcon from "@mui/icons-material/PowerSettingsNew";
 import CloudDoneIcon from "@mui/icons-material/CloudDone";
 import CloudOffIcon from "@mui/icons-material/CloudOff";
 import SyncIcon from "@mui/icons-material/Sync";
+import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import { useSessionStore } from "../../state/sessionStore";
 import { useDebuggerDataStore } from "../../state/debuggerDataStore";
 import { DeviceTreePanel } from "../panels/DeviceTreePanel";
@@ -20,7 +22,7 @@ import { BreakpointsPanel } from "../panels/BreakpointsPanel";
 import { Sh4SimPanel } from "../panels/Sh4SimPanel";
 import { useNavigate, useParams } from "react-router-dom";
 
-const workspaceTabs = [
+const mainTabs = [
   { value: "events", label: "Event Log", component: <EventLogPanel /> },
   { value: "sh4-disassembly", label: "SH4: Disassembly", component: <Sh4DisassemblyPanel /> },
   { value: "sh4-memory", label: "SH4: Memory", component: <Sh4MemoryPanel /> },
@@ -32,6 +34,13 @@ const workspaceTabs = [
   { value: "aica", label: "AICA", component: <AudioPanel /> },
   { value: "dsp-disassembly", label: "DSP: Disassembly", component: <DspDisassemblyPanel /> },
   { value: "sh4-sim", label: "SH4: Sim", component: <Sh4SimPanel /> },
+];
+
+const sidePanelTabs = [
+  { value: "device-tree", label: "Device Tree", component: <DeviceTreePanel /> },
+  { value: "watch", label: "Watch", component: <WatchPanel /> },
+  { value: "sh4-callstack", label: "SH4: Callstack", component: <Sh4CallstackPanel /> },
+  { value: "arm7-callstack", label: "ARM7: Callstack", component: <Arm7CallstackPanel /> },
 ];
 
 const connectionIcons = {
@@ -53,8 +62,24 @@ export const AppLayout = () => {
   const resetData = useDebuggerDataStore((state) => state.reset);
   const navigate = useNavigate();
   const { tab } = useParams();
-  const validValues = useMemo(() => new Set(workspaceTabs.map(t => t.value)), []);
+  const [leftPanelOpen, setLeftPanelOpen] = useState(true);
+  const [rightPanelOpen, setRightPanelOpen] = useState(true);
+  const [isNarrow, setIsNarrow] = useState(window.innerWidth < 1200);
+
+  const workspaceTabs = useMemo(() => {
+    return isNarrow ? [...mainTabs, ...sidePanelTabs] : mainTabs;
+  }, [isNarrow]);
+
+  const validValues = useMemo(() => new Set(workspaceTabs.map(t => t.value)), [workspaceTabs]);
   const currentTab = validValues.has(tab ?? "") ? (tab as string) : workspaceTabs[0].value;
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsNarrow(window.innerWidth < 1200);
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   useEffect(() => {
     void connect();
@@ -119,18 +144,29 @@ export const AppLayout = () => {
         sx={{
           flex: 1,
           overflow: "hidden",
-          display: "grid",
-          gridTemplateColumns: "280px minmax(0, 1fr) 340px",
+          display: "flex",
           gap: 1,
           p: 1,
         }}
       >
-        <Box sx={{ minHeight: 0 }}>
-          <DeviceTreePanel />
-        </Box>
+        {!isNarrow && leftPanelOpen && (
+          <Box sx={{ minHeight: 0, width: 280 }}>
+            <DeviceTreePanel />
+          </Box>
+        )}
+        {!isNarrow && (
+          <Box sx={{ display: "flex", alignItems: "center" }}>
+            <Tooltip title={leftPanelOpen ? "Hide left panel" : "Show left panel"}>
+              <IconButton onClick={() => setLeftPanelOpen(!leftPanelOpen)} size="small">
+                {leftPanelOpen ? <ChevronLeftIcon /> : <ChevronRightIcon />}
+              </IconButton>
+            </Tooltip>
+          </Box>
+        )}
         <Box
           sx={{
             minHeight: 0,
+            minWidth: 0,
             display: "flex",
             flexDirection: "column",
             gap: 1,
@@ -174,18 +210,30 @@ export const AppLayout = () => {
             </Box>
           </Box>
         </Box>
-        <Box
-          sx={{
-            display: "grid",
-            gridTemplateRows: "minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr)",
-            gap: 1,
-            minHeight: 0,
-          }}
-        >
-          <WatchPanel />
-          <Sh4CallstackPanel />
-          <Arm7CallstackPanel />
-        </Box>
+        {!isNarrow && (
+          <Box sx={{ display: "flex", alignItems: "center" }}>
+            <Tooltip title={rightPanelOpen ? "Hide right panel" : "Show right panel"}>
+              <IconButton onClick={() => setRightPanelOpen(!rightPanelOpen)} size="small">
+                {rightPanelOpen ? <ChevronRightIcon /> : <ChevronLeftIcon />}
+              </IconButton>
+            </Tooltip>
+          </Box>
+        )}
+        {!isNarrow && rightPanelOpen && (
+          <Box
+            sx={{
+              display: "grid",
+              gridTemplateRows: "minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr)",
+              gap: 1,
+              minHeight: 0,
+              width: 340,
+            }}
+          >
+            <WatchPanel />
+            <Sh4CallstackPanel />
+            <Arm7CallstackPanel />
+          </Box>
+        )}
       </Box>
       <Divider />
       <Box
