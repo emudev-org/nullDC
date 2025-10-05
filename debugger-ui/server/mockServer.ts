@@ -27,6 +27,7 @@ import type {
 
 const PORT = Number(process.env.PORT ?? 5173);
 const WS_PATH = process.env.DEBUGGER_WS_PATH ?? "/ws";
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
 
 interface ClientContext {
   socket: WebSocket;
@@ -831,29 +832,44 @@ const broadcastTick = () => {
 
 const start = async () => {
   const app = express();
-  const vite = await createViteServer({
-    server: {
-      middlewareMode: true,
-    },
-    appType: "custom",
-  });
-
-  app.use(vite.middlewares);
+  let vite: Awaited<ReturnType<typeof createViteServer>> | null = null;
 
   app.get("/health", (_req, res) => {
     res.json({ status: "ok" });
   });
 
-  app.use(async (req, res, next) => {
-    try {
-      const template = await readFile(resolve(process.cwd(), "index.html"), "utf8");
-      const transformed = await vite.transformIndexHtml(req.originalUrl, template);
-      res.status(200).set({ "Content-Type": "text/html" }).end(transformed);
-    } catch (error) {
-      vite.ssrFixStacktrace(error as Error);
-      next(error);
-    }
-  });
+  if (IS_PRODUCTION) {
+    const distDir = resolve(process.cwd(), "dist");
+    app.use(express.static(distDir));
+    app.get("*", async (_req, res, next) => {
+      try {
+        const template = await readFile(resolve(distDir, "index.html"), "utf8");
+        res.status(200).set({ "Content-Type": "text/html" }).end(template);
+      } catch (error) {
+        next(error);
+      }
+    });
+  } else {
+    vite = await createViteServer({
+      server: {
+        middlewareMode: true,
+      },
+      appType: "custom",
+    });
+
+    app.use(vite.middlewares);
+
+    app.use(async (req, res, next) => {
+      try {
+        const template = await readFile(resolve(process.cwd(), "index.html"), "utf8");
+        const transformed = await vite!.transformIndexHtml(req.originalUrl, template);
+        res.status(200).set({ "Content-Type": "text/html" }).end(transformed);
+      } catch (error) {
+        vite!.ssrFixStacktrace(error as Error);
+        next(error);
+      }
+    });
+  }
 
   const server = createHttpServer(app);
   const wss = new WebSocketServer({ server, path: WS_PATH });
@@ -899,7 +915,9 @@ const start = async () => {
       for (const client of clients) {
       client.socket.close(1001, "Server shutting down");
     }
-    await vite.close();
+    if (vite) {
+      await vite.close();
+    }
     server.close(() => process.exit(0));
   };
 
@@ -908,8 +926,6 @@ const start = async () => {
 };
 
 void start();
-
-
 
 
 
