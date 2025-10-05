@@ -81,10 +81,10 @@ export const useDebuggerDataStore = create<DebuggerDataState>()((set, get) => ({
         const defaults = Array.from(DEFAULT_WATCH_EXPRESSIONS);
         const result = await client.watch(defaults);
         set((state) => ({
-          watchExpressions: result.accepted,
+          watchExpressions: result.all,
           watchValues: {
             ...state.watchValues,
-            ...Object.fromEntries(result.accepted.map((expr) => [expr, state.watchValues[expr] ?? null])),
+            ...Object.fromEntries(result.all.map((expr) => [expr, state.watchValues[expr] ?? null])),
           },
         }));
       }
@@ -211,8 +211,11 @@ export const useDebuggerDataStore = create<DebuggerDataState>()((set, get) => ({
       const result = await client.watch([trimmed]);
       if (result.accepted.includes(trimmed)) {
         set((state) => ({
-          watchExpressions: [...state.watchExpressions, trimmed],
-          watchValues: { ...state.watchValues, [trimmed]: state.watchValues[trimmed] ?? null },
+          watchExpressions: result.all,
+          watchValues: {
+            ...state.watchValues,
+            ...Object.fromEntries(result.all.map((expr) => [expr, state.watchValues[expr] ?? null])),
+          },
         }));
       }
     } catch (error) {
@@ -228,10 +231,13 @@ export const useDebuggerDataStore = create<DebuggerDataState>()((set, get) => ({
       const result = await client.unwatch([expression]);
       if (result.accepted.includes(expression)) {
         set((state) => {
-          const { [expression]: _removed, ...restValues } = state.watchValues;
+          const newValues: Record<string, unknown> = {};
+          for (const expr of result.all) {
+            newValues[expr] = state.watchValues[expr] ?? null;
+          }
           return {
-            watchExpressions: state.watchExpressions.filter((expr) => expr !== expression),
-            watchValues: restValues,
+            watchExpressions: result.all,
+            watchValues: newValues,
           };
         });
       }

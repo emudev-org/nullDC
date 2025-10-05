@@ -35,6 +35,8 @@ interface ClientContext {
   watches: Set<string>;
 }
 
+const serverWatches = new Set<string>();
+
 const deviceTree: DeviceNodeDescriptor[] = [
   {
     path: "dc",
@@ -514,13 +516,19 @@ const dispatchMethod = async (
     }
     case "state.watch": {
       const expressions = (params.expressions as string[]) ?? [];
-      expressions.forEach((expr) => client.watches.add(expr));
-      return { accepted: expressions };
+      expressions.forEach((expr) => {
+        client.watches.add(expr);
+        serverWatches.add(expr);
+      });
+      return { accepted: expressions, all: Array.from(serverWatches) };
     }
     case "state.unwatch": {
       const expressions = (params.expressions as string[]) ?? [];
-      expressions.forEach((expr) => client.watches.delete(expr));
-      return { accepted: expressions };
+      expressions.forEach((expr) => {
+        client.watches.delete(expr);
+        serverWatches.delete(expr);
+      });
+      return { accepted: expressions, all: Array.from(serverWatches) };
     }
     case "control.step":
       return { target: params.target, state: "halted" as const };

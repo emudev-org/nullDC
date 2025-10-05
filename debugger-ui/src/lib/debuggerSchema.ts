@@ -146,11 +146,11 @@ export type DebuggerRpcSchema = RpcSchema & {
   };
   "state.watch": {
     params: { expressions: string[] };
-    result: { accepted: string[] };
+    result: { accepted: string[]; all: string[] };
   };
   "state.unwatch": {
     params: { expressions: string[] };
-    result: { accepted: string[] };
+    result: { accepted: string[]; all: string[] };
   };
   "control.step": {
     params: { target: string; granularity: "instruction" | "block" | "event"; modifiers?: string[] };
