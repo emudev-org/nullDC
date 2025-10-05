@@ -1,6 +1,5 @@
 ﻿import { useEffect, useCallback, useMemo, useState } from "react";
-import { AppBar, Box, Button, Divider, IconButton, Tab, Tabs, Toolbar, Tooltip, Typography, Alert } from "@mui/material";
-import RefreshIcon from "@mui/icons-material/Refresh";
+import { AppBar, Box, Button, CircularProgress, Divider, IconButton, Stack, Tab, Tabs, Toolbar, Tooltip, Typography, Alert } from "@mui/material";
 import PowerSettingsNewIcon from "@mui/icons-material/PowerSettingsNew";
 import CloudDoneIcon from "@mui/icons-material/CloudDone";
 import CloudOffIcon from "@mui/icons-material/CloudOff";
@@ -99,13 +98,13 @@ export const AppLayout = () => {
     }
   }, [connectionState, resetData]);
 
-  const handleReconnect = useCallback(() => {
-    void connect({ force: true });
-  }, [connect]);
-
-  const handleDisconnect = useCallback(() => {
-    disconnect();
-  }, [disconnect]);
+  const handleToggleConnection = useCallback(() => {
+    if (connectionState === "connected") {
+      disconnect();
+    } else {
+      void connect({ force: true });
+    }
+  }, [connectionState, disconnect, connect]);
 
   return (
     <Box sx={{ height: "100vh", display: "flex", flexDirection: "column" }}>
@@ -120,16 +119,13 @@ export const AppLayout = () => {
               {connectionIcons[connectionState]}
             </IconButton>
           </Tooltip>
-          <IconButton color="inherit" onClick={handleReconnect} aria-label="Reconnect">
-            <RefreshIcon fontSize="small" />
-          </IconButton>
           <Button
             variant="outlined"
             color="inherit"
-            onClick={handleDisconnect}
+            onClick={handleToggleConnection}
             startIcon={<PowerSettingsNewIcon fontSize="small" />}
           >
-            Disconnect
+            {connectionState === "connected" ? "Disconnect" : "Connect"}
           </Button>
         </Toolbar>
       </AppBar>
@@ -145,6 +141,7 @@ export const AppLayout = () => {
           display: "flex",
           gap: 1,
           p: 1,
+          position: "relative",
         }}
       >
         {!isNarrow && leftPanelOpen && (
@@ -230,6 +227,30 @@ export const AppLayout = () => {
             <WatchPanel />
             <Sh4CallstackPanel />
             <Arm7CallstackPanel />
+          </Box>
+        )}
+        {connectionState !== "connected" && (
+          <Box
+            sx={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: "rgba(0, 0, 0, 0.3)",
+              backdropFilter: "blur(4px)",
+              zIndex: 1000,
+            }}
+          >
+            <Stack spacing={2} alignItems="center" sx={{ backgroundColor: "background.paper", p: 4, borderRadius: 2, boxShadow: 3 }}>
+              <CircularProgress size={48} />
+              <Typography variant="body1" color="text.secondary">
+                {connectionState === "connecting" ? "Connecting to debugger..." : connectionState === "error" ? "Connection failed" : "Not connected"}
+              </Typography>
+            </Stack>
           </Box>
         )}
       </Box>

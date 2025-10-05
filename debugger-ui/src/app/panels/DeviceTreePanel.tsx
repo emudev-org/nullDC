@@ -190,16 +190,9 @@ export const DeviceTreePanel = () => {
 
   return (
     <Panel title="Device Tree">
-      {!initialized ? (
-        <Stack alignItems="center" justifyContent="center" sx={{ p: 2 }} spacing={1}>
-          <CircularProgress size={16} />
-          <Typography variant="body2" color="text.secondary">
-            Loading devices…
-          </Typography>
-        </Stack>
-      ) : deviceTree.length === 0 ? (
+      {deviceTree.length === 0 ? (
         <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
-          Device information unavailable. Ensure the debugger connection is active.
+          No device information available.
         </Typography>
       ) : (
         <Box sx={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
