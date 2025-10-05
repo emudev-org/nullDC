@@ -1,5 +1,5 @@
 ﻿import { useEffect, useCallback, useMemo, useState, useRef } from "react";
-import { AppBar, Box, Button, CircularProgress, Divider, IconButton, Stack, Tab, Tabs, Toolbar, Tooltip, Typography, Alert } from "@mui/material";
+import { AppBar, Box, Button, CircularProgress, Divider, IconButton, Stack, Tab, Tabs, Tooltip, Typography, Alert } from "@mui/material";
 import PowerSettingsNewIcon from "@mui/icons-material/PowerSettingsNew";
 import CloudDoneIcon from "@mui/icons-material/CloudDone";
 import CloudOffIcon from "@mui/icons-material/CloudOff";
@@ -23,6 +23,7 @@ import { DspPlaygroundPanel } from "../panels/DspPlaygroundPanel";
 import { useNavigate, useParams } from "react-router-dom";
 import { AboutDialog } from "./AboutDialog";
 import { useAboutModal } from "./useAboutModal";
+import { TopNav } from "./TopNav";
 
 const mainTabs = [
   { value: "events", label: "Events: Log", component: <EventLogPanel /> },
@@ -140,42 +141,33 @@ export const AppLayout = () => {
   return (
     <Box sx={{ height: "100vh", display: "flex", flexDirection: "column" }}>
       <AppBar position="static" elevation={1} color="default">
-        <Toolbar sx={{ gap: 2 }}>
-          <Stack direction="row" spacing={1.5} alignItems="center" sx={{ flexShrink: 0 }}>
-            <Typography variant="h6">nullDC Debugger</Typography>
-            <Divider orientation="vertical" flexItem />
-            <Button variant="text" color="primary" onClick={() => navigate("/")}>
-              Home
-            </Button>
-            <Button variant="text" color="primary" onClick={showAbout}>
-              About
-            </Button>
-            <Button
-              variant="text"
-              color="primary"
-              onClick={() => {
-                setLeftPanelOpen(true);
-                setRightPanelOpen(true);
-              }}
-            >
-              Reset layout
-            </Button>
-          </Stack>
-          <Box sx={{ flexGrow: 1 }} />
-          <Tooltip title={`Connection: ${connectionState}`}>
-            <IconButton color={connectionState === "connected" ? "primary" : "inherit"}>
-              {connectionIcons[connectionState]}
-            </IconButton>
-          </Tooltip>
-          <Button
-            variant="outlined"
-            color="inherit"
-            onClick={handleToggleConnection}
-            startIcon={<PowerSettingsNewIcon fontSize="small" />}
-          >
-            {connectionState === "connected" ? "Disconnect" : "Connect"}
-          </Button>
-        </Toolbar>
+        <TopNav
+          onHomeClick={() => navigate("/")}
+          onDocsClick={() => navigate("/docs")}
+          onAboutClick={showAbout}
+          onResetLayout={() => {
+            setLeftPanelOpen(true);
+            setRightPanelOpen(true);
+          }}
+          rightSection={
+            <Stack direction="row" spacing={1.5} alignItems="center">
+              <Tooltip title={`Connection: ${connectionState}`}>
+                <IconButton color={connectionState === "connected" ? "primary" : "inherit"}>
+                  {connectionIcons[connectionState]}
+                </IconButton>
+              </Tooltip>
+              <Button
+                variant="outlined"
+                color="inherit"
+                onClick={handleToggleConnection}
+                startIcon={<PowerSettingsNewIcon fontSize="small" />}
+              >
+                {connectionState === "connected" ? "Disconnect" : "Connect"}
+              </Button>
+            </Stack>
+          }
+          active="workspace"
+        />
       </AppBar>
       {connectionError && (
         <Alert severity="error" sx={{ borderRadius: 0 }}>

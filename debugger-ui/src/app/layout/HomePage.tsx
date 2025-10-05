@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { AboutDialog } from "./AboutDialog";
 import { useAboutModal } from "./useAboutModal";
 
-export const HomePane = () => {
+export const HomePage = () => {
   const navigate = useNavigate();
   const { open: aboutOpen, show: showAbout, hide: hideAbout } = useAboutModal();
 
@@ -22,12 +22,12 @@ export const HomePane = () => {
       },
       {
         title: "Analyze TA Logs",
-        description: "Review tile accelerator events and frame lists to diagnose rendering issues.",
+        description: "Review tile accelerator primitives and generated CORE lists to diagnose frame submission issues.",
         action: () => navigate("/ta"),
       },
       {
         title: "Analyze CORE Logs",
-        description: "Inspect PowerVR CORE metrics and state changes across frames.",
+        description: "Inspect PowerVR CORE primitives, buffers and state changes in a frame to diagnose frame rendering artifacts.",
         action: () => navigate("/core"),
       },
       {
@@ -44,6 +44,11 @@ export const HomePane = () => {
         title: "DSP Playground",
         description: "Author and preview DSP effects with real-time waveform inspection.",
         action: () => navigate("/dsp-playground"),
+      },
+      {
+        title: "Documentation",
+        description: "Learn the debugger workflows, mocked APIs, and sharing features in detail.",
+        action: () => navigate("/docs"),
       },
       {
         title: "About",

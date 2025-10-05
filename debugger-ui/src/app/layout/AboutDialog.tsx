@@ -81,6 +81,14 @@ export const AboutDialog = ({ open, onClose }: AboutDialogProps) => {
     { label: "Build", value: info?.build ?? "—" },
   ];
 
+  useEffect(() => {
+    if (!open) {
+      setInfo(null);
+      setError(null);
+      setLoading(false);
+    }
+  }, [open]);
+
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
       <DialogTitle>About nullDC Debugger</DialogTitle>
