@@ -1,4 +1,5 @@
 ﻿import { useCallback, useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import { SimpleTreeView } from "@mui/x-tree-view/SimpleTreeView";
 import { TreeItem } from "@mui/x-tree-view/TreeItem";
 import { Panel } from "../layout/Panel";
@@ -109,7 +110,7 @@ export const DeviceTreePanel = () => {
   );
 
   const renderNode = useCallback(
-    (node: DeviceNodeDescriptor): React.ReactNode => (
+    (node: DeviceNodeDescriptor): ReactNode => (
       <TreeItem
         key={node.path}
         itemId={node.path}

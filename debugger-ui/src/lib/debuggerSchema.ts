@@ -125,11 +125,11 @@ export type DebuggerRpcSchema = RpcSchema & {
     result: { path: string; cache: string; entries: Record<string, unknown>[] };
   };
   "state.getMemorySlice": {
-    params: { address: number; length: number; encoding?: MemorySlice["encoding"]; wordSize?: MemorySlice["wordSize"]; }; 
+    params: { target?: string; address: number; length: number; encoding?: MemorySlice["encoding"]; wordSize?: MemorySlice["wordSize"]; };
     result: MemorySlice;
   };
   "state.getDisassembly": {
-    params: { address: number; count: number; context?: number };
+    params: { target?: string; address: number; count: number; context?: number };
     result: { lines: DisassemblyLine[] };
   };
   "state.watch": {
@@ -191,4 +191,5 @@ export type DebuggerNotification =
       topic: "stream.frameLog";
       payload: FrameLogEntry;
     };
+
 

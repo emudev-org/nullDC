@@ -180,13 +180,32 @@ const baseRegisters: RegisterValue[] = [
   { name: "PR", value: "0x8C0000A2", width: 32 },
 ];
 
-const sampleDisassembly: DisassemblyLine[] = [
+const sampleSh4Disassembly: DisassemblyLine[] = [
   { address: 0x8c0000a0, bytes: "02 45", mnemonic: "mov.l", operands: "@r15+, r1", isCurrent: true },
   { address: 0x8c0000a2, bytes: "6E F6", mnemonic: "mov", operands: "r15, r14" },
   { address: 0x8c0000a4, bytes: "4F 22", mnemonic: "sts.l", operands: "pr, @-r15" },
   { address: 0x8c0000a6, bytes: "2F 46", mnemonic: "mov", operands: "r4, r15" },
 ];
 
+const sampleArm7Disassembly: DisassemblyLine[] = [
+  { address: 0x00200000, bytes: "E3 A0 00 01", mnemonic: "mov", operands: "r0, #1", isCurrent: true },
+  { address: 0x00200004, bytes: "E5 9F 10 04", mnemonic: "ldr", operands: "r1, [pc, #4]" },
+  { address: 0x00200008, bytes: "E1 2F FF 1E", mnemonic: "bx", operands: "lr" },
+  { address: 0x0020000C, bytes: "E5 8D 20 00", mnemonic: "str", operands: "r2, [sp]" },
+];
+
+const sampleDspDisassembly: DisassemblyLine[] = [
+  { address: 0x00000000, bytes: "20 0C", mnemonic: "ld", operands: "r0, @0x0C", isCurrent: true },
+  { address: 0x00000002, bytes: "21 10", mnemonic: "ld", operands: "r1, @0x10" },
+  { address: 0x00000004, bytes: "31 01", mnemonic: "add", operands: "acc, r0, r1" },
+  { address: 0x00000006, bytes: "E0 00", mnemonic: "store", operands: "acc, @0x00" },
+];
+
+const disassemblyByTarget: Record<string, DisassemblyLine[]> = {
+  sh4: sampleSh4Disassembly,
+  arm7: sampleArm7Disassembly,
+  dsp: sampleDspDisassembly,
+};
 const sampleBreakpoints: BreakpointDescriptor[] = [
   { id: "bp-1", location: "dc.sh4.cpu.pc == 0x8C0000A0", kind: "code", enabled: true, hitCount: 3 },
   { id: "bp-2", location: "dc.aica.channel[0].step", kind: "event", enabled: false, hitCount: 0 },
@@ -344,10 +363,25 @@ const dispatchMethod = async (
           valid: Math.random() > 0.2,
         })),
       };
-    case "state.getMemorySlice":
-      return buildMemorySlice(Number(params.address) || 0x8c000000, Number(params.length) || 64);
-    case "state.getDisassembly":
-      return { lines: sampleDisassembly };
+    case "state.getMemorySlice": {
+      const target = typeof params.target === "string" ? params.target : "sh4";
+      const addressValue = Number(params.address);
+      const lengthValue = Number(params.length);
+      const encoding = params.encoding as MemorySlice["encoding"] | undefined;
+      const wordSize = params.wordSize as MemorySlice["wordSize"] | undefined;
+      return buildMemorySlice({
+        target,
+        address: Number.isFinite(addressValue) ? addressValue : undefined,
+        length: Number.isFinite(lengthValue) && lengthValue > 0 ? lengthValue : undefined,
+        encoding,
+        wordSize,
+      });
+    }
+    case "state.getDisassembly": {
+      const target = typeof params.target === "string" ? params.target : "sh4";
+      const lines = disassemblyByTarget[target] ?? sampleSh4Disassembly;
+      return { lines };
+    }
     case "state.watch": {
       const expressions = (params.expressions as string[]) ?? [];
       expressions.forEach((expr) => client.watches.add(expr));
@@ -389,12 +423,47 @@ const advancePc = (value: string): string => {
   return `0x${next.toString(16).toUpperCase().padStart(8, "0")}`;
 };
 
-const buildMemorySlice = (address: number, length: number): MemorySlice => {
-  const bytes = Array.from({ length }, () => Math.floor(Math.random() * 256));
-  return {
-    baseAddress: address,
+const memoryProfiles: Record<string, { defaultBase: number; wordSize: MemorySlice["wordSize"]; generator: (index: number, base: number) => number }> = {
+  sh4: {
+    defaultBase: 0x8c000000,
     wordSize: 4,
-    encoding: "hex",
+    generator: (index, base) => (base + index) & 0xff,
+  },
+  arm7: {
+    defaultBase: 0x00200000,
+    wordSize: 4,
+    generator: (index) => (index * 3 + 0x12) & 0xff,
+  },
+  dsp: {
+    defaultBase: 0x00000000,
+    wordSize: 2,
+    generator: (index) => Math.floor((Math.sin(index / 5) + 1) * 127) & 0xff,
+  },
+};
+
+const buildMemorySlice = ({
+  target,
+  address,
+  length,
+  encoding,
+  wordSize,
+}: {
+  target: string;
+  address?: number;
+  length?: number;
+  encoding?: MemorySlice["encoding"];
+  wordSize?: MemorySlice["wordSize"];
+}): MemorySlice => {
+  const profile = memoryProfiles[target] ?? memoryProfiles.sh4;
+  const effectiveLength = length && length > 0 ? length : 64;
+  const baseAddress = typeof address === "number" && address >= 0 ? address : profile.defaultBase;
+  const effectiveWordSize = wordSize ?? profile.wordSize;
+  const effectiveEncoding = encoding ?? "hex";
+  const bytes = Array.from({ length: effectiveLength }, (_, index) => profile.generator(index, baseAddress) & 0xff);
+  return {
+    baseAddress,
+    wordSize: effectiveWordSize,
+    encoding: effectiveEncoding,
     data: Buffer.from(bytes).toString("hex"),
     validity: "ok",
   };
@@ -528,6 +597,12 @@ const start = async () => {
 };
 
 void start();
+
+
+
+
+
+
 
 
 

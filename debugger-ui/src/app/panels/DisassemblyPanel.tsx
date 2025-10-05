@@ -4,10 +4,15 @@ import { Box, Button, CircularProgress, Stack, Typography } from "@mui/material"
 import type { DisassemblyLine } from "../../lib/debuggerSchema";
 import { useSessionStore } from "../../state/sessionStore";
 
-const DEFAULT_ADDRESS = 0x8c0000a0;
-const DEFAULT_COUNT = 32;
+type DisassemblyConfig = {
+  title: string;
+  target: string;
+  defaultAddress: number;
+  count: number;
+  context?: number;
+};
 
-export const DisassemblyPanel = () => {
+const DisassemblyView = ({ title, target, defaultAddress, count, context }: DisassemblyConfig) => {
   const client = useSessionStore((state) => state.client);
   const connectionState = useSessionStore((state) => state.connectionState);
   const [lines, setLines] = useState<DisassemblyLine[]>([]);
@@ -19,14 +24,14 @@ export const DisassemblyPanel = () => {
     }
     setLoading(true);
     try {
-      const result = await client.fetchDisassembly(DEFAULT_ADDRESS, DEFAULT_COUNT, 4);
+      const result = await client.fetchDisassembly({ target, address: defaultAddress, count, context });
       setLines(result.lines);
     } catch (error) {
-      console.error("Failed to fetch disassembly", error);
+      console.error(`Failed to fetch ${target} disassembly`, error);
     } finally {
       setLoading(false);
     }
-  }, [client, connectionState]);
+  }, [client, connectionState, target, defaultAddress, count, context]);
 
   useEffect(() => {
     void fetchDisassembly();
@@ -34,7 +39,7 @@ export const DisassemblyPanel = () => {
 
   return (
     <Panel
-      title="Disassembly"
+      title={title}
       action={
         <Button size="small" onClick={() => void fetchDisassembly()} disabled={loading || connectionState !== "connected"}>
           Refresh
@@ -56,7 +61,7 @@ export const DisassemblyPanel = () => {
         <Box component="pre" sx={{ fontFamily: "monospace", fontSize: 13, m: 0, p: 1.5 }}>
           {lines.map((line) => (
             <Typography
-              key={line.address}
+              key={`${target}-${line.address}`}
               component="div"
               sx={{
                 display: "flex",
@@ -78,3 +83,15 @@ export const DisassemblyPanel = () => {
     </Panel>
   );
 };
+
+export const Sh4DisassemblyPanel = () => (
+  <DisassemblyView title="SH4: Disassembly" target="sh4" defaultAddress={0x8c0000a0} count={32} context={4} />
+);
+
+export const Arm7DisassemblyPanel = () => (
+  <DisassemblyView title="ARM7: Disassembly" target="arm7" defaultAddress={0x00200000} count={24} context={4} />
+);
+
+export const DspDisassemblyPanel = () => (
+  <DisassemblyView title="DSP: Disassembly" target="dsp" defaultAddress={0x00000000} count={32} context={2} />
+);

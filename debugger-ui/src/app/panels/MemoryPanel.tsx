@@ -1,9 +1,9 @@
 ﻿import { useCallback, useEffect, useMemo, useState } from "react";
-import { Panel } from "../layout/Panel";
 import { DataGrid } from "@mui/x-data-grid";
 import type { GridColDef } from "@mui/x-data-grid";
 import { Button, CircularProgress, Stack, Typography } from "@mui/material";
 import type { MemorySlice } from "../../lib/debuggerSchema";
+import { Panel } from "../layout/Panel";
 import { useSessionStore } from "../../state/sessionStore";
 
 type MemoryRow = {
@@ -24,10 +24,16 @@ const columns: GridColDef<MemoryRow>[] = [
   { field: "ascii", headerName: "ASCII", flex: 1 },
 ];
 
-const DEFAULT_ADDRESS = 0x8c000000;
-const DEFAULT_LENGTH = 256;
+type MemoryViewConfig = {
+  title: string;
+  target: string;
+  defaultAddress: number;
+  length: number;
+  encoding?: MemorySlice["encoding"];
+  wordSize?: MemorySlice["wordSize"];
+};
 
-export const MemoryPanel = () => {
+const MemoryView = ({ title, target, defaultAddress, length, encoding, wordSize }: MemoryViewConfig) => {
   const client = useSessionStore((state) => state.client);
   const connectionState = useSessionStore((state) => state.connectionState);
   const [slice, setSlice] = useState<MemorySlice | null>(null);
@@ -39,14 +45,20 @@ export const MemoryPanel = () => {
     }
     setLoading(true);
     try {
-      const result = await client.fetchMemorySlice(DEFAULT_ADDRESS, DEFAULT_LENGTH);
+      const result = await client.fetchMemorySlice({
+        target,
+        address: defaultAddress,
+        length,
+        encoding,
+        wordSize,
+      });
       setSlice(result);
     } catch (error) {
-      console.error("Failed to fetch memory slice", error);
+      console.error(`Failed to fetch ${target} memory`, error);
     } finally {
       setLoading(false);
     }
-  }, [client, connectionState]);
+  }, [client, connectionState, target, defaultAddress, length, encoding, wordSize]);
 
   useEffect(() => {
     void fetchSlice();
@@ -77,7 +89,7 @@ export const MemoryPanel = () => {
 
   return (
     <Panel
-      title="Memory Viewer"
+      title={title}
       action={
         <Button size="small" onClick={() => void fetchSlice()} disabled={loading || connectionState !== "connected"}>
           Refresh
@@ -88,7 +100,7 @@ export const MemoryPanel = () => {
         <Stack alignItems="center" justifyContent="center" sx={{ height: "100%" }} spacing={1}>
           <CircularProgress size={18} />
           <Typography variant="body2" color="text.secondary">
-            Loading memory...
+            Loading memory…
           </Typography>
         </Stack>
       ) : slice && rows.length > 0 ? (
@@ -108,3 +120,11 @@ export const MemoryPanel = () => {
     </Panel>
   );
 };
+
+export const Sh4MemoryPanel = () => (
+  <MemoryView title="SH4: Memory" target="sh4" defaultAddress={0x8c000000} length={256} />
+);
+
+export const Arm7MemoryPanel = () => (
+  <MemoryView title="ARM7: Memory" target="arm7" defaultAddress={0x00200000} length={128} />
+);

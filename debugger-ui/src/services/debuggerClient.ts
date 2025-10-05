@@ -96,17 +96,18 @@ export class DebuggerClient {
     return this.rpc.call("state.unwatch", { expressions });
   }
 
-  async fetchMemorySlice(
-    address: number,
-    length: number,
-    encoding?: MemorySlice["encoding"],
-    wordSize?: MemorySlice["wordSize"],
-  ) {
-    return this.rpc.call("state.getMemorySlice", { address, length, encoding, wordSize });
+  async fetchMemorySlice(params: {
+    target: string;
+    address: number;
+    length: number;
+    encoding?: MemorySlice["encoding"];
+    wordSize?: MemorySlice["wordSize"];
+  }) {
+    return this.rpc.call("state.getMemorySlice", params);
   }
 
-  async fetchDisassembly(address: number, count: number, context?: number) {
-    return this.rpc.call("state.getDisassembly", { address, count, context });
+  async fetchDisassembly(params: { target: string; address: number; count: number; context?: number }) {
+    return this.rpc.call("state.getDisassembly", params);
   }
 
   async fetchFrameLog(frame: number, limit?: number) {

@@ -9,25 +9,26 @@ import { useSessionStore } from "../../state/sessionStore";
 import { useDebuggerDataStore } from "../../state/debuggerDataStore";
 import { DeviceTreePanel } from "../panels/DeviceTreePanel";
 import { WatchPanel } from "../panels/WatchPanel";
-import { MemoryPanel } from "../panels/MemoryPanel";
-import { DisassemblyPanel } from "../panels/DisassemblyPanel";
 import { EventLogPanel } from "../panels/EventLogPanel";
+import { Sh4DisassemblyPanel, Arm7DisassemblyPanel, DspDisassemblyPanel } from "../panels/DisassemblyPanel";
+import { Sh4MemoryPanel, Arm7MemoryPanel } from "../panels/MemoryPanel";
 import { AudioPanel } from "../panels/AudioPanel";
 import { ThreadsPanel } from "../panels/ThreadsPanel";
 import { TaInspectorPanel } from "../panels/TaInspectorPanel";
 import { CoreInspectorPanel } from "../panels/CoreInspectorPanel";
-import { DspPanel } from "../panels/DspPanel";
 import { BreakpointsPanel } from "../panels/BreakpointsPanel";
 
 const workspaceTabs = [
   { value: "events", label: "Event Log", component: <EventLogPanel /> },
-  { value: "disassembly", label: "Disassembly", component: <DisassemblyPanel /> },
-  { value: "memory", label: "Memory", component: <MemoryPanel /> },
+  { value: "sh4-disassembly", label: "SH4: Disassembly", component: <Sh4DisassemblyPanel /> },
+  { value: "sh4-memory", label: "SH4: Memory", component: <Sh4MemoryPanel /> },
+  { value: "arm7-disassembly", label: "ARM7: Disassembly", component: <Arm7DisassemblyPanel /> },
+  { value: "arm7-memory", label: "ARM7: Memory", component: <Arm7MemoryPanel /> },
   { value: "breakpoints", label: "Breakpoints", component: <BreakpointsPanel /> },
   { value: "ta", label: "TA", component: <TaInspectorPanel /> },
   { value: "core", label: "CORE", component: <CoreInspectorPanel /> },
   { value: "aica", label: "AICA", component: <AudioPanel /> },
-  { value: "dsp", label: "DSP", component: <DspPanel /> },
+  { value: "dsp", label: "DSP: Disassembly", component: <DspDisassemblyPanel /> },
 ];
 
 const connectionIcons = {
