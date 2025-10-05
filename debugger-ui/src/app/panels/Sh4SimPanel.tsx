@@ -18,7 +18,7 @@ import { alpha, lighten, useTheme } from "@mui/material/styles";
 import type { Theme } from "@mui/material/styles";
 import { Panel } from "../layout/Panel";
 import { SH4_SIM_DEFAULT_SOURCE } from "../sh4Sim/defaultSource";
-import { COLUMNS_PER_GROUP, getAssembleError, simulate, SH4_MNEMONICS, SH4_REGISTERS } from "../sh4Sim/sim";
+import { getAssembleError, simulate, SH4_MNEMONICS, SH4_REGISTERS } from "../sh4Sim/sim";
 import type { SimBlock, SimCell, SimulateResult } from "../sh4Sim/sim";
 import Editor from "@monaco-editor/react";
 // Using "any" here because @monaco-editor/react doesn't export a Monaco type compatible with monaco-editor versions.
@@ -129,11 +129,6 @@ export const Sh4SimPanel = () => {
     try {
       const encoded = encodeSource(source);
       setShareToken(encoded);
-      const current = new URL(window.location.href);
-      if (current.searchParams.get("source") !== encoded) {
-        current.searchParams.set("source", encoded);
-        window.history.replaceState({}, "", `${current.pathname}?${current.searchParams.toString()}${window.location.hash}`);
-      }
     } catch (error) {
       console.error("Failed to encode source", error);
       setShareToken(null);
@@ -601,6 +596,24 @@ export const Sh4SimPanel = () => {
             }}
           />
         </Box>
+        <Stack direction="row" spacing={2} alignItems="center">
+          <Tooltip title={copiedMain ? "Copied!" : "Copy share link"} open={copiedMain} arrow disableHoverListener>
+            <span>
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<ContentCopyIcon fontSize="small" />}
+                onClick={() => handleCopyShare(null)}
+                disabled={!shareToken}
+              >
+                Share
+              </Button>
+            </span>
+          </Tooltip>
+          <Button variant="outlined" size="small" startIcon={<PrintIcon fontSize="small" />} onClick={() => window.print()}>
+            Print
+          </Button>
+        </Stack>
         <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap">
           <FormControlLabel
             control={<Checkbox checked={hideCrosshairs} onChange={(event) => setHideCrosshairs(event.target.checked)} />}
@@ -614,9 +627,6 @@ export const Sh4SimPanel = () => {
             control={<Checkbox checked={lessBorders} onChange={(event) => setLessBorders(event.target.checked)} />}
             label="Less Borders"
           />
-          <Typography variant="caption" color="text.secondary">
-            Columns per group: {COLUMNS_PER_GROUP}
-          </Typography>
         </Stack>
         {assembleError && (
           <Alert severity="error" sx={{ maxWidth: 480 }}>
