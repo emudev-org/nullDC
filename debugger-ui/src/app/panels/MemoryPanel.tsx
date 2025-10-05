@@ -229,9 +229,9 @@ const MemoryView = ({
 };
 
 export const Sh4MemoryPanel = () => (
-  <MemoryView title="SH4: Memory" target="sh4" defaultAddress={0x8c000000} length={960} />
+  <MemoryView title="SH4: Memory" target="sh4" defaultAddress={0x8c000000} length={VISIBLE_ROWS*BYTES_PER_ROW} />
 );
 
 export const Arm7MemoryPanel = () => (
-  <MemoryView title="ARM7: Memory" target="arm7" defaultAddress={0x00200000} length={960} />
+  <MemoryView title="ARM7: Memory" target="arm7" defaultAddress={0x00200000} length={VISIBLE_ROWS*BYTES_PER_ROW} />
 );

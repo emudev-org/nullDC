@@ -20,7 +20,7 @@ interface TileData {
 interface PixelWrite {
   type: "ISP" | "TSP";
   seq: number;
-  params: Record<string, any>;
+  params: Record<string, number>;
   status?: string;
   writtenDepth?: number;
   readStencil?: number;
@@ -53,7 +53,7 @@ interface PrimData {
   culled: boolean;
   pixels: number;
   seq: number;
-  params: Record<string, any>;
+  params: Record<string, number>;
 }
 
 const RENDER_MODES: Record<number, string> = {
@@ -202,15 +202,51 @@ export const CoreInspectorPanel = () => {
           break;
         }
 
-        case "CC":
-        case "FC":
-        case "FU":
-        case "IB":
-        case "IO":
-        case "TF":
+        case "CC": {
+          if (currentTsp) {
+            currentTsp.CC = Number.parseInt(parts[1], 16);
+          }
+          break;
+        }
+
+        case "FC": {
+          if (currentTsp) {
+            currentTsp.FC = Number.parseInt(parts[1], 16);
+          }
+          break;
+        }
+
+        case "FU": {
+          if (currentTsp) {
+            currentTsp.FU = Number.parseInt(parts[1], 16);
+          }
+          break;
+        }
+
+        case "IB": {
+          if (currentTsp) {
+            currentTsp.IB = Number.parseInt(parts[1], 16);
+          }
+          break;
+        }
+
+        case "IO": {
+          if (currentTsp) {
+            currentTsp.IO = Number.parseInt(parts[1], 16);
+          }
+          break;
+        }
+
+        case "TF": {
+          if (currentTsp) {
+            currentTsp.TF = Number.parseInt(parts[1], 16);
+          }
+          break;
+        }
+
         case "BM": {
           if (currentTsp) {
-            (currentTsp as any)[parts[0]] = Number.parseInt(parts[1], 16);
+            currentTsp.BM = Number.parseInt(parts[1], 16);
           }
           break;
         }
@@ -461,7 +497,7 @@ export const CoreInspectorPanel = () => {
   const detailsContent = useMemo(() => {
     if (!selectedPixel) return null;
 
-    const { tileId, tileX, tileY, localX, localY } = selectedPixel;
+    const { tileId, tileX: _tileX, tileY: _tileY, localX, localY } = selectedPixel;
     const localIndex = localX + localY * 32;
     const tileDatas = tiles[tileId];
 
@@ -485,7 +521,7 @@ export const CoreInspectorPanel = () => {
         </Typography>
         <Box sx={{ borderTop: 1, borderColor: "divider", mt: 2, pt: 2 }}>
           {tileDatas.map((tile, idx) => {
-            const pixelWrites = tile.pixels[localX + localY * 32] || [];
+            const pixelWrites = tile.pixels[localIndex] || [];
             const globalOps = tile.global_ops || [];
             const events = [
               ...pixelWrites.map((w) => ({ type: "write" as const, seq: w.seq, data: w })),
@@ -534,7 +570,7 @@ export const CoreInspectorPanel = () => {
                   {events.map((ev, widx) => {
                     if (ev.type === "write") {
                       const write = ev.data as PixelWrite;
-                      let heading = write.type;
+                      const heading = write.type;
                       const tagHex = write.params?.tag !== undefined ? write.params.tag.toString(16) : null;
 
                       return (
