@@ -52,6 +52,7 @@ const MemoryView = ({
   const requestIdRef = useRef(0);
   const wheelRemainder = useRef(0);
   const pendingScrollDelta = useRef(0);
+  const containerRef = useRef<HTMLDivElement | null>(null);
 
   const maxAddress = useMemo(() => 0xffffffff - Math.max(length - 1, 0), [length]);
 
@@ -130,7 +131,7 @@ const MemoryView = ({
   );
 
   const handleWheel = useCallback(
-    (event: React.WheelEvent<HTMLDivElement>) => {
+    (event: WheelEvent) => {
       event.preventDefault();
       wheelRemainder.current += event.deltaY;
 
@@ -150,6 +151,23 @@ const MemoryView = ({
     },
     [adjustAddress, loading],
   );
+
+  useEffect(() => {
+    const node = containerRef.current;
+    if (!node) {
+      return;
+    }
+
+    const listener = (event: WheelEvent) => {
+      handleWheel(event);
+    };
+
+    node.addEventListener("wheel", listener, { passive: false });
+
+    return () => {
+      node.removeEventListener("wheel", listener);
+    };
+  }, [handleWheel]);
 
   const handleAddressSubmit = useCallback(() => {
     const normalized = addressInput.trim();
@@ -200,7 +218,7 @@ const MemoryView = ({
         </Stack>
       ) : slice && rows.length > 0 ? (
         <Box
-          onWheel={handleWheel}
+          ref={containerRef}
           sx={{
             height: "100%",
             flex: 1,
