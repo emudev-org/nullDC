@@ -26,6 +26,7 @@ const clampAddress = (value: number, max: number) => {
 const WHEEL_PIXEL_THRESHOLD = 60;
 const MEMORY_SCROLL_BYTES = 96;
 const BYTES_PER_ROW = 16;
+const VISIBLE_ROWS = 60;
 
 const MemoryView = ({
   title,
@@ -228,9 +229,9 @@ const MemoryView = ({
 };
 
 export const Sh4MemoryPanel = () => (
-  <MemoryView title="SH4: Memory" target="sh4" defaultAddress={0x8c000000} length={256} />
+  <MemoryView title="SH4: Memory" target="sh4" defaultAddress={0x8c000000} length={960} />
 );
 
 export const Arm7MemoryPanel = () => (
-  <MemoryView title="ARM7: Memory" target="arm7" defaultAddress={0x00200000} length={128} />
+  <MemoryView title="ARM7: Memory" target="arm7" defaultAddress={0x00200000} length={960} />
 );
