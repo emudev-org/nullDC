@@ -1,6 +1,6 @@
 ﻿import { useMemo } from "react";
 import { Panel } from "../layout/Panel";
-import { Chip, List, ListItem, ListItemText, Typography } from "@mui/material";
+import { Chip, List, ListItem, ListItemText, Stack, Typography } from "@mui/material";
 import { useDebuggerDataStore } from "../../state/debuggerDataStore";
 
 const severityColor: Record<string, "default" | "primary" | "warning" | "error"> = {
@@ -31,16 +31,22 @@ export const EventLogPanel = () => {
                   </Typography>
                 }
                 secondary={
-                  <Typography variant="body2" color={severityColor[entry.severity] ?? "inherit"}>
+                  <Stack direction="row" spacing={1} alignItems="center" component="span">
                     <Chip
                       size="small"
                       label={entry.subsystem.toUpperCase()}
                       color={entry.subsystem === "ta" ? "secondary" : "default"}
-                      sx={{ mr: 1 }}
                     />
-                    {entry.message}
-                  </Typography>
+                    <Typography
+                      component="span"
+                      variant="body2"
+                      color={severityColor[entry.severity] ?? "inherit"}
+                    >
+                      {entry.message}
+                    </Typography>
+                  </Stack>
                 }
+                secondaryTypographyProps={{ component: "div" }}
               />
             </ListItem>
           ))}
@@ -49,3 +55,4 @@ export const EventLogPanel = () => {
     </Panel>
   );
 };
+

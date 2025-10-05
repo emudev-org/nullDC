@@ -18,7 +18,6 @@ export const debuggerTheme = createTheme({
   typography: {
     fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
     h6: {
-      textTransform: "uppercase",
       letterSpacing: 1.6,
     },
     body2: {

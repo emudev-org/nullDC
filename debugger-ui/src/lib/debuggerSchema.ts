@@ -15,6 +15,7 @@ export interface DeviceNodeDescriptor {
   label: string;
   kind: DeviceKind;
   description?: string;
+  registers?: RegisterValue[];
   children?: DeviceNodeDescriptor[];
 }
 
@@ -190,3 +191,4 @@ export type DebuggerNotification =
       topic: "stream.frameLog";
       payload: FrameLogEntry;
     };
+

@@ -40,35 +40,132 @@ const deviceTree: DeviceNodeDescriptor[] = [
     path: "dc",
     label: "Dreamcast",
     kind: "bus",
+    description: "Sega Dreamcast system bus",
+    registers: [
+      { name: "SYSCLK", value: "200MHz", width: 0 },
+      { name: "ASIC_REV", value: "0x0001", width: 16 },
+    ],
     children: [
       {
         path: "dc.sh4",
         label: "SH4",
         kind: "processor",
+        description: "Hitachi SH-4 main CPU",
+        registers: [
+          { name: "VBR", value: "0x8C000000", width: 32 },
+          { name: "SR", value: "0x40000000", width: 32 },
+          { name: "FPSCR", value: "0x00040001", width: 32 },
+        ],
         children: [
-          { path: "dc.sh4.cpu", label: "Core", kind: "processor" },
-          { path: "dc.sh4.icache", label: "I-Cache", kind: "peripheral" },
-          { path: "dc.sh4.dcache", label: "D-Cache", kind: "peripheral" },
-          { path: "dc.sh4.tlb", label: "TLB", kind: "peripheral" },
+          {
+            path: "dc.sh4.cpu",
+            label: "Core",
+            kind: "processor",
+            description: "Integer pipeline",
+            registers: [
+              { name: "PC", value: "0x8C0000A0", width: 32 },
+              { name: "PR", value: "0x8C0000A2", width: 32 },
+            ],
+          },
+          {
+            path: "dc.sh4.icache",
+            label: "I-Cache",
+            kind: "peripheral",
+            description: "Instruction cache",
+            registers: [
+              { name: "ICRAM", value: "16KB", width: 0 },
+              { name: "ICACHE_CTRL", value: "0x00000003", width: 32 },
+            ],
+          },
+          {
+            path: "dc.sh4.dcache",
+            label: "D-Cache",
+            kind: "peripheral",
+            description: "Data cache",
+            registers: [
+              { name: "DCRAM", value: "8KB", width: 0 },
+              { name: "DCACHE_CTRL", value: "0x00000003", width: 32 },
+            ],
+          },
+          {
+            path: "dc.sh4.tlb",
+            label: "TLB",
+            kind: "peripheral",
+            description: "Translation lookaside buffer",
+            registers: [
+              { name: "UTLB_ENTRIES", value: "64", width: 0 },
+              { name: "ITLB_ENTRIES", value: "4", width: 0 },
+            ],
+          },
         ],
       },
       {
         path: "dc.holly",
         label: "Holly",
         kind: "peripheral",
+        description: "System ASIC",
+        registers: [
+          { name: "HOLLY_ID", value: "0x00050000", width: 32 },
+          { name: "DMAC_CTRL", value: "0x00000001", width: 32 },
+        ],
         children: [
-          { path: "dc.holly.dmac", label: "DMA", kind: "peripheral" },
-          { path: "dc.holly.ta", label: "TA", kind: "pipeline" },
-          { path: "dc.holly.core", label: "CORE", kind: "pipeline" },
+          {
+            path: "dc.holly.dmac",
+            label: "DMA Controller",
+            kind: "peripheral",
+            registers: [
+              { name: "DMAOR", value: "0x8201", width: 16 },
+              { name: "CHCR0", value: "0x00000001", width: 32 },
+            ],
+          },
+          {
+            path: "dc.holly.ta",
+            label: "TA",
+            kind: "pipeline",
+            registers: [
+              { name: "TA_LIST_BASE", value: "0x0C000000", width: 32 },
+              { name: "TA_STATUS", value: "0x00000000", width: 32 },
+            ],
+          },
+          {
+            path: "dc.holly.core",
+            label: "CORE",
+            kind: "pipeline",
+            registers: [
+              { name: "PVR_CTRL", value: "0x00000001", width: 32 },
+              { name: "PVR_STATUS", value: "0x00010000", width: 32 },
+            ],
+          },
         ],
       },
       {
         path: "dc.aica",
         label: "AICA",
         kind: "coprocessor",
+        description: "Sound processor",
+        registers: [
+          { name: "AICA_CTRL", value: "0x00000002", width: 32 },
+          { name: "AICA_STATUS", value: "0x00000001", width: 32 },
+        ],
         children: [
-          { path: "dc.aica.channels", label: "Channels", kind: "channel" },
-          { path: "dc.aica.dsp", label: "DSP", kind: "coprocessor" },
+          {
+            path: "dc.aica.channels",
+            label: "Channels",
+            kind: "channel",
+            registers: [
+              { name: "CH0_VOL", value: "0x7F", width: 8 },
+              { name: "CH1_VOL", value: "0x6A", width: 8 },
+            ],
+          },
+          {
+            path: "dc.aica.dsp",
+            label: "DSP",
+            kind: "coprocessor",
+            registers: [
+              { name: "DSP_PC", value: "0x020", width: 16 },
+              { name: "DSP_ACC", value: "0x1F", width: 16 },
+            ],
+          },
         ],
       },
     ],
@@ -431,6 +528,7 @@ const start = async () => {
 };
 
 void start();
+
 
 
 

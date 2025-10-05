@@ -8,14 +8,11 @@ import type {
   WaveformChunk,
 } from "../lib/debuggerSchema";
 import type { DebuggerClient } from "../services/debuggerClient";
-
 const DEFAULT_WATCH_EXPRESSIONS = ["dc.sh4.cpu.pc", "dc.sh4.dmac.dmaor"] as const;
 const FRAME_LOG_LIMIT = 200;
-
 interface RegistersByPath {
   [path: string]: RegisterValue[];
 }
-
 interface DebuggerDataState {
   initialized: boolean;
   client?: DebuggerClient;
@@ -30,10 +27,10 @@ interface DebuggerDataState {
   notificationUnsub?: () => void;
   initialize: (client: DebuggerClient) => Promise<void>;
   reset: () => void;
+  refreshDeviceTree: () => Promise<void>;
   addWatch: (expression: string) => Promise<void>;
   removeWatch: (expression: string) => Promise<void>;
 }
-
 export const useDebuggerDataStore = create<DebuggerDataState>()((set, get) => ({
   initialized: false,
   deviceTree: [],
@@ -47,7 +44,6 @@ export const useDebuggerDataStore = create<DebuggerDataState>()((set, get) => ({
   async initialize(client) {
     const { notificationUnsub } = get();
     notificationUnsub?.();
-
     set({
       client,
       initialized: false,
@@ -56,7 +52,6 @@ export const useDebuggerDataStore = create<DebuggerDataState>()((set, get) => ({
       threads: [],
       frameLog: [],
     });
-
     try {
       const describe = await client.describe(["devices", "breakpoints", "threads"]);
       set({
@@ -64,7 +59,6 @@ export const useDebuggerDataStore = create<DebuggerDataState>()((set, get) => ({
         breakpoints: describe.breakpoints ?? [],
         threads: describe.threads ?? [],
       });
-
       const registers = await client.fetchRegisters("dc.sh4.cpu");
       set((state) => ({
         registersByPath: {
@@ -72,10 +66,8 @@ export const useDebuggerDataStore = create<DebuggerDataState>()((set, get) => ({
           [registers.path]: registers.registers,
         },
       }));
-
       const frameLog = await client.fetchFrameLog(0, 64);
       set({ frameLog: frameLog.entries });
-
       const subscriptionTopics = [
         "state.registers",
         "state.watch",
@@ -85,7 +77,6 @@ export const useDebuggerDataStore = create<DebuggerDataState>()((set, get) => ({
         "stream.frameLog",
       ];
       await client.subscribe(subscriptionTopics);
-
       if (DEFAULT_WATCH_EXPRESSIONS.length > 0) {
         const defaults = Array.from(DEFAULT_WATCH_EXPRESSIONS);
         const result = await client.watch(defaults);
@@ -97,7 +88,6 @@ export const useDebuggerDataStore = create<DebuggerDataState>()((set, get) => ({
           },
         }));
       }
-
       const unsub = client.onNotification((notification) => {
         switch (notification.topic) {
           case "state.registers": {
@@ -165,7 +155,6 @@ export const useDebuggerDataStore = create<DebuggerDataState>()((set, get) => ({
             break;
         }
       });
-
       set({ initialized: true, notificationUnsub: unsub });
     } catch (error) {
       console.error("Failed to initialize debugger data", error);
@@ -200,6 +189,14 @@ export const useDebuggerDataStore = create<DebuggerDataState>()((set, get) => ({
       waveform: null,
       notificationUnsub: undefined,
     });
+  },
+  async refreshDeviceTree() {
+    const { client } = get();
+    if (!client) {
+      throw new Error("Debugger client not connected");
+    }
+    const devices = await client.fetchDeviceTree();
+    set({ deviceTree: devices ?? [] });
   },
   async addWatch(expression) {
     const trimmed = expression.trim();
@@ -243,3 +240,5 @@ export const useDebuggerDataStore = create<DebuggerDataState>()((set, get) => ({
     }
   },
 }));
+
+
