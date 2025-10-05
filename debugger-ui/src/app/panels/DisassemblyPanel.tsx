@@ -315,7 +315,7 @@ const DisassemblyView = ({
 
                 return (
                   <Box
-                    key={`${line.address}-${line.mnemonic}-${line.operands}`}
+                    key={`${line.address}-${hasBreakpoint}-${breakpointEnabled}`}
                     sx={{
                       display: "grid",
                       gridTemplateColumns: target === "dsp" ? "24px 80px 120px 1fr" : "24px 140px 140px 1fr",
