@@ -1,17 +1,12 @@
 ﻿import { create } from "zustand";
+import { appConfig, resolveEndpoint, resolveTransportOptions } from "../config";
 import { DebuggerClient } from "../services/debuggerClient";
-import type { DebuggerClientConfig } from "../services/debuggerClient";
 
 export type ConnectionState = "idle" | "connecting" | "connected" | "error";
 
 export interface SessionInfo {
   sessionId: string;
   capabilities: string[];
-}
-
-interface ConnectPayload extends Omit<DebuggerClientConfig, "rpcOptions"> {
-  clientName: string;
-  clientVersion: string;
 }
 
 interface SessionStore {
@@ -21,20 +16,26 @@ interface SessionStore {
   connectionState: ConnectionState;
   connectionError?: string;
   session?: SessionInfo;
-  connect: (payload: ConnectPayload) => Promise<void>;
+  connect: (options?: { force?: boolean }) => Promise<void>;
   disconnect: () => void;
-  setMode: (mode: "native" | "wasm") => void;
 }
 
 export const useSessionStore = create<SessionStore>()((set, get) => ({
-  mode: "native",
+  mode: appConfig.mode,
   connectionState: "idle",
-  async connect({ mode, endpoint, clientName, clientVersion, transportOptions }) {
+  async connect({ force } = {}) {
     const current = get();
+    if (!force && (current.connectionState === "connecting" || current.connectionState === "connected")) {
+      return;
+    }
+
     current.client?.disconnect();
 
+    const endpoint = resolveEndpoint();
+    const transportOptions = resolveTransportOptions();
+
     const client = new DebuggerClient({
-      mode,
+      mode: appConfig.mode,
       endpoint,
       transportOptions,
     });
@@ -42,7 +43,6 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
     set({
       connectionState: "connecting",
       connectionError: undefined,
-      mode,
       endpoint,
       client,
       session: undefined,
@@ -50,7 +50,7 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
 
     try {
       await client.connect();
-      const handshake = await client.handshake(clientName, clientVersion, mode);
+      const handshake = await client.handshake(appConfig.clientName, appConfig.clientVersion, appConfig.mode);
       set({
         session: handshake,
         connectionState: "connected",
@@ -76,8 +76,5 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
       client: undefined,
       session: undefined,
     });
-  },
-  setMode(mode) {
-    set({ mode });
   },
 }));

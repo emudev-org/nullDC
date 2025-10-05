@@ -5,45 +5,7 @@ import type { DeviceNodeDescriptor } from "../../lib/debuggerSchema";
 import { Stack, Typography } from "@mui/material";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
-
-const placeholderTree: DeviceNodeDescriptor[] = [
-  {
-    path: "dc",
-    label: "Dreamcast",
-    kind: "bus",
-    children: [
-      {
-        path: "dc.sh4",
-        label: "SH4 CPU",
-        kind: "processor",
-        children: [
-          { path: "dc.sh4.cpu", label: "Core", kind: "processor" },
-          { path: "dc.sh4.icache", label: "I-Cache", kind: "peripheral" },
-          { path: "dc.sh4.dcache", label: "D-Cache", kind: "peripheral" },
-          { path: "dc.sh4.tlb", label: "TLB", kind: "peripheral" },
-        ],
-      },
-      {
-        path: "dc.holly",
-        label: "Holly",
-        kind: "peripheral",
-        children: [
-          { path: "dc.holly.dmac", label: "DMA Controller", kind: "peripheral" },
-          { path: "dc.holly.pvr", label: "PowerVR", kind: "pipeline" },
-        ],
-      },
-      {
-        path: "dc.aica",
-        label: "AICA",
-        kind: "coprocessor",
-        children: [
-          { path: "dc.aica.channels", label: "Channels", kind: "channel" },
-          { path: "dc.aica.dsp", label: "DSP", kind: "coprocessor" },
-        ],
-      },
-    ],
-  },
-];
+import { useDebuggerDataStore } from "../../state/debuggerDataStore";
 
 const renderNode = (node: DeviceNodeDescriptor) => (
   <TreeItem
@@ -64,20 +26,30 @@ const renderNode = (node: DeviceNodeDescriptor) => (
   </TreeItem>
 );
 
+const gatherExpanded = (nodes: DeviceNodeDescriptor[]): string[] =>
+  nodes.flatMap((node) => [node.path, ...(node.children ? gatherExpanded(node.children) : [])]);
+
 export const DeviceTreePanel = () => {
-  const data = useMemo(() => placeholderTree, []);
+  const deviceTree = useDebuggerDataStore((state) => state.deviceTree);
+  const expanded = useMemo(() => gatherExpanded(deviceTree), [deviceTree]);
 
   return (
     <Panel title="Device Tree">
-      <TreeView
-        defaultCollapseIcon={<ExpandMoreIcon fontSize="small" />}
-        defaultExpandIcon={<ChevronRightIcon fontSize="small" />}
-        sx={{ px: 1, py: 1 }}
-        multiSelect
-        defaultExpanded={["dc", "dc.sh4", "dc.holly", "dc.aica"]}
-      >
-        {data.map(renderNode)}
-      </TreeView>
+      {deviceTree.length === 0 ? (
+        <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
+          Device information unavailable. Ensure the debugger connection is active.
+        </Typography>
+      ) : (
+        <TreeView
+          defaultCollapseIcon={<ExpandMoreIcon fontSize="small" />}
+          defaultExpandIcon={<ChevronRightIcon fontSize="small" />}
+          sx={{ px: 1, py: 1 }}
+          multiSelect
+          defaultExpanded={expanded}
+        >
+          {deviceTree.map(renderNode)}
+        </TreeView>
+      )}
     </Panel>
   );
 };

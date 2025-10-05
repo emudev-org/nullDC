@@ -4,6 +4,7 @@ import type {
   DebuggerNotification,
   DebuggerRpcSchema,
   FrameLogEntry,
+  MemorySlice,
   RegisterValue,
   ThreadInfo,
   WaveformChunk,
@@ -65,6 +66,51 @@ export class DebuggerClient {
   async fetchDeviceTree() {
     const { devices } = await this.rpc.call("debugger.describe", { include: ["devices"] });
     return devices;
+  }
+
+  async subscribe(topics: string[]) {
+    if (!topics.length) {
+      return { acknowledged: [] as string[] };
+    }
+    return this.rpc.call("debugger.subscribe", { topics });
+  }
+
+  async unsubscribe(topics: string[]) {
+    if (!topics.length) {
+      return { acknowledged: [] as string[] };
+    }
+    return this.rpc.call("debugger.unsubscribe", { topics });
+  }
+
+  async watch(expressions: string[]) {
+    if (!expressions.length) {
+      return { accepted: [] as string[] };
+    }
+    return this.rpc.call("state.watch", { expressions });
+  }
+
+  async unwatch(expressions: string[]) {
+    if (!expressions.length) {
+      return { accepted: [] as string[] };
+    }
+    return this.rpc.call("state.unwatch", { expressions });
+  }
+
+  async fetchMemorySlice(
+    address: number,
+    length: number,
+    encoding?: MemorySlice["encoding"],
+    wordSize?: MemorySlice["wordSize"],
+  ) {
+    return this.rpc.call("state.getMemorySlice", { address, length, encoding, wordSize });
+  }
+
+  async fetchDisassembly(address: number, count: number, context?: number) {
+    return this.rpc.call("state.getDisassembly", { address, count, context });
+  }
+
+  async fetchFrameLog(frame: number, limit?: number) {
+    return this.rpc.call("logs.fetchFrameLog", { frame, limit });
   }
 
   async sendNotification(method: keyof DebuggerRpcSchema, params: unknown) {

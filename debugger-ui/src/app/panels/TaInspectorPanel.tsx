@@ -1,23 +1,36 @@
-﻿import { Panel } from "../layout/Panel";
+﻿import { useMemo } from "react";
+import { Panel } from "../layout/Panel";
 import { List, ListItem, ListItemText, Typography } from "@mui/material";
+import { useDebuggerDataStore } from "../../state/debuggerDataStore";
 
-const primitives = [
-  { type: "Triangle Strip", count: 32 },
-  { type: "Quad", count: 12 },
-  { type: "Sprite", count: 8 },
-];
+export const TaInspectorPanel = () => {
+  const frameLog = useDebuggerDataStore((state) => state.frameLog);
+  const entries = useMemo(
+    () => (Array.isArray(frameLog) ? frameLog.filter((entry) => entry.subsystem === "ta") : []),
+    [frameLog],
+  );
 
-export const TaInspectorPanel = () => (
-  <Panel title="TA Debugger">
-    <List dense disablePadding>
-      {primitives.map((primitive) => (
-        <ListItem key={primitive.type}>
-          <ListItemText
-            primary={primitive.type}
-            secondary={<Typography variant="caption">{`${primitive.count} primitives`}</Typography>}
-          />
-        </ListItem>
-      ))}
-    </List>
-  </Panel>
-);
+  return (
+    <Panel title="TA Debugger">
+      {entries.length === 0 ? (
+        <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
+          No TA activity recorded for the current session.
+        </Typography>
+      ) : (
+        <List dense disablePadding>
+          {entries
+            .slice(-10)
+            .reverse()
+            .map((entry, idx) => (
+              <ListItem key={`${entry.timestamp}-${idx}`}>
+                <ListItemText
+                  primary={entry.message}
+                  secondary={new Date(entry.timestamp).toLocaleTimeString(undefined, { hour12: false })}
+                />
+              </ListItem>
+            ))}
+        </List>
+      )}
+    </Panel>
+  );
+};

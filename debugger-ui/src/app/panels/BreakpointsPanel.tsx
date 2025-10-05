@@ -1,49 +1,48 @@
 ﻿import { Panel } from "../layout/Panel";
-import { Chip, IconButton, List, ListItem, ListItemText, Stack, Switch, Tooltip, Typography } from "@mui/material";
+import { Chip, IconButton, List, ListItem, ListItemText, Switch, Tooltip, Typography } from "@mui/material";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import { useDebuggerDataStore } from "../../state/debuggerDataStore";
 
-const breakpoints = [
-  {
-    id: "bp-1",
-    label: "dc.sh4.cpu.pc == 0x8C0000A0",
-    kind: "code",
-    enabled: true,
-  },
-  {
-    id: "bp-2",
-    label: "dc.aica.channel[0].step",
-    kind: "event",
-    enabled: false,
-  },
-];
+export const BreakpointsPanel = () => {
+  const breakpoints = useDebuggerDataStore((state) => state.breakpoints);
 
-export const BreakpointsPanel = () => (
-  <Panel title="Breakpoints">
-    <List dense disablePadding>
-      {breakpoints.map((bp) => (
-        <ListItem
-          key={bp.id}
-          secondaryAction={
-            <Stack direction="row" spacing={1} alignItems="center">
-              <Switch size="small" defaultChecked={bp.enabled} />
-              <Tooltip title="Remove breakpoint">
-                <IconButton edge="end" size="small">
-                  <DeleteOutlineIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-            </Stack>
-          }
-        >
-          <ListItemText
-            primary={
-              <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
-                {bp.label}
-              </Typography>
-            }
-            secondary={<Chip label={bp.kind} size="small" color="primary" />}
-          />
-        </ListItem>
-      ))}
-    </List>
-  </Panel>
-);
+  return (
+    <Panel title="Breakpoints">
+      {breakpoints.length === 0 ? (
+        <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
+          No breakpoints defined.
+        </Typography>
+      ) : (
+        <List dense disablePadding>
+          {breakpoints.map((bp) => (
+            <ListItem
+              key={bp.id}
+              secondaryAction={
+                <Tooltip title="Editing breakpoints will be supported soon">
+                  <IconButton edge="end" size="small" disabled>
+                    <DeleteOutlineIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              }
+            >
+              <ListItemText
+                primary={
+                  <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
+                    {bp.location}
+                  </Typography>
+                }
+                secondary={
+                  <Typography variant="caption" color="text.secondary" sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+                    <Chip label={bp.kind} size="small" color="primary" variant="outlined" />
+                    <Switch size="small" checked={bp.enabled} disabled />
+                    <span>Hits: {bp.hitCount}</span>
+                  </Typography>
+                }
+              />
+            </ListItem>
+          ))}
+        </List>
+      )}
+    </Panel>
+  );
+};

@@ -1,33 +1,80 @@
-﻿import { Panel } from "../layout/Panel";
-import { Box, Typography } from "@mui/material";
+﻿import { useCallback, useEffect, useState } from "react";
+import { Panel } from "../layout/Panel";
+import { Box, Button, CircularProgress, Stack, Typography } from "@mui/material";
+import type { DisassemblyLine } from "../../lib/debuggerSchema";
+import { useSessionStore } from "../../state/sessionStore";
 
-const placeholder = [
-  { address: 0x8C0000A0, bytes: "02 45", mnemonic: "mov.l", operands: "@r15+, r1", current: true },
-  { address: 0x8C0000A2, bytes: "6E F6", mnemonic: "mov", operands: "r15, r14" },
-  { address: 0x8C0000A4, bytes: "4F 22", mnemonic: "sts.l", operands: "pr, @-r15" },
-];
+const DEFAULT_ADDRESS = 0x8c0000a0;
+const DEFAULT_COUNT = 32;
 
 export const DisassemblyPanel = () => {
+  const client = useSessionStore((state) => state.client);
+  const connectionState = useSessionStore((state) => state.connectionState);
+  const [lines, setLines] = useState<DisassemblyLine[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const fetchDisassembly = useCallback(async () => {
+    if (!client || connectionState !== "connected") {
+      return;
+    }
+    setLoading(true);
+    try {
+      const result = await client.fetchDisassembly(DEFAULT_ADDRESS, DEFAULT_COUNT, 4);
+      setLines(result.lines);
+    } catch (error) {
+      console.error("Failed to fetch disassembly", error);
+    } finally {
+      setLoading(false);
+    }
+  }, [client, connectionState]);
+
+  useEffect(() => {
+    void fetchDisassembly();
+  }, [fetchDisassembly]);
+
   return (
-    <Panel title="Disassembly">
-      <Box component="pre" sx={{ fontFamily: "monospace", fontSize: 13, m: 0, p: 1.5 }}>
-        {placeholder.map((line) => (
-          <Typography
-            key={line.address}
-            component="div"
-            sx={{
-              display: "flex",
-              gap: 2,
-              color: line.current ? "primary.main" : "inherit",
-            }}
-          >
-            <span>{`0x${line.address.toString(16).padStart(8, "0")}`}</span>
-            <span>{line.bytes.padEnd(11, " ")}</span>
-            <span>{line.mnemonic.padEnd(8, " ")}</span>
-            <span>{line.operands}</span>
+    <Panel
+      title="Disassembly"
+      action={
+        <Button size="small" onClick={() => void fetchDisassembly()} disabled={loading || connectionState !== "connected"}>
+          Refresh
+        </Button>
+      }
+    >
+      {loading && lines.length === 0 ? (
+        <Stack alignItems="center" justifyContent="center" sx={{ height: "100%" }} spacing={1}>
+          <CircularProgress size={18} />
+          <Typography variant="body2" color="text.secondary">
+            Loading disassembly…
           </Typography>
-        ))}
-      </Box>
+        </Stack>
+      ) : lines.length === 0 ? (
+        <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
+          Disassembly unavailable.
+        </Typography>
+      ) : (
+        <Box component="pre" sx={{ fontFamily: "monospace", fontSize: 13, m: 0, p: 1.5 }}>
+          {lines.map((line) => (
+            <Typography
+              key={line.address}
+              component="div"
+              sx={{
+                display: "flex",
+                gap: 2,
+                color: line.isCurrent ? "primary.main" : "inherit",
+              }}
+            >
+              <span>{`0x${line.address.toString(16).toUpperCase().padStart(8, "0")}`}</span>
+              <span>{line.bytes.padEnd(11, " ")}</span>
+              <span>{line.mnemonic.padEnd(8, " ")}</span>
+              <span>{line.operands}</span>
+              {line.comment && (
+                <span style={{ color: "var(--mui-palette-text-secondary)" }}>; {line.comment}</span>
+              )}
+            </Typography>
+          ))}
+        </Box>
+      )}
     </Panel>
   );
 };
