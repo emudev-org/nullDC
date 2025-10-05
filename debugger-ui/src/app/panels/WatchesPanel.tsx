@@ -1,42 +1,34 @@
-﻿import { useCallback, useState } from "react";
+﻿import { useCallback } from "react";
 import { Panel } from "../layout/Panel";
-import { IconButton, List, ListItem, ListItemText, Tooltip, Typography, CircularProgress, Stack } from "@mui/material";
+import { IconButton, List, ListItem, ListItemText, Tooltip, Typography } from "@mui/material";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import AddIcon from "@mui/icons-material/Add";
 import { useDebuggerDataStore } from "../../state/debuggerDataStore";
 
-export const WatchPanel = () => {
+export const WatchesPanel = () => {
   const watchExpressions = useDebuggerDataStore((state) => state.watchExpressions);
   const watchValues = useDebuggerDataStore((state) => state.watchValues);
   const addWatch = useDebuggerDataStore((state) => state.addWatch);
   const removeWatch = useDebuggerDataStore((state) => state.removeWatch);
-  const initialized = useDebuggerDataStore((state) => state.initialized);
-  const [busyExpression, setBusyExpression] = useState<string | null>(null);
 
   const handleAdd = useCallback(async () => {
     const expression = window.prompt("Add watch expression", "dc.sh4.cpu.pc");
     if (!expression) {
       return;
     }
-    setBusyExpression(expression);
     await addWatch(expression);
-    setBusyExpression(null);
   }, [addWatch]);
 
   const handleRemove = useCallback(
     async (expression: string) => {
-      setBusyExpression(expression);
       await removeWatch(expression);
-      setBusyExpression(null);
     },
     [removeWatch],
   );
 
-  const isBusy = (expression: string) => busyExpression === expression;
-
   return (
     <Panel
-      title="Watch"
+      title="Watches"
       action={
         <Tooltip title="Add watch">
           <IconButton size="small" color="primary" onClick={handleAdd}>
@@ -45,14 +37,7 @@ export const WatchPanel = () => {
         </Tooltip>
       }
     >
-      {!initialized ? (
-        <Stack direction="row" alignItems="center" justifyContent="center" sx={{ p: 2 }} spacing={1}>
-          <CircularProgress size={16} />
-          <Typography variant="body2" color="text.secondary">
-            Connecting to debugger…
-          </Typography>
-        </Stack>
-      ) : watchExpressions.length === 0 ? (
+      {watchExpressions.length === 0 ? (
         <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
           No watches subscribed.
         </Typography>
@@ -67,9 +52,8 @@ export const WatchPanel = () => {
                   size="small"
                   aria-label={`Remove ${expression}`}
                   onClick={() => void handleRemove(expression)}
-                  disabled={isBusy(expression)}
                 >
-                  {isBusy(expression) ? <CircularProgress size={14} /> : <DeleteOutlineIcon fontSize="small" />}
+                  <DeleteOutlineIcon fontSize="small" />
                 </IconButton>
               }
             >

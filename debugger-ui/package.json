@@ -1,7 +1,7 @@
 {
   "name": "nulldc-debugger",
   "private": true,
-  "version": "2.0.0-pre",
+  "version": "__APP_VERSION__",
   "type": "module",
   "scripts": {
     "dev": "vite",

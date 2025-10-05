@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { WheelEvent as ReactWheelEvent } from "react";
 import { Panel } from "../layout/Panel";
 import { Box, Button, CircularProgress, IconButton, Stack, TextField, Typography } from "@mui/material";
 import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
@@ -82,6 +81,7 @@ const DisassemblyView = ({
   const requestIdRef = useRef(0);
   const wheelRemainder = useRef(0);
   const pendingScrollSteps = useRef(0);
+  const containerRef = useRef<HTMLDivElement | null>(null);
 
   const instructionSize = useMemo(() => instructionSizeForTarget(target), [target]);
   const maxAddress = useMemo(() => maxAddressForTarget(target), [target]);
@@ -152,7 +152,7 @@ const DisassemblyView = ({
   );
 
   const handleWheel = useCallback(
-    (event: ReactWheelEvent<HTMLDivElement>) => {
+    (event: WheelEvent) => {
       event.preventDefault();
       wheelRemainder.current += event.deltaY;
 
@@ -172,6 +172,23 @@ const DisassemblyView = ({
     },
     [adjustAddress, loading],
   );
+
+  useEffect(() => {
+    const node = containerRef.current;
+    if (!node) {
+      return;
+    }
+
+    const listener = (event: WheelEvent) => {
+      handleWheel(event);
+    };
+
+    node.addEventListener("wheel", listener, { passive: false });
+
+    return () => {
+      node.removeEventListener("wheel", listener);
+    };
+  }, [handleWheel]);
 
   const handleAddressSubmit = useCallback(() => {
     const parsed = parseAddressInput(target, addressInput);
@@ -263,7 +280,7 @@ const DisassemblyView = ({
         </Stack>
       ) : (
         <Box
-          onWheel={handleWheel}
+          ref={containerRef}
           sx={{
             flex: 1,
             height: "100%",
