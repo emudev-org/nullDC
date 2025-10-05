@@ -841,7 +841,10 @@ const start = async () => {
   if (IS_PRODUCTION) {
     const distDir = resolve(process.cwd(), "dist");
     app.use(express.static(distDir));
-    app.get("*", async (_req, res, next) => {
+    app.use(async (req, res, next) => {
+      if (req.method !== "GET") {
+        return next();
+      }
       try {
         const template = await readFile(resolve(distDir, "index.html"), "utf8");
         res.status(200).set({ "Content-Type": "text/html" }).end(template);
@@ -926,8 +929,6 @@ const start = async () => {
 };
 
 void start();
-
-
 
 
 
