@@ -90,10 +90,11 @@ const DisassemblyView = ({
   const breakpointsByAddress = useMemo(() => {
     const map = new Map<number, { id: string; enabled: boolean }>();
     const cpuPath = target === "dsp" ? "dc.aica.dsp" : target === "sh4" ? "dc.sh4.cpu" : "dc.arm7.cpu";
+    const counterName = target === "dsp" ? "step" : "pc";
 
     for (const bp of breakpoints) {
-      // Match pattern like "dc.sh4.cpu.pc == 0x8C0000A0"
-      const match = bp.location.match(new RegExp(`${cpuPath}\\.pc\\s*==\\s*0x([0-9A-Fa-f]+)`));
+      // Match pattern like "dc.sh4.cpu.pc == 0x8C0000A0" or "dc.aica.dsp.step == 0x20"
+      const match = bp.location.match(new RegExp(`${cpuPath}\\.${counterName}\\s*==\\s*0x([0-9A-Fa-f]+)`));
       if (match) {
         const addr = Number.parseInt(match[1], 16);
         map.set(addr, { id: bp.id, enabled: bp.enabled });
@@ -215,7 +216,8 @@ const DisassemblyView = ({
       } else {
         // Add new breakpoint
         const cpuPath = target === "dsp" ? "dc.aica.dsp" : target === "sh4" ? "dc.sh4.cpu" : "dc.arm7.cpu";
-        const location = `${cpuPath}.pc == ${formatHexAddress(lineAddress)}`;
+        const counterName = target === "dsp" ? "step" : "pc";
+        const location = `${cpuPath}.${counterName} == ${formatHexAddress(lineAddress)}`;
         await addBreakpoint(location, "code");
       }
     },

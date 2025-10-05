@@ -66,7 +66,7 @@ const registerValues = new Map<string, string>([
   ["dc.aica.aica_status", "0x00000001"],
   ["dc.aica.channels.ch0_vol", "0x7F"],
   ["dc.aica.channels.ch1_vol", "0x6A"],
-  ["dc.aica.dsp.dsp_pc", "0x020"],
+  ["dc.aica.dsp.step", "0x020"],
   ["dc.aica.dsp.dsp_acc", "0x1F"],
   // System
   ["dc.sysclk", "200MHz"],
@@ -239,7 +239,7 @@ const buildDeviceTree = (): DeviceNodeDescriptor[] => [
             label: "DSP",
             kind: "coprocessor",
             registers: [
-              { name: "DSP_PC", value: getRegisterValue("dc.aica.dsp", "DSP_PC"), width: 16 },
+              { name: "STEP", value: getRegisterValue("dc.aica.dsp", "STEP"), width: 16 },
               { name: "DSP_ACC", value: getRegisterValue("dc.aica.dsp", "DSP_ACC"), width: 16 },
             ],
             events: [
