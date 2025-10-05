@@ -21,7 +21,8 @@ import { SH4_SIM_DEFAULT_SOURCE } from "../sh4Sim/defaultSource";
 import { getAssembleError, simulate, SH4_MNEMONICS, SH4_REGISTERS } from "../sh4Sim/sim";
 import type { SimBlock, SimCell, SimulateResult } from "../sh4Sim/sim";
 import Editor from "@monaco-editor/react";
-// Using "any" here because @monaco-editor/react doesn't export a Monaco type compatible with monaco-editor versions.
+import type { Monaco } from "@monaco-editor/react";
+import type { editor as MonacoEditor } from "monaco-editor";
 
 const BASE_SHARE_URL = "https://sh4-sim.dreamcast.wiki";
 
@@ -100,7 +101,7 @@ export const Sh4SimPanel = () => {
   const [copiedTarget, setCopiedTarget] = useState<string | null>(null);
   const copyTimeoutRef = useRef<number | null>(null);
   const hoverRafRef = useRef<number | null>(null);
-  const editorRef = useRef<any | null>(null);
+  const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
   const editorContainerRef = useRef<HTMLDivElement | null>(null);
   const [hoverState, setHoverState] = useState<{
     blockId: string | null;
@@ -405,8 +406,7 @@ export const Sh4SimPanel = () => {
   const copiedMain = copiedTarget === "main";
   const assembleError = simulation.error ?? getAssembleError();
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const handleEditorWillMount = useCallback((monaco: any) => {
+  const handleEditorWillMount = useCallback((monaco: Monaco) => {
     const languageId = "sh4asm";
 
     if (!monaco.languages.getLanguages().some((l: { id: string }) => l.id === languageId)) {
@@ -514,30 +514,32 @@ export const Sh4SimPanel = () => {
     }
   }, []);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const handleEditorDidMount = useCallback((editor: any) => {
-    editorRef.current = editor;
+  const handleEditorDidMount = useCallback(
+    (editor: MonacoEditor.IStandaloneCodeEditor, _monaco: Monaco) => {
+      editorRef.current = editor;
 
-    const layout = () => {
-      const el = editorContainerRef.current;
-      if (!el || !editorRef.current) return;
-      editorRef.current.layout({ width: el.clientWidth, height: el.clientHeight });
-    };
+      const layout = () => {
+        const el = editorContainerRef.current;
+        if (!el || !editorRef.current) return;
+        editorRef.current.layout({ width: el.clientWidth, height: el.clientHeight });
+      };
 
-    // Initial layout
-    layout();
+      // Initial layout
+      layout();
 
-    const ro = new ResizeObserver(() => layout());
-    if (editorContainerRef.current) {
-      ro.observe(editorContainerRef.current);
-    }
-    window.addEventListener("resize", layout);
+      const ro = new ResizeObserver(() => layout());
+      if (editorContainerRef.current) {
+        ro.observe(editorContainerRef.current);
+      }
+      window.addEventListener("resize", layout);
 
-    editor.onDidDispose(() => {
-      window.removeEventListener("resize", layout);
-      ro.disconnect();
-    });
-  }, []);
+      editor.onDidDispose(() => {
+        window.removeEventListener("resize", layout);
+        ro.disconnect();
+      });
+    },
+    [],
+  );
 
   return (
     <Panel

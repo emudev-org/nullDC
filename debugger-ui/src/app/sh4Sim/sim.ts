@@ -1210,7 +1210,7 @@ function assemble(lines) {
             const processed = processInsn(no_comments);
             if (processed[0] == '#') {
                 if (insns.length != 0) {
-                    if (import.meta && (import.meta as any).env && (import.meta as any).env.DEV) {
+                    if (import.meta.env?.DEV) {
                         console.log(`Starting new fragment: ${processed} from ${line}`);
                     }
                     insns.tracks = track;
@@ -1222,25 +1222,25 @@ function assemble(lines) {
                 }
                 if (processed.startsWith("##")) {
                     insns.subtitle = processed.substring(2).trim();
-                    if (import.meta && (import.meta as any).env && (import.meta as any).env.DEV) {
+                    if (import.meta.env?.DEV) {
                         console.log("Attaching subtitle: " + insns.subtitle);
                     }
                 } else if (processed.startsWith("#")) {
                     insns.title = processed.substring(1).trim();
-                    if (import.meta && (import.meta as any).env && (import.meta as any).env.DEV) {
+                    if (import.meta.env?.DEV) {
                         console.log("Attaching title: " + insns.title);
                     }
                 }
                 continue;
             }
             if (processed[0] == '.') {
-                if (import.meta && (import.meta as any).env && (import.meta as any).env.DEV) {
+                if (import.meta.env?.DEV) {
                     console.log(`Skipping directive: ${processed} from ${line}`);
                 }
                 continue;
             }
             if (processed[processed.length - 1] == ':') {
-                if (import.meta && (import.meta as any).env && (import.meta as any).env.DEV) {
+                if (import.meta.env?.DEV) {
                     console.log(`Skipping label: ${processed} from ${line}`);
                 }
                 continue;

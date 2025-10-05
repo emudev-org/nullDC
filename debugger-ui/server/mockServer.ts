@@ -402,11 +402,6 @@ const generateDisassembly = (target: string, address: number, count: number): Di
   return lines;
 };
 
-const sampleBreakpoints: BreakpointDescriptor[] = [
-  { id: "bp-1", location: "dc.sh4.cpu.pc == 0x8C0000A0", kind: "code", enabled: true, hitCount: 3 },
-  { id: "bp-2", location: "dc.aica.channel[0].step", kind: "event", enabled: false, hitCount: 0 },
-];
-
 const sampleThreads: ThreadInfo[] = [
   {
     id: "thread-main",
@@ -929,7 +924,6 @@ const start = async () => {
 };
 
 void start();
-
 
 
 
