@@ -50,12 +50,13 @@ async fn handle_websocket(socket: WebSocket) {
 
 #[cfg(not(target_arch = "wasm32"))]
 async fn static_file_handler(uri: axum::http::Uri) -> Response {
-
     let path = uri.path();
-    let file_path = if path == "/" {
+
+    // If path does not start with /assets/, always return index.html
+    let file_path = if path == "/" || !path.starts_with("/assets/") {
         "index.html"
     } else {
-        // Remove leading slash
+        // Strip the leading slash for assets
         &path[1..]
     };
 
