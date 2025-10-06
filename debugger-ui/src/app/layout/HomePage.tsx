@@ -52,7 +52,7 @@ export const HomePage = () => {
       },
       {
         title: "About",
-        description: "View emulator version and build information retrieved from the connected emulator.",
+        description: "View debugger version and build information retrieved from the connected emulator.",
         action: showAbout,
       },
     ],
