@@ -7,7 +7,42 @@ on:
   pull_request:
 
 jobs:
-  build:
+  build-debugger:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        variant: [wasm, native]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Ensure tags are present
+        run: git fetch --force --tags --prune
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: debugger-ui/package-lock.json
+
+      - name: Build debugger-ui (${{ matrix.variant }})
+        working-directory: ./debugger-ui
+        run: |
+          npm ci
+          npm run build
+        env:
+          VITE_TRANSPORT: ${{ matrix.variant == 'wasm' && 'broadcast' || 'websocket' }}
+
+      - name: Upload debugger-ui artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: debugger-ui-dist-${{ matrix.variant }}
+          path: debugger-ui/dist
+  build-emulator:
+    needs: build-debugger
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -63,6 +98,12 @@ jobs:
             hashFiles('**/Cargo.lock') }}
 
       # Native targets
+      - name: "Native: Download debugger-ui"
+        if: matrix.target != 'wasm32-unknown-unknown'
+        uses: actions/download-artifact@v4
+        with:
+          name: debugger-ui-dist-native
+          path: debugger-ui/dist
       - name: "Native: Run tests"
         if: matrix.target != 'wasm32-unknown-unknown'
         run: cargo test --target ${{ matrix.target }}
@@ -95,6 +136,13 @@ jobs:
           crate: trunk
           version: ${{ steps.toolvers.outputs.trunk_version }}
 
+      - name: "WASM: Download debugger-ui"
+        if: matrix.target == 'wasm32-unknown-unknown'
+        uses: actions/download-artifact@v4
+        with:
+          name: debugger-ui-dist-wasm
+          path: debugger-ui/dist
+
       - name: "WASM: Build code and site"
         if: matrix.target == 'wasm32-unknown-unknown'
         run: |
@@ -108,7 +156,7 @@ jobs:
 
   deploy:
     runs-on: ubuntu-latest
-    needs: build
+    needs: build-emulator
     steps:
       - uses: actions/checkout@v4
         with:
