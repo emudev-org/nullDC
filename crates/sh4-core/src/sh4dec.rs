@@ -443,22 +443,49 @@ sh4op! {
     (disas = "fmov.s @<REG_M>,<FREG_N_SD_A>")
     i1111_nnnn_mmmm_1000(dc, state, opcode) {
         if !state.fpscr_SZ {
+            // SZ=0: Transfer single 32-bit value
             let n = GetN(opcode);
             let m = GetM(opcode);
             unsafe { backend::sh4_read_mem32(dc, addr_of!((*dc).r[m]), addr_of_mut!((*dc).fr.u32s[n])); }
         } else {
-            panic!("fmov.s @<REG_M>,<FREG_N>: SZ=1 mode not implemented");
+            // SZ=1: Transfer 64-bit value (pair of registers)
+            let n = GetN(opcode);
+            let m = GetM(opcode);
+            let n_d = n >> 1;
+            if (n & 0x1) == 0 {
+                backend::sh4_read_mem64(dc, addr_of!((*dc).r[m]), addr_of_mut!((*dc).fr.u64s[n_d]));
+            } else {
+                backend::sh4_read_mem64(dc, addr_of!((*dc).r[m]), addr_of_mut!((*dc).xf.u64s[n_d]));
+            }
         }
     }
 
     (disas = "fmov <FREG_M_SD_A>,<FREG_N_SD_A>")
     i1111_nnnn_mmmm_1100(dc, state, opcode) {
         if !state.fpscr_SZ {
+            // SZ=0: Transfer single 32-bit value
             let n = GetN(opcode);
             let m = GetM(opcode);
             unsafe { backend::sh4_store32(addr_of_mut!((*dc).fr.u32s[n]), addr_of!((*dc).fr.u32s[m])); }
         } else {
-            panic!("fmov <FREG_M>,<FREG_N>: SZ=1 mode not implemented");
+            // SZ=1: Transfer 64-bit value (pair of registers)
+            let n = GetN(opcode);
+            let m = GetM(opcode);
+            let n_d = n >> 1;
+            let m_d = m >> 1;
+            if (n & 0x1) == 0 {
+                if (m & 0x1) == 0 {
+                    backend::sh4_store64(addr_of_mut!((*dc).fr.u64s[n_d]), addr_of!((*dc).fr.u64s[m_d]));
+                } else {
+                    backend::sh4_store64(addr_of_mut!((*dc).fr.u64s[n_d]), addr_of!((*dc).xf.u64s[m_d]));
+                }
+            } else {
+                if (m & 0x1) == 0 {
+                    backend::sh4_store64(addr_of_mut!((*dc).xf.u64s[n_d]), addr_of!((*dc).fr.u64s[m_d]));
+                } else {
+                    backend::sh4_store64(addr_of_mut!((*dc).xf.u64s[n_d]), addr_of!((*dc).xf.u64s[m_d]));
+                }
+            }
         }
     }
 

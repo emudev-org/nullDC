@@ -52,6 +52,13 @@ pub fn sh4_store32(dst: *mut u32, src: *const u32) {
 }
 
 #[inline(always)]
+pub fn sh4_store64(dst: *mut u64, src: *const u64) {
+    unsafe {
+        *dst = *src;
+    }
+}
+
+#[inline(always)]
 pub fn sh4_store_fpscr(dst: *mut u32, src: *const u32, fr: *mut u32, xf: *mut u32) {
     unsafe {
         let new_val = *src;
