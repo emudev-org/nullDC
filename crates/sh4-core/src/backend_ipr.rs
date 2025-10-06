@@ -1268,13 +1268,13 @@ pub fn sh4_fsrra(dst: *mut f32, src: *const f32) {
 }
 
 #[inline(always)]
-pub fn sh4_fipr(fr: *mut f32, n: usize, m: usize) {
+pub fn sh4_fipr(dst: *mut f32, src1: *const f32, src2: *const f32) {
     unsafe {
-        let idp = *fr.add(n + 0) * *fr.add(m + 0)
-                + *fr.add(n + 1) * *fr.add(m + 1)
-                + *fr.add(n + 2) * *fr.add(m + 2)
-                + *fr.add(n + 3) * *fr.add(m + 3);
-        *fr.add(n + 3) = idp;
+        let idp = *src1.add(0) * *src2.add(0)
+                + *src1.add(1) * *src2.add(1)
+                + *src1.add(2) * *src2.add(2)
+                + *src1.add(3) * *src2.add(3);
+        *dst = idp;
     }
 }
 
@@ -1286,32 +1286,32 @@ pub fn sh4_fmac(dst: *mut f32, fr0: *const f32, src_m: *const f32) {
 }
 
 #[inline(always)]
-pub fn sh4_ftrv(fr: *mut f32, xf: *const f32, n: usize) {
+pub fn sh4_ftrv(fr: *mut f32, xf: *const f32) {
     unsafe {
-        let v1 = *xf.add(0)  * *fr.add(n + 0) +
-                 *xf.add(4)  * *fr.add(n + 1) +
-                 *xf.add(8)  * *fr.add(n + 2) +
-                 *xf.add(12) * *fr.add(n + 3);
+        let v1 = *xf.add(0)  * *fr.add(0) +
+                 *xf.add(4)  * *fr.add(1) +
+                 *xf.add(8)  * *fr.add(2) +
+                 *xf.add(12) * *fr.add(3);
 
-        let v2 = *xf.add(1)  * *fr.add(n + 0) +
-                 *xf.add(5)  * *fr.add(n + 1) +
-                 *xf.add(9)  * *fr.add(n + 2) +
-                 *xf.add(13) * *fr.add(n + 3);
+        let v2 = *xf.add(1)  * *fr.add(0) +
+                 *xf.add(5)  * *fr.add(1) +
+                 *xf.add(9)  * *fr.add(2) +
+                 *xf.add(13) * *fr.add(3);
 
-        let v3 = *xf.add(2)  * *fr.add(n + 0) +
-                 *xf.add(6)  * *fr.add(n + 1) +
-                 *xf.add(10) * *fr.add(n + 2) +
-                 *xf.add(14) * *fr.add(n + 3);
+        let v3 = *xf.add(2)  * *fr.add(0) +
+                 *xf.add(6)  * *fr.add(1) +
+                 *xf.add(10) * *fr.add(2) +
+                 *xf.add(14) * *fr.add(3);
 
-        let v4 = *xf.add(3)  * *fr.add(n + 0) +
-                 *xf.add(7)  * *fr.add(n + 1) +
-                 *xf.add(11) * *fr.add(n + 2) +
-                 *xf.add(15) * *fr.add(n + 3);
+        let v4 = *xf.add(3)  * *fr.add(0) +
+                 *xf.add(7)  * *fr.add(1) +
+                 *xf.add(11) * *fr.add(2) +
+                 *xf.add(15) * *fr.add(3);
 
-        *fr.add(n + 0) = v1;
-        *fr.add(n + 1) = v2;
-        *fr.add(n + 2) = v3;
-        *fr.add(n + 3) = v4;
+        *fr.add(0) = v1;
+        *fr.add(1) = v2;
+        *fr.add(2) = v3;
+        *fr.add(3) = v4;
     }
 }
 

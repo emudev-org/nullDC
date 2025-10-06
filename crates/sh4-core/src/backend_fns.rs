@@ -474,9 +474,9 @@ define_op!(sh4_read_mem32_disp (ctx: *mut Sh4Ctx, base: *const u32, disp: u32, d
 define_op!(sh4_write_mem64_disp (ctx: *mut Sh4Ctx, base: *const u32, disp: u32, data: *const u64));
 
 define_op!(sh4_fsrra (dst: *mut f32, src: *const f32));
-define_op!(sh4_fipr (fr: *mut f32, n: usize, m: usize));
+define_op!(sh4_fipr (dst: *mut f32, src1: *const f32, src2: *const f32));
 define_op!(sh4_fmac (dst: *mut f32, fr0: *const f32, src_m: *const f32));
-define_op!(sh4_ftrv (fr: *mut f32, xf: *const f32, n: usize));
+define_op!(sh4_ftrv (fr: *mut f32, xf: *const f32));
 
 define_op!(sh4_mac_w_mul (mac_full: *mut u64, temp0: *const u32, temp1: *const u32));
 define_op!(sh4_mac_l_mul (mac_full: *mut u64, temp0: *const u32, temp1: *const u32));

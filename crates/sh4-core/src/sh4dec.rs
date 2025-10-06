@@ -1603,7 +1603,7 @@ sh4op! {
     i1111_nn01_1111_1101(dc, state, opcode) {
         if !state.fpscr_PR {
             let n = (GetN(opcode) & 0xC) as usize;
-            backend::sh4_ftrv(addr_of_mut!((*dc).fr.f32s[0]), addr_of!((*dc).xf.f32s[0]), n);
+            backend::sh4_ftrv(addr_of_mut!((*dc).fr.f32s[n]), addr_of!((*dc).xf.f32s[0]));
         } else {
             panic!("ftrv: double precision mode not supported");
         }
@@ -1745,7 +1745,7 @@ sh4op! {
         if !state.fpscr_PR {
             let n = (GetN(opcode) & 0xC) as usize;
             let m = ((GetN(opcode) & 0x3) << 2) as usize;
-            backend::sh4_fipr(addr_of_mut!((*dc).fr.f32s[0]), n, m);
+            backend::sh4_fipr(addr_of_mut!((*dc).fr.f32s[n + 3]), addr_of!((*dc).fr.f32s[n]), addr_of!((*dc).fr.f32s[m]));
         } else {
             panic!("fipr: double precision mode not supported");
         }
