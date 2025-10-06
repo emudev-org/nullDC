@@ -1017,13 +1017,15 @@ pub fn sh4_div0s(sr: *mut super::SrStatus, sr_T: *mut u32, src_n: *const u32, sr
 #[inline(always)]
 pub fn sh4_cmp_str(sr_T: *mut u32, src_n: *const u32, src_m: *const u32) {
     unsafe {
+        // CMP/STR checks if ANY byte pair is equal
+        // XOR the values - equal bytes become 0
         let temp = *src_n ^ *src_m;
-        let hh = (temp & 0xFF000000) >> 24;
-        let hl = (temp & 0x00FF0000) >> 16;
-        let lh = (temp & 0x0000FF00) >> 8;
-        let ll = temp & 0x000000FF;
-        let result = hh & hl & lh & ll;
-        *sr_T = if result == 0 { 1 } else { 0 };
+        let hh = (temp & 0xFF000000) == 0;
+        let hl = (temp & 0x00FF0000) == 0;
+        let lh = (temp & 0x0000FF00) == 0;
+        let ll = (temp & 0x000000FF) == 0;
+        // T=1 if any byte is equal (any bit is true)
+        *sr_T = if hh || hl || lh || ll { 1 } else { 0 };
     }
 }
 
