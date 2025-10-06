@@ -275,12 +275,23 @@ fn run_test_file(test_path: &str) {
         load_state_into_ctx(&mut ctx, &test.initial);
 
         // Write instruction opcodes to memory
+        // Per README: opcodes[0..3] are at PC+0,PC+2,PC+4,PC+6
+        // opcodes[4] is the fallback for any fetch outside that range
         let pc = test.initial.pc;
-        for (i, &opcode) in test.opcodes.iter().enumerate() {
+        for (i, &opcode) in test.opcodes[0..4].iter().enumerate() {
             let addr = pc.wrapping_add((i * 2) as u32);
             let offset = (addr as usize) & (memory.len() - 1);
             memory[offset] = (opcode & 0xFF) as u8;
             memory[offset + 1] = ((opcode >> 8) & 0xFF) as u8;
+        }
+
+        // Write the fallback opcode to PR and any other addresses that might be jumped to
+        // This handles RTS, branches, etc.
+        let fallback_opcode = test.opcodes[4];
+        if test.initial.pr != 0 {
+            let pr_offset = (test.initial.pr as usize) & (memory.len() - 1);
+            memory[pr_offset] = (fallback_opcode & 0xFF) as u8;
+            memory[pr_offset + 1] = ((fallback_opcode >> 8) & 0xFF) as u8;
         }
 
         // Pre-populate memory with read data from cycles
