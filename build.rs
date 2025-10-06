@@ -12,7 +12,9 @@ fn main() {
         if !is_ci {
             println!("cargo:warning=Building debugger-UI");
 
-            let status = Command::new("npm")
+            let npm_cmd = if cfg!(target_os = "windows") { "npm.cmd" } else { "npm" };
+
+            let status = Command::new(npm_cmd)
                 .args(&["ci"])
                 .current_dir("debugger-ui")
                 .status()
@@ -22,7 +24,7 @@ fn main() {
                 panic!("npm ci failed");
             }
 
-            let status = Command::new("npm")
+            let status = Command::new(npm_cmd)
                 .args(&["run", "build"])
                 .current_dir("debugger-ui")
                 .status()
