@@ -127,7 +127,7 @@ unsafe fn sh4_build_block(dc: &mut Dreamcast, start_pc: u32) -> *const u8 {
 
     let mut current_pc = start_pc;
 
-    println!("NEW BLOCK {:x} - remaining: {}", current_pc, remaining_line);
+    // println!("NEW BLOCK {:x} - remaining: {}", current_pc, remaining_line);
     unsafe { dec_start(1024); }
 
     dec_reserve_dispatcher();
@@ -144,7 +144,7 @@ unsafe fn sh4_build_block(dc: &mut Dreamcast, start_pc: u32) -> *const u8 {
         // Equivalent of: read_mem(dc, dc->ctx.pc, opcode);
         read_mem(dc, current_pc, &mut opcode);
 
-        println!("{:x}: {}", current_pc, format_disas(SH4DecoderState{pc: current_pc, fpscr_PR: (*dc).ctx.fpscr_PR, fpscr_SZ: (*dc).ctx.fpscr_SZ}, opcode));
+        // println!("{:x}: {}", current_pc, format_disas(SH4DecoderState{pc: current_pc, fpscr_PR: (*dc).ctx.fpscr_PR, fpscr_SZ: (*dc).ctx.fpscr_SZ}, opcode));
 
         // Call the opcode handler
         dc.ctx.pc0 = current_pc;
@@ -188,7 +188,7 @@ unsafe fn sh4_build_block(dc: &mut Dreamcast, start_pc: u32) -> *const u8 {
 
     dec_patch_dispatcher();
     let rv = unsafe { dec_finalize_shrink() };
-    println!("BLOCK done {:?} {}", rv.0, rv.1);
+    // println!("BLOCK done {:?} {}", rv.0, rv.1);
     rv.0
 }
 

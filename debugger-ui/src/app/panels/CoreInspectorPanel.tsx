@@ -683,78 +683,112 @@ export const CoreInspectorPanel = () => {
 
   const hasData = tiles.some((t) => t.length > 0);
 
+  const handleCloseLog = useCallback(() => {
+    setTiles([]);
+    setBgtag(null);
+    setSelectedPixel(null);
+    // Clear the canvas
+    const canvas = canvasRef.current;
+    if (canvas) {
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
+    }
+  }, []);
+
   return (
-    <Panel title="CORE: PowerVR Log Visualizer">
-      {!hasData ? (
-        <Box
-          sx={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            minHeight: 300,
-            p: 4,
-            border: "4px dashed",
-            borderColor: "divider",
-            borderRadius: 2,
-            bgcolor: "background.paper",
-            m: 2,
-            cursor: "pointer",
+    <Panel
+      title="CORE: PowerVR Log Visualizer"
+      action={
+        hasData ? (
+          <Button variant="outlined" size="small" onClick={handleCloseLog}>
+            Close Log
+          </Button>
+        ) : undefined
+      }
+    >
+      <Box sx={{ position: "relative" }}>
+        {/* Always render canvas so it's available during parsing */}
+        <canvas
+          ref={canvasRef}
+          width={640}
+          height={480}
+          onClick={hasData ? handleCanvasClick : undefined}
+          style={{
+            display: hasData ? "block" : "none",
+            border: hasData ? "1px solid #333" : "none",
+            imageRendering: "pixelated",
+            cursor: hasData ? "crosshair" : "default",
+            position: hasData ? "relative" : "absolute",
           }}
-          onDrop={handleDrop}
-          onDragOver={handleDragOver}
-          onClick={() => fileInputRef.current?.click()}
-        >
-          {loading ? (
-            <CircularProgress />
-          ) : (
-            <>
-              <UploadFileIcon sx={{ fontSize: 64, color: "text.secondary", mb: 2 }} />
-              <Typography variant="h6" color="text.secondary" gutterBottom>
-                Drop your refsw2 log here
-              </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                OR
-              </Typography>
-              <Button variant="contained" component="label">
-                Choose File
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  hidden
-                  accept=".log,text/plain"
-                  onChange={(e) => handleFileChange(e.target.files)}
-                />
-              </Button>
-            </>
-          )}
-        </Box>
-      ) : (
-        <Box sx={{ display: "flex", flexDirection: "column", gap: 2, p: 2 }}>
-          <Box sx={{ display: "flex", gap: 2, alignItems: "flex-start" }}>
-            <Box>
-              <canvas
-                ref={canvasRef}
-                width={640}
-                height={480}
-                onClick={handleCanvasClick}
-                style={{
-                  border: "1px solid #333",
-                  display: "block",
-                  imageRendering: "pixelated",
-                  cursor: "crosshair",
-                }}
-              />
-              {bgtag !== null && (
-                <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: "block" }}>
-                  Background Tag: 0x{bgtag.toString(16)}
+        />
+
+        {!hasData && (
+          <Box
+            sx={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              minHeight: 300,
+              p: 4,
+              border: "4px dashed",
+              borderColor: "divider",
+              borderRadius: 2,
+              bgcolor: "background.paper",
+              m: 2,
+              cursor: "pointer",
+            }}
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            {loading ? (
+              <CircularProgress />
+            ) : (
+              <>
+                <UploadFileIcon sx={{ fontSize: 64, color: "text.secondary", mb: 2 }} />
+                <Typography variant="h6" color="text.secondary" gutterBottom>
+                  Drop your refsw2 log here
                 </Typography>
-              )}
-            </Box>
-            {selectedPixel && <Box sx={{ flex: 1, minWidth: 400 }}>{detailsContent}</Box>}
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  OR
+                </Typography>
+                <Button
+                  variant="contained"
+                  component="label"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  Choose File
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    hidden
+                    accept=".log,text/plain"
+                    onChange={(e) => handleFileChange(e.target.files)}
+                  />
+                </Button>
+              </>
+            )}
           </Box>
-        </Box>
-      )}
+        )}
+
+        {hasData && (
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 2, p: 2 }}>
+            <Box sx={{ display: "flex", gap: 2, alignItems: "flex-start" }}>
+              <Box>
+                {bgtag !== null && (
+                  <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: "block" }}>
+                    Background Tag: 0x{bgtag.toString(16)}
+                  </Typography>
+                )}
+              </Box>
+              {selectedPixel && <Box sx={{ flex: 1, minWidth: 400 }}>{detailsContent}</Box>}
+            </Box>
+          </Box>
+        )}
+      </Box>
     </Panel>
   );
 };
