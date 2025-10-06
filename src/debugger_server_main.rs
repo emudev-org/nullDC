@@ -1,6 +1,4 @@
-#[cfg(not(target_arch = "wasm32"))]
 use include_dir::{include_dir, Dir};
-#[cfg(not(target_arch = "wasm32"))]
 use axum::{
     routing::get,
     Router,
@@ -9,13 +7,11 @@ use axum::{
     extract::ws::{WebSocketUpgrade, WebSocket},
 };
 
-#[cfg(not(target_arch = "wasm32"))]
 static DEBUGGER_UI: Dir = include_dir!("$CARGO_MANIFEST_DIR/debugger-ui/dist");
 
 /// Start the debugger UI HTTP server on port 9999
 /// The server runs in a background thread and serves static files
 /// Also handles WebSocket connections for the debugger protocol
-#[cfg(not(target_arch = "wasm32"))]
 pub fn start_debugger_server() {
     use std::thread;
 
@@ -36,17 +32,14 @@ pub fn start_debugger_server() {
     });
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 async fn websocket_handler(ws: WebSocketUpgrade) -> impl IntoResponse {
     ws.on_upgrade(handle_websocket)
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 async fn handle_websocket(socket: WebSocket) {
     crate::mock_debug_server::handle_websocket_connection(socket).await;
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 async fn static_file_handler(uri: axum::http::Uri) -> Response {
     let path = uri.path();
 
