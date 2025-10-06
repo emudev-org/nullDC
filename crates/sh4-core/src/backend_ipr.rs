@@ -59,6 +59,36 @@ pub fn sh4_store64(dst: *mut u64, src: *const u64) {
 }
 
 #[inline(always)]
+pub fn sh4_store_sr(dst: *mut u32, src: *const u32, r: *mut u32, r_bank: *mut u32) {
+    unsafe {
+        // Bit layout: MD(30), RB(29), BL(28), FD(15), IMASK(7-4), M(9), Q(8), S(1), T(0)
+        const SR_MASK: u32 = 0x700083F2;
+
+        let mut new_val = *src & SR_MASK;
+        let old_val = *dst;
+
+        let old_rb = (old_val >> 29) & 1;
+        let new_rb = (new_val >> 29) & 1;
+        let new_md = (new_val >> 30) & 1;
+
+        if new_md != 0 {
+            if old_rb != new_rb {
+                sh4_rbank_switch(r, r_bank);
+            }
+        } else {
+            if new_rb != 0 {
+                new_val &= !(1 << 29);
+            }
+            if old_rb != 0 {
+                sh4_rbank_switch(r, r_bank);
+            }
+        }
+
+        *dst = new_val;
+    }
+}
+
+#[inline(always)]
 pub fn sh4_store_fpscr(dst: *mut u32, src: *const u32, fr: *mut u32, xf: *mut u32) {
     unsafe {
         let new_val = *src;
@@ -104,6 +134,18 @@ fn set_host_daz(enable: bool) {
         // On non-x86_64 architectures, we can't set DAZ
         // The emulator will need software emulation for denormals
         let _ = enable;
+    }
+}
+
+// Swap R0-R7 with R0_BANK-R7_BANK (when RB bit changes)
+#[inline(always)]
+pub fn sh4_rbank_switch(r: *mut u32, r_bank: *mut u32) {
+    unsafe {
+        for i in 0..8 {
+            let temp = *r.add(i);
+            *r.add(i) = *r_bank.add(i);
+            *r_bank.add(i) = temp;
+        }
     }
 }
 

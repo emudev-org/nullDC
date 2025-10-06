@@ -1061,14 +1061,12 @@ sh4op! {
     (disas = "ldc.l @<REG_N>+,SR")
     i0100_nnnn_0000_0111(dc, state, opcode) {
         let n = GetN(opcode);
-        // Read SR value into temp
         backend::sh4_read_mem32(dc, addr_of!((*dc).r[n]), addr_of_mut!((*dc).temp[0]));
         backend::sh4_addi(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), 4);
-        // Extract T bit (bit 0) to sr_T
         backend::sh4_andi(addr_of_mut!((*dc).sr_T), addr_of!((*dc).temp[0]), 1);
-        // Clear T_h bit (bit 0) in sr.full and store
         backend::sh4_andi(addr_of_mut!((*dc).temp[1]), addr_of!((*dc).temp[0]), 0xFFFFFFFE);
-        backend::sh4_store32(addr_of_mut!((*dc).sr.0), addr_of!((*dc).temp[1]));
+        backend::sh4_store_sr(addr_of_mut!((*dc).sr.0), addr_of!((*dc).temp[1]),
+                              addr_of_mut!((*dc).r[0]), addr_of_mut!((*dc).r_bank[0]));
         // TODO: Recheck interrupts after SR change
     }
 
@@ -1144,9 +1142,10 @@ sh4op! {
         let n = GetN(opcode);
         // Extract T bit (bit 0) to sr_T
         backend::sh4_andi(addr_of_mut!((*dc).sr_T), addr_of!((*dc).r[n]), 1);
-        // Clear T_h bit (bit 0) in sr.full and store
+        // Clear T_h bit (bit 0) in sr.full and store with bank switching
         backend::sh4_andi(addr_of_mut!((*dc).temp[0]), addr_of!((*dc).r[n]), 0xFFFFFFFE);
-        backend::sh4_store32(addr_of_mut!((*dc).sr.0), addr_of!((*dc).temp[0]));
+        backend::sh4_store_sr(addr_of_mut!((*dc).sr.0), addr_of!((*dc).temp[0]),
+                              addr_of_mut!((*dc).r[0]), addr_of_mut!((*dc).r_bank[0]));
         // TODO: Recheck interrupts after SR change
     }
 

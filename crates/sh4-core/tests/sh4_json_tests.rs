@@ -22,24 +22,41 @@ macro_rules! test_case {
 
 fn load_state_into_ctx(ctx: &mut Sh4Ctx, state: &Sh4State) {
     unsafe {
-        // Load general registers
+        // Set SR and FPSCR FIRST to establish which register banks are active
+        // This ensures subsequent register loads go into the correct banks
+
+        // Initialize SR with inverted RB bit to force bank switch detection
+        ctx.sr.0 = (state.sr & !1) ^ (1 << 29); // SR without T bit, RB inverted
+        ctx.sr_T = state.sr & 1; // Extract T bit
+
+        // Set fpscr with DN bit inverted to force DAZ sync
+        // Only invert bit 18 (DN) to avoid triggering bank switches (FR bit)
+        ctx.fpscr.0 = state.fpscr ^ (1 << 18);
+
+        // Now use the special store functions to set the correct values
+        // This will trigger bank switches if needed
+        use sh4_core::backend_ipr::{sh4_store_sr, sh4_store_fpscr};
+        let sr_val = state.sr & !1;
+        sh4_store_sr(&mut ctx.sr.0, &sr_val,
+                     &mut ctx.r[0], &mut ctx.r_bank[0]);
+        sh4_store_fpscr(&mut ctx.fpscr.0, &state.fpscr,
+                        &mut ctx.fr.u32s[0], &mut ctx.xf.u32s[0]);
+
+        // NOW load registers - they will go into whichever banks are currently active
         ctx.r.copy_from_slice(&state.r);
         ctx.r_bank.copy_from_slice(&state.r_bank);
 
-        // Load FP registers - FR bank based on FPSCR.FR bit
-        // For now, load FP0 into FR
+        // Load FP registers - they go into current FR/XF based on FPSCR.FR
         for i in 0..16 {
             ctx.fr.u32s[i] = state.fp0[i];
             ctx.xf.u32s[i] = state.fp1[i];
         }
 
-        // Load control registers
+        // Load other control registers
         ctx.pc0 = state.pc;
         ctx.pc1 = state.pc.wrapping_add(2);
         ctx.pc2 = state.pc.wrapping_add(4);
         ctx.gbr = state.gbr;
-        ctx.sr.0 = state.sr & !1; // SR without T bit
-        ctx.sr_T = state.sr & 1; // Extract T bit
         ctx.ssr = state.ssr;
         ctx.spc = state.spc;
         ctx.vbr = state.vbr;
@@ -49,13 +66,6 @@ fn load_state_into_ctx(ctx: &mut Sh4Ctx, state: &Sh4State) {
         ctx.mac.parts.h = state.mach;
         ctx.pr = state.pr;
         ctx.fpul = state.fpul;
-
-        // Set fpscr with DN bit inverted to force DAZ sync
-        // Only invert bit 18 (DN) to avoid triggering bank switches (FR bit)
-        ctx.fpscr.0 = state.fpscr ^ (1 << 18);
-        // Use the special FPSCR store function to sync DAZ flag and handle FR bank switching
-        sh4_store_fpscr(&mut ctx.fpscr.0, &state.fpscr,
-                        &mut ctx.fr.u32s[0], &mut ctx.xf.u32s[0]);
     }
 }
 
