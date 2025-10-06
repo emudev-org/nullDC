@@ -399,14 +399,21 @@ pub fn sh4_float(dst: *mut f32, src: *const u32) {
 #[inline(always)]
 pub fn sh4_ftrc(dst: *mut u32, src: *const f32) {
     unsafe {
-        let clamped = (*src).min(0x7FFFFFBF as f32);
-        let mut as_i = clamped as i32 as u32;
-        if as_i == 0x80000000 {
-            if (*src) > 0.0 {
-                as_i = as_i.wrapping_sub(1);
-            }
-        }
-        *dst = as_i;
+        // SH4 FTRC: truncate float to int32 with saturation
+        // For f32, due to precision limits, the max saturates to 0x7FFFFF80
+        // (largest value less than INT_MAX that roundtrips exactly through f32)
+        // - NaN converts to 0
+        let val = *src;
+        let result = if val.is_nan() {
+            0
+        } else if val >= 2147483520.0 {
+            0x7FFFFF80  // Saturate to max f32-representable int
+        } else if val < -2147483648.0 {
+            0x80000000  // Saturate to INT_MIN
+        } else {
+            val as i32 as u32
+        };
+        *dst = result;
     }
 }
 
@@ -569,15 +576,21 @@ pub fn sh4_float_d(dst: *mut u32, src: *const u32) {
 #[inline(always)]
 pub fn sh4_ftrc_d(dst: *mut u32, src: *const u32) {
     unsafe {
+        // SH4 FTRC: truncate double to int32 with saturation
+        // - Values >= 2^31 saturate to 0x7FFFFFFF (INT_MAX)
+        // - Values < -2^31 saturate to 0x80000000 (INT_MIN)
+        // - NaN converts to 0
         let val = GetDoubleReg(src);
-        let clamped = val.min(0x7FFFFFBF as f64);
-        let mut as_i = clamped as i32 as u32;
-        if as_i == 0x80000000 {
-            if val > 0.0 {
-                as_i = as_i.wrapping_sub(1);
-            }
-        }
-        *dst = as_i;
+        let result = if val.is_nan() {
+            0
+        } else if val >= 2147483648.0 {
+            0x7FFFFFFF  // Saturate to INT_MAX
+        } else if val < -2147483648.0 {
+            0x80000000  // Saturate to INT_MIN
+        } else {
+            val as i32 as u32
+        };
+        *dst = result;
     }
 }
 
