@@ -8,7 +8,7 @@
 use std::ptr;
 
 mod sh4;
-use sh4::{Sh4Ctx, sh4_ipr_dispatcher, sh4_fns_dispatcher, sh4_init_ctx};
+use sh4::{Sh4Ctx, sh4_fns_dispatcher, sh4_init_ctx};
 
 const SYSRAM_SIZE: u32 = 16 * 1024 * 1024;
 const VIDEORAM_SIZE: u32 = 8 * 1024 * 1024;

@@ -1,18 +1,86 @@
-use crate::dreamcast::sh4::backend_fns::{ dec_start, dec_finalize_shrink, sh4_dec_call_decode, sh4_store32i, sh4_dec_branch_cond, dec_reserve_dispatcher, dec_patch_dispatcher, dec_run_block, dec_free };
+use crate::dreamcast::sh4::backend_fns::{ dec_start, dec_finalize_shrink, sh4_dec_call_decode, sh4_store32, sh4_store32i, sh4_dec_branch_cond, dec_reserve_dispatcher, dec_patch_dispatcher, dec_run_block, dec_free };
 use std::ptr;
 use std::ptr::{ addr_of, addr_of_mut };
-use crate::dreamcast::sh4::sh4dec::{format_disas, SH4DecoderState};
+use bitfield::bitfield;
 
 #[repr(C)]
 pub union FRBank {
     pub f32s: [f32; 32],
     pub u32s: [u32; 32],
     pub u64s: [u64; 16],
+    pub f64s: [f64; 16],
+}
+
+#[repr(C)]
+pub union MacReg {
+    pub full: u64,
+    pub parts: MacRegParts,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct MacRegParts {
+    pub l: u32,
+    pub h: u32,
+}
+
+bitfield! {
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct SrStatus(u32);
+    impl Debug;
+
+    pub u32, full, set_full: 31, 0;
+    pub T, set_T: 0;
+    pub S, set_S: 1;
+    // bits 2-3 reserved
+    pub IMASK, set_IMASK: 7, 4;
+    pub Q, set_Q: 8;
+    pub M, set_M: 9;
+    // bits 10-14 reserved
+    pub FD, set_FD: 15;
+    // bits 16-27 reserved
+    pub BL, set_BL: 28;
+    pub RB, set_RB: 29;
+    pub MD, set_MD: 30;
+    // bit 31 reserved
+}
+
+bitfield! {
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct FpscrReg(u32);
+    impl Debug;
+
+    pub u32, full, set_full: 31, 0;
+    pub RM, set_RM: 1, 0;
+    pub finexact, set_finexact: 2;
+    pub funderflow, set_funderflow: 3;
+    pub foverflow, set_foverflow: 4;
+    pub fdivbyzero, set_fdivbyzero: 5;
+    pub finvalidop, set_finvalidop: 6;
+    pub einexact, set_einexact: 7;
+    pub eunderflow, set_eunderflow: 8;
+    pub eoverflow, set_eoverflow: 9;
+    pub edivbyzero, set_edivbyzero: 10;
+    pub einvalidop, set_einvalidop: 11;
+    pub cinexact, set_cinexact: 12;
+    pub cunderflow, set_cunderflow: 13;
+    pub coverflow, set_coverflow: 14;
+    pub cdivbyzero, set_cdivbyzero: 15;
+    pub cinvalid, set_cinvalid: 16;
+    pub cfpuerr, set_cfpuerr: 17;
+    pub DN, set_DN: 18;
+    pub PR, set_PR: 19;
+    pub SZ, set_SZ: 20;
+    pub FR, set_FR: 21;
+    // bits 22-31 reserved (pad)
 }
 
 #[repr(C)]
 pub struct Sh4Ctx {
     pub r: [u32; 16],
+    pub r_bank: [u32; 8],
     pub remaining_cycles: i32,
     pub pc0: u32,
     pub pc1: u32,
@@ -24,13 +92,22 @@ pub struct Sh4Ctx {
     pub xf: FRBank,
 
     pub sr_T: u32,
-    pub sr: u32,
-    pub macl: u32,
-    pub mach: u32,
+    pub sr: SrStatus,
+    pub mac: MacReg,
     pub fpul: u32,
-    pub fpscr_PR: u32,
-    pub fpscr_SZ: u32,
+    pub fpscr: FpscrReg,
+    
+    // Additional control registers
+    pub gbr: u32,
+    pub ssr: u32,
+    pub spc: u32,
+    pub sgr: u32,
+    pub dbr: u32,
+    pub vbr: u32,
+    pub pr: u32,
+
     pub virt_jdyn: u32,
+    pub temp: [u32; 8],
 
     pub fns_entrypoint: *const u8,
 
@@ -39,6 +116,8 @@ pub struct Sh4Ctx {
     pub dec_branch_cond: u32,
     pub dec_branch_next: u32,
     pub dec_branch_target: u32,
+    pub dec_branch_target_dynamic: *const u32,
+    pub dec_branch_ssr: *const u32,
     pub dec_branch_dslot: u32,
 
     // for fns dispatcher
@@ -49,6 +128,7 @@ impl Default for Sh4Ctx {
     fn default() -> Self {
         Self {
             r: [0; 16],
+            r_bank: [0; 8],
             remaining_cycles: 0,
             pc0: 0,
             pc1: 2,
@@ -61,13 +141,21 @@ impl Default for Sh4Ctx {
             xf: FRBank { u32s: [0; 32] },
 
             sr_T: 0,
-            sr: 0,
-            macl: 0,
-            mach: 0,
+            sr: SrStatus(0),
+            mac: MacReg { full: 0 },
             fpul: 0,
-            fpscr_PR: 0,
-            fpscr_SZ: 0,
+            fpscr: FpscrReg(0),
+
+            gbr: 0,
+            ssr: 0,
+            spc: 0,
+            sgr: 0,
+            dbr: 0,
+            vbr: 0,
+            pr: 0,
+
             virt_jdyn: 0,
+            temp: [0; 8],
 
             fns_entrypoint: ptr::null(),
 
@@ -78,6 +166,8 @@ impl Default for Sh4Ctx {
             dec_branch_cond: 0,
             dec_branch_next: 0,
             dec_branch_target: 0,
+            dec_branch_target_dynamic: ptr::null(),
+            dec_branch_ssr: ptr::null(),
             dec_branch_dslot: 0,
         }
     }
@@ -156,14 +246,29 @@ unsafe fn sh4_build_block(dc: &mut Dreamcast, start_pc: u32) -> *const u8 {
         }
 
         if dc.ctx.dec_branch != 0 && dc.ctx.dec_branch_dslot == 0 {
-            if dc.ctx.dec_branch == 1 {
-                if was_branch_dslot != 0 {
-                    sh4_dec_branch_cond(addr_of_mut!(dc.ctx.pc0), addr_of!(dc.ctx.virt_jdyn), dc.ctx.dec_branch_cond, dc.ctx.dec_branch_next, dc.ctx.dec_branch_target);    
-                } else {
-                    sh4_dec_branch_cond(addr_of_mut!(dc.ctx.pc0), addr_of!(dc.ctx.sr_T), dc.ctx.dec_branch_cond, dc.ctx.dec_branch_next, dc.ctx.dec_branch_target);
+            match dc.ctx.dec_branch {
+                1 => {
+                    // Conditional branch
+                    if was_branch_dslot != 0 {
+                        sh4_dec_branch_cond(addr_of_mut!(dc.ctx.pc0), addr_of!(dc.ctx.virt_jdyn), dc.ctx.dec_branch_cond, dc.ctx.dec_branch_next, dc.ctx.dec_branch_target);
+                    } else {
+                        sh4_dec_branch_cond(addr_of_mut!(dc.ctx.pc0), addr_of!(dc.ctx.sr_T), dc.ctx.dec_branch_cond, dc.ctx.dec_branch_next, dc.ctx.dec_branch_target);
+                    }
                 }
-            } else if dc.ctx.dec_branch == 2 {
-                sh4_store32i(addr_of_mut!(dc.ctx.pc0), dc.ctx.dec_branch_target);
+                2 => {
+                    // Static branch with immediate target
+                    sh4_store32i(addr_of_mut!(dc.ctx.pc0), dc.ctx.dec_branch_target);
+                }
+                3 => {
+                    // Dynamic branch with pointer to target
+                    sh4_store32(addr_of_mut!(dc.ctx.pc0), dc.ctx.dec_branch_target_dynamic);
+                }
+                4 => {
+                    // Special case for rte
+                    sh4_store32(addr_of_mut!(dc.ctx.pc0), dc.ctx.dec_branch_target_dynamic);
+                    sh4_store32(addr_of_mut!(dc.ctx.sr.0), dc.ctx.dec_branch_ssr);
+                }
+                _ => panic!("invalid dec_branch value")
             }
             break;
         }
@@ -173,7 +278,6 @@ unsafe fn sh4_build_block(dc: &mut Dreamcast, start_pc: u32) -> *const u8 {
                 assert!(dc.ctx.dec_branch_dslot != 0);
                 println!("Warning: branch dslot on different line PC {:08X}", current_pc);
             } else {
-                // TODO: insert synthetic opcode for static branching here
                 sh4_store32i(addr_of_mut!(dc.ctx.pc0), current_pc.wrapping_add(2));
                 break;
             }
