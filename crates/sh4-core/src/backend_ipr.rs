@@ -1047,44 +1047,50 @@ pub fn sh4_dmuls(dst: *mut u64, src_n: *const u32, src_m: *const u32) {
 pub fn sh4_div1(sr: *mut super::SrStatus, sr_T: *mut u32, dst: *mut u32, src_n: *const u32, src_m: *const u32) {
     unsafe {
         let old_q = (*sr).Q() as u32;
-        let new_q = if (*src_n & 0x80000000) != 0 { 1 } else { 0 };
-        (*sr).set_Q(new_q != 0);
-
-        let mut rn = (*src_n << 1) | *sr_T;
-        let tmp0 = rn;
-        let tmp2 = *src_m;
         let sr_m = (*sr).M() as u32;
+        let old_t = *sr_T;
+        let rn_val = *src_n;
+
+        let mut q = (rn_val >> 31) & 1;
+
+        let mut rn = (rn_val << 1) | old_t;
+        let tmp0 = rn;
+
+        let tmp2 = if src_m == dst as *const u32 {
+            rn
+        } else {
+            *src_m
+        };
 
         let tmp1: u32;
+
         if old_q == 0 {
             if sr_m == 0 {
                 rn = rn.wrapping_sub(tmp2);
                 tmp1 = if rn > tmp0 { 1 } else { 0 };
-                let updated_q = if new_q == 0 { tmp1 } else { if tmp1 == 0 { 1 } else { 0 } };
-                (*sr).set_Q(updated_q != 0);
+                q = if q == 0 { tmp1 } else { if tmp1 == 0 { 1 } else { 0 } };
             } else {
                 rn = rn.wrapping_add(tmp2);
                 tmp1 = if rn < tmp0 { 1 } else { 0 };
-                let updated_q = if new_q == 0 { if tmp1 == 0 { 1 } else { 0 } } else { tmp1 };
-                (*sr).set_Q(updated_q != 0);
+                q = if q == 0 { if tmp1 == 0 { 1 } else { 0 } } else { tmp1 };
             }
         } else {
             if sr_m == 0 {
                 rn = rn.wrapping_add(tmp2);
                 tmp1 = if rn < tmp0 { 1 } else { 0 };
-                let updated_q = if new_q == 0 { tmp1 } else { if tmp1 == 0 { 1 } else { 0 } };
-                (*sr).set_Q(updated_q != 0);
+                q = if q == 0 { tmp1 } else { if tmp1 == 0 { 1 } else { 0 } };
             } else {
                 rn = rn.wrapping_sub(tmp2);
                 tmp1 = if rn > tmp0 { 1 } else { 0 };
-                let updated_q = if new_q == 0 { if tmp1 == 0 { 1 } else { 0 } } else { tmp1 };
-                (*sr).set_Q(updated_q != 0);
+                q = if q == 0 { if tmp1 == 0 { 1 } else { 0 } } else { tmp1 };
             }
         }
 
+        let new_t = if q == sr_m { 1 } else { 0 };
+
         *dst = rn;
-        let final_q = (*sr).Q() as u32;
-        *sr_T = if final_q == sr_m { 1 } else { 0 };
+        (*sr).set_Q(q != 0);
+        *sr_T = new_t;
     }
 }
 
