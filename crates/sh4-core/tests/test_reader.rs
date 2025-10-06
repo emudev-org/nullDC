@@ -31,7 +31,7 @@ pub struct Cycle {
     pub fetch_val: Option<u32>,
     pub write_addr: Option<u32>,
     pub write_val: Option<u64>,
-    pub read_addr: Option<u64>,
+    pub read_addr: Option<u32>,
     pub read_val: Option<u64>,
 }
 
@@ -135,7 +135,7 @@ fn load_cycles(buf: &[u8], ptr: usize) -> (usize, Vec<Cycle>) {
         let fetch_val = read_u32_le(buf, offset); offset += 4;
         let write_addr = read_u32_le(buf, offset); offset += 4;
         let write_val = read_u64_le(buf, offset); offset += 8;
-        let read_addr = read_u64_le(buf, offset); offset += 8;
+        let read_addr = read_u32_le(buf, offset); offset += 4;  // Changed from u64 to u32
         let read_val = read_u64_le(buf, offset); offset += 8;
 
         let cycle = Cycle {

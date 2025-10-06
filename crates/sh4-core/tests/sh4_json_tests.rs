@@ -280,6 +280,17 @@ fn run_test_file(test_path: &str) {
             memory[offset + 1] = ((opcode >> 8) & 0xFF) as u8;
         }
 
+        // Pre-populate memory with read data from cycles
+        for cycle in &test.cycles {
+            if let (Some(read_addr), Some(read_val)) = (cycle.read_addr, cycle.read_val) {
+                let offset = (read_addr as usize) & (memory.len() - 1);
+                // Write the value in little-endian format (up to 8 bytes)
+                for i in 0..8 {
+                    memory[offset + i] = ((read_val >> (i * 8)) & 0xFF) as u8;
+                }
+            }
+        }
+
         // Execute for the number of cycles in the test
         ctx.remaining_cycles = test.cycles.len() as i32;
         unsafe {
