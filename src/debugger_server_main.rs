@@ -26,12 +26,10 @@ pub fn start_debugger_server() {
                 .route("/ws", get(websocket_handler))
                 .fallback(static_file_handler);
 
-            let listener = tokio::net::TcpListener::bind("127.0.0.1:9999")
-                .await
-                .unwrap();
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
 
-            log::info!("Debugger UI server started at http://127.0.0.1:9999");
-            log::info!("WebSocket endpoint available at ws://127.0.0.1:9999/ws");
+            println!("Debugger UI server started at http://{}",  listener.local_addr().unwrap());
+
 
             axum::serve(listener, app).await.unwrap();
         });
