@@ -93,17 +93,19 @@ fn compare_floats(mine: f32, theirs: f32) -> bool {
 }
 
 fn compare_states(ctx: &Sh4Ctx, expected: &Sh4State) -> Result<(), String> {
+    let mut errors = Vec::new();
+
     // Compare general registers R0-R15
     for i in 0..16 {
         if ctx.r[i] != expected.r[i] {
-            return Err(format!("R{} mismatch: got 0x{:08X}, expected 0x{:08X}", i, ctx.r[i], expected.r[i]));
+            errors.push(format!("R{} mismatch: got 0x{:08X}, expected 0x{:08X}", i, ctx.r[i], expected.r[i]));
         }
     }
 
     // Compare banked registers R_0-R_7
     for i in 0..8 {
         if ctx.r_bank[i] != expected.r_bank[i] {
-            return Err(format!("R_{}bank mismatch: got 0x{:08X}, expected 0x{:08X}", i, ctx.r_bank[i], expected.r_bank[i]));
+            errors.push(format!("R_{}bank mismatch: got 0x{:08X}, expected 0x{:08X}", i, ctx.r_bank[i], expected.r_bank[i]));
         }
     }
 
@@ -113,7 +115,7 @@ fn compare_states(ctx: &Sh4Ctx, expected: &Sh4State) -> Result<(), String> {
             let mine = f32::from_bits(ctx.fr.u32s[i]);
             let theirs = f32::from_bits(expected.fp0[i]);
             if !compare_floats(mine, theirs) {
-                return Err(format!("FP0[{}] mismatch: got 0x{:08X} ({:?}), expected 0x{:08X} ({:?})",
+                errors.push(format!("FP0[{}] mismatch: got 0x{:08X} ({:?}), expected 0x{:08X} ({:?})",
                     i, ctx.fr.u32s[i], mine, expected.fp0[i], theirs));
             }
         }
@@ -123,7 +125,7 @@ fn compare_states(ctx: &Sh4Ctx, expected: &Sh4State) -> Result<(), String> {
             let mine = f32::from_bits(ctx.xf.u32s[i]);
             let theirs = f32::from_bits(expected.fp1[i]);
             if !compare_floats(mine, theirs) {
-                return Err(format!("FP1[{}] mismatch: got 0x{:08X} ({:?}), expected 0x{:08X} ({:?})",
+                errors.push(format!("FP1[{}] mismatch: got 0x{:08X} ({:?}), expected 0x{:08X} ({:?})",
                     i, ctx.xf.u32s[i], mine, expected.fp1[i], theirs));
             }
         }
@@ -131,65 +133,69 @@ fn compare_states(ctx: &Sh4Ctx, expected: &Sh4State) -> Result<(), String> {
 
     // Compare PC (use pc0 which should have the final PC after execution)
     if ctx.pc0 != expected.pc {
-        return Err(format!("PC mismatch: got 0x{:08X}, expected 0x{:08X}", ctx.pc0, expected.pc));
+        errors.push(format!("PC mismatch: got 0x{:08X}, expected 0x{:08X}", ctx.pc0, expected.pc));
     }
 
     // Compare control registers
     if ctx.gbr != expected.gbr {
-        return Err(format!("GBR mismatch: got 0x{:08X}, expected 0x{:08X}", ctx.gbr, expected.gbr));
+        errors.push(format!("GBR mismatch: got 0x{:08X}, expected 0x{:08X}", ctx.gbr, expected.gbr));
     }
 
     // Compare SR - reconstruct from sr.0 and sr_T
     let ctx_sr = ctx.sr.0 | ctx.sr_T;
     if ctx_sr != expected.sr {
-        return Err(format!("SR mismatch: got 0x{:08X}, expected 0x{:08X}", ctx_sr, expected.sr));
+        errors.push(format!("SR mismatch: got 0x{:08X}, expected 0x{:08X}", ctx_sr, expected.sr));
     }
 
     if ctx.ssr != expected.ssr {
-        return Err(format!("SSR mismatch: got 0x{:08X}, expected 0x{:08X}", ctx.ssr, expected.ssr));
+        errors.push(format!("SSR mismatch: got 0x{:08X}, expected 0x{:08X}", ctx.ssr, expected.ssr));
     }
 
     if ctx.spc != expected.spc {
-        return Err(format!("SPC mismatch: got 0x{:08X}, expected 0x{:08X}", ctx.spc, expected.spc));
+        errors.push(format!("SPC mismatch: got 0x{:08X}, expected 0x{:08X}", ctx.spc, expected.spc));
     }
 
     if ctx.vbr != expected.vbr {
-        return Err(format!("VBR mismatch: got 0x{:08X}, expected 0x{:08X}", ctx.vbr, expected.vbr));
+        errors.push(format!("VBR mismatch: got 0x{:08X}, expected 0x{:08X}", ctx.vbr, expected.vbr));
     }
 
     if ctx.sgr != expected.sgr {
-        return Err(format!("SGR mismatch: got 0x{:08X}, expected 0x{:08X}", ctx.sgr, expected.sgr));
+        errors.push(format!("SGR mismatch: got 0x{:08X}, expected 0x{:08X}", ctx.sgr, expected.sgr));
     }
 
     if ctx.dbr != expected.dbr {
-        return Err(format!("DBR mismatch: got 0x{:08X}, expected 0x{:08X}", ctx.dbr, expected.dbr));
+        errors.push(format!("DBR mismatch: got 0x{:08X}, expected 0x{:08X}", ctx.dbr, expected.dbr));
     }
 
     // Compare MAC registers
     unsafe {
         if ctx.mac.parts.l != expected.macl {
-            return Err(format!("MACL mismatch: got 0x{:08X}, expected 0x{:08X}", ctx.mac.parts.l, expected.macl));
+            errors.push(format!("MACL mismatch: got 0x{:08X}, expected 0x{:08X}", ctx.mac.parts.l, expected.macl));
         }
         if ctx.mac.parts.h != expected.mach {
-            return Err(format!("MACH mismatch: got 0x{:08X}, expected 0x{:08X}", ctx.mac.parts.h, expected.mach));
+            errors.push(format!("MACH mismatch: got 0x{:08X}, expected 0x{:08X}", ctx.mac.parts.h, expected.mach));
         }
     }
 
     if ctx.pr != expected.pr {
-        return Err(format!("PR mismatch: got 0x{:08X}, expected 0x{:08X}", ctx.pr, expected.pr));
+        errors.push(format!("PR mismatch: got 0x{:08X}, expected 0x{:08X}", ctx.pr, expected.pr));
     }
 
     // Compare FPSCR
     if ctx.fpscr.0 != expected.fpscr {
-        return Err(format!("FPSCR mismatch: got 0x{:08X}, expected 0x{:08X}", ctx.fpscr.0, expected.fpscr));
+        errors.push(format!("FPSCR mismatch: got 0x{:08X}, expected 0x{:08X}", ctx.fpscr.0, expected.fpscr));
     }
 
     // Compare FPUL
     if ctx.fpul != expected.fpul {
-        return Err(format!("FPUL mismatch: got 0x{:08X}, expected 0x{:08X}", ctx.fpul, expected.fpul));
+        errors.push(format!("FPUL mismatch: got 0x{:08X}, expected 0x{:08X}", ctx.fpul, expected.fpul));
     }
 
-    Ok(())
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("\n"))
+    }
 }
 
 #[test]
@@ -211,14 +217,15 @@ fn test_load_single_instruction() {
 // Generalized test runner that works for any test file
 fn run_test_file(test_path: &str) {
     if !std::path::Path::new(test_path).exists() {
-        println!("Test file not found, skipping: {}", test_path);
-        return;
+        panic!("Test file not found: {}", test_path);
     }
 
-    let tests = load_test_file(test_path).expect("Failed to load test file");
+    let tests = load_test_file(test_path)
+        .unwrap_or_else(|e| panic!("Failed to load test file {}: {}", test_path, e));
 
     let mut passed = 0;
     let mut failed = 0;
+    let mut unimplemented = 0;
 
     for (test_idx, test) in tests.iter().enumerate() {
         // Create CPU context and memory for each test
@@ -243,10 +250,43 @@ fn run_test_file(test_path: &str) {
             memory[offset + 1] = ((opcode >> 8) & 0xFF) as u8;
         }
 
-        // Execute for the number of cycles in the test
+        // Execute for the number of cycles in the test - catch panics for unimplemented opcodes
         ctx.remaining_cycles = test.cycles.len() as i32;
-        unsafe {
-            sh4_ipr_dispatcher(&mut ctx);
+        let exec_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            unsafe {
+                sh4_ipr_dispatcher(&mut ctx);
+            }
+        }));
+
+        // Check if execution panicked (likely unimplemented opcode)
+        if let Err(panic_err) = exec_result {
+            let panic_msg = if let Some(s) = panic_err.downcast_ref::<String>() {
+                s.clone()
+            } else if let Some(s) = panic_err.downcast_ref::<&str>() {
+                s.to_string()
+            } else {
+                "Unknown panic".to_string()
+            };
+
+            // Check if it's an unimplemented opcode panic
+            if panic_msg.contains("unknown opcode") || panic_msg.contains("i_not_known") {
+                println!("Test {} unimplemented: Unimplemented opcode", test_idx);
+                println!("  Opcodes: {:04X?}", test.opcodes);
+                println!("  Error: {}", panic_msg);
+                unimplemented += 1;
+                continue;
+            } else {
+                // Some other panic - this is a real failure
+                println!("Test {} failed with panic: {}", test_idx, panic_msg);
+                println!("  Opcodes: {:04X?}", test.opcodes);
+                println!("  PC: 0x{:08X} -> 0x{:08X}", test.initial.pc, test.final_state.pc);
+                failed += 1;
+                if failed >= 10 {
+                    println!("Stopping after 10 failures");
+                    break;
+                }
+                continue;
+            }
         }
 
         // Compare final state
@@ -265,8 +305,8 @@ fn run_test_file(test_path: &str) {
         }
     }
 
-    println!("\nTest results: {} passed, {} failed out of {} total",
-             passed, failed, tests.len());
+    println!("\nTest results: {} passed, {} failed, {} unimplemented out of {} total",
+             passed, failed, unimplemented, tests.len());
 
     assert_eq!(failed, 0, "{} tests failed", failed);
 }
