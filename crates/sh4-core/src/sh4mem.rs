@@ -1,4 +1,5 @@
 use super::Sh4Ctx;
+use std::ptr;
 
 pub fn read_mem<T: Copy>(ctx: *mut Sh4Ctx, addr: u32, out: &mut T) -> bool {
     unsafe {
@@ -12,7 +13,7 @@ pub fn read_mem<T: Copy>(ctx: *mut Sh4Ctx, addr: u32, out: &mut T) -> bool {
         }
         // pointer to T
         let ptr = base.add(offset) as *const T;
-        *out = *ptr;
+        *out = ptr::read_unaligned(ptr);
 
         true
     }
@@ -28,7 +29,7 @@ pub fn write_mem<T: Copy>(ctx: *mut Sh4Ctx, addr: u32, data: T) -> bool {
             return false;
         }
         let ptr = base.add(offset) as *mut T;
-        *ptr = data;
+        ptr::write_unaligned(ptr, data);
 
         true
     }

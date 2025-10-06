@@ -4,6 +4,19 @@ use sh4_core::{Sh4Ctx, sh4_ipr_dispatcher};
 mod test_reader;
 use test_reader::{load_test_file, Sh4State};
 
+// Macro to generate test functions for each test case
+// Takes the test file name (without .json.bin extension) as a string literal
+macro_rules! test_case {
+    ($name:literal) => {
+        paste::paste! {
+            #[test]
+            fn [<test_ $name>]() {
+                run_test_file(concat!("../../vendor/sh4-tests/", $name, ".json.bin"));
+            }
+        }
+    };
+}
+
 fn load_state_into_ctx(ctx: &mut Sh4Ctx, state: &Sh4State) {
     unsafe {
         // Load general registers
@@ -195,11 +208,10 @@ fn test_load_single_instruction() {
     assert_eq!(tests.len(), 500);
 }
 
-#[test]
-fn test_execute_all_instructions() {
-    let test_path = "../../vendor/sh4-tests/0000000000001000_sz0_pr0.json.bin";
+// Generalized test runner that works for any test file
+fn run_test_file(test_path: &str) {
     if !std::path::Path::new(test_path).exists() {
-        println!("Test file not found, skipping");
+        println!("Test file not found, skipping: {}", test_path);
         return;
     }
 
@@ -259,48 +271,237 @@ fn test_execute_all_instructions() {
     assert_eq!(failed, 0, "{} tests failed", failed);
 }
 
-#[test]
-fn test_execute_single_instruction() {
-    let test_path = "../../vendor/sh4-tests/0000000000001000_sz0_pr0.json.bin";
-    if !std::path::Path::new(test_path).exists() {
-        println!("Test file not found, skipping");
-        return;
-    }
-
-    let tests = load_test_file(test_path).expect("Failed to load test file");
-    let test = &tests[0];
-
-    // Create CPU context and memory
-    let mut ctx = Sh4Ctx::default();
-    let mut memory = vec![0u8; 64 * 1024 * 1024]; // 64MB for testing
-
-    // Setup memory map - map all regions to our test memory
-    for i in 0..256 {
-        ctx.memmap[i] = memory.as_mut_ptr();
-        ctx.memmask[i] = (memory.len() - 1) as u32;
-    }
-
-    // Load initial state
-    load_state_into_ctx(&mut ctx, &test.initial);
-
-    // Write instruction opcodes to memory at PC
-    let pc = test.initial.pc;
-    for (i, &opcode) in test.opcodes.iter().enumerate() {
-        let addr = pc.wrapping_add((i * 2) as u32);
-        let offset = (addr as usize) & (memory.len() - 1);
-        memory[offset] = (opcode & 0xFF) as u8;
-        memory[offset + 1] = ((opcode >> 8) & 0xFF) as u8;
-    }
-
-    // Execute for the number of cycles in the test
-    ctx.remaining_cycles = test.cycles.len() as i32;
-    unsafe {
-        sh4_ipr_dispatcher(&mut ctx);
-    }
-
-    // Compare final state
-    match compare_states(&ctx, &test.final_state) {
-        Ok(_) => {},
-        Err(e) => panic!("Test failed: {}", e),
-    }
-}
+// Generate test cases using the macro
+test_case!("0000000000001000_sz0_pr0");
+test_case!("0000000000001001_sz0_pr0");
+test_case!("0000000000001011_sz0_pr0");
+test_case!("0000000000011000_sz0_pr0");
+test_case!("0000000000011001_sz0_pr0");
+test_case!("0000000000011011_sz0_pr0");
+test_case!("0000000000101000_sz0_pr0");
+test_case!("0000000000101011_sz0_pr0");
+test_case!("0000000000111000_sz0_pr0");
+test_case!("0000000001001000_sz0_pr0");
+test_case!("0000000001011000_sz0_pr0");
+test_case!("0000mmmm00000011_sz0_pr0");
+test_case!("0000mmmm00100011_sz0_pr0");
+test_case!("0000nnnn00000010_sz0_pr0");
+test_case!("0000nnnn00001010_sz0_pr0");
+test_case!("0000nnnn00010010_sz0_pr0");
+test_case!("0000nnnn00011010_sz0_pr0");
+test_case!("0000nnnn00100010_sz0_pr0");
+test_case!("0000nnnn00101001_sz0_pr0");
+test_case!("0000nnnn00101010_sz0_pr0");
+test_case!("0000nnnn00110010_sz0_pr0");
+test_case!("0000nnnn00111010_sz0_pr0");
+test_case!("0000nnnn01000010_sz0_pr0");
+test_case!("0000nnnn01011010_sz0_pr0");
+test_case!("0000nnnn01101010_sz0_pr0");
+test_case!("0000nnnn10010011_sz0_pr0");
+test_case!("0000nnnn10100011_sz0_pr0");
+test_case!("0000nnnn10110011_sz0_pr0");
+test_case!("0000nnnn11000011_sz0_pr0");
+test_case!("0000nnnn11111010_sz0_pr0");
+test_case!("0000nnnn1mmm0010_sz0_pr0");
+test_case!("0000nnnnmmmm0100_sz0_pr0");
+test_case!("0000nnnnmmmm0101_sz0_pr0");
+test_case!("0000nnnnmmmm0110_sz0_pr0");
+test_case!("0000nnnnmmmm0111_sz0_pr0");
+test_case!("0000nnnnmmmm1100_sz0_pr0");
+test_case!("0000nnnnmmmm1101_sz0_pr0");
+test_case!("0000nnnnmmmm1110_sz0_pr0");
+test_case!("0001nnnnmmmmdddd_sz0_pr0");
+test_case!("0010nnnnmmmm0000_sz0_pr0");
+test_case!("0010nnnnmmmm0001_sz0_pr0");
+test_case!("0010nnnnmmmm0010_sz0_pr0");
+test_case!("0010nnnnmmmm0100_sz0_pr0");
+test_case!("0010nnnnmmmm0101_sz0_pr0");
+test_case!("0010nnnnmmmm0110_sz0_pr0");
+test_case!("0010nnnnmmmm0111_sz0_pr0");
+test_case!("0010nnnnmmmm1000_sz0_pr0");
+test_case!("0010nnnnmmmm1001_sz0_pr0");
+test_case!("0010nnnnmmmm1010_sz0_pr0");
+test_case!("0010nnnnmmmm1011_sz0_pr0");
+test_case!("0010nnnnmmmm1100_sz0_pr0");
+test_case!("0010nnnnmmmm1101_sz0_pr0");
+test_case!("0010nnnnmmmm1110_sz0_pr0");
+test_case!("0010nnnnmmmm1111_sz0_pr0");
+test_case!("0011nnnnmmmm0000_sz0_pr0");
+test_case!("0011nnnnmmmm0010_sz0_pr0");
+test_case!("0011nnnnmmmm0011_sz0_pr0");
+test_case!("0011nnnnmmmm0100_sz0_pr0");
+test_case!("0011nnnnmmmm0101_sz0_pr0");
+test_case!("0011nnnnmmmm0110_sz0_pr0");
+test_case!("0011nnnnmmmm0111_sz0_pr0");
+test_case!("0011nnnnmmmm1000_sz0_pr0");
+test_case!("0011nnnnmmmm1010_sz0_pr0");
+test_case!("0011nnnnmmmm1011_sz0_pr0");
+test_case!("0011nnnnmmmm1100_sz0_pr0");
+test_case!("0011nnnnmmmm1101_sz0_pr0");
+test_case!("0011nnnnmmmm1110_sz0_pr0");
+test_case!("0011nnnnmmmm1111_sz0_pr0");
+test_case!("0100mmmm00000110_sz0_pr0");
+test_case!("0100mmmm00000111_sz0_pr0");
+test_case!("0100mmmm00001010_sz0_pr0");
+test_case!("0100mmmm00001011_sz0_pr0");
+test_case!("0100mmmm00001110_sz0_pr0");
+test_case!("0100mmmm00010110_sz0_pr0");
+test_case!("0100mmmm00010111_sz0_pr0");
+test_case!("0100mmmm00011010_sz0_pr0");
+test_case!("0100mmmm00011110_sz0_pr0");
+test_case!("0100mmmm00100110_sz0_pr0");
+test_case!("0100mmmm00100111_sz0_pr0");
+test_case!("0100mmmm00101010_sz0_pr0");
+test_case!("0100mmmm00101011_sz0_pr0");
+test_case!("0100mmmm00101110_sz0_pr0");
+test_case!("0100mmmm00110111_sz0_pr0");
+test_case!("0100mmmm00111110_sz0_pr0");
+test_case!("0100mmmm01000111_sz0_pr0");
+test_case!("0100mmmm01001110_sz0_pr0");
+test_case!("0100mmmm01010110_sz0_pr0");
+test_case!("0100mmmm01011010_sz0_pr0");
+test_case!("0100mmmm01100110_sz0_pr0");
+test_case!("0100mmmm01101010_sz0_pr0");
+test_case!("0100mmmm11110110_sz0_pr0");
+test_case!("0100mmmm11111010_sz0_pr0");
+test_case!("0100mmmm1nnn0111_sz0_pr0");
+test_case!("0100mmmm1nnn1110_sz0_pr0");
+test_case!("0100nnnn00000000_sz0_pr0");
+test_case!("0100nnnn00000001_sz0_pr0");
+test_case!("0100nnnn00000010_sz0_pr0");
+test_case!("0100nnnn00000011_sz0_pr0");
+test_case!("0100nnnn00000100_sz0_pr0");
+test_case!("0100nnnn00000101_sz0_pr0");
+test_case!("0100nnnn00001000_sz0_pr0");
+test_case!("0100nnnn00001001_sz0_pr0");
+test_case!("0100nnnn00010000_sz0_pr0");
+test_case!("0100nnnn00010001_sz0_pr0");
+test_case!("0100nnnn00010010_sz0_pr0");
+test_case!("0100nnnn00010011_sz0_pr0");
+test_case!("0100nnnn00010101_sz0_pr0");
+test_case!("0100nnnn00011000_sz0_pr0");
+test_case!("0100nnnn00011001_sz0_pr0");
+test_case!("0100nnnn00011011_sz0_pr0");
+test_case!("0100nnnn00100000_sz0_pr0");
+test_case!("0100nnnn00100001_sz0_pr0");
+test_case!("0100nnnn00100010_sz0_pr0");
+test_case!("0100nnnn00100011_sz0_pr0");
+test_case!("0100nnnn00100100_sz0_pr0");
+test_case!("0100nnnn00100101_sz0_pr0");
+test_case!("0100nnnn00101000_sz0_pr0");
+test_case!("0100nnnn00101001_sz0_pr0");
+test_case!("0100nnnn00110010_sz0_pr0");
+test_case!("0100nnnn00110011_sz0_pr0");
+test_case!("0100nnnn01000011_sz0_pr0");
+test_case!("0100nnnn01010010_sz0_pr0");
+test_case!("0100nnnn01100010_sz0_pr0");
+test_case!("0100nnnn11110010_sz0_pr0");
+test_case!("0100nnnn1mmm0011_sz0_pr0");
+test_case!("0100nnnnmmmm1100_sz0_pr0");
+test_case!("0100nnnnmmmm1101_sz0_pr0");
+test_case!("0101nnnnmmmmdddd_sz0_pr0");
+test_case!("0110nnnnmmmm0000_sz0_pr0");
+test_case!("0110nnnnmmmm0001_sz0_pr0");
+test_case!("0110nnnnmmmm0010_sz0_pr0");
+test_case!("0110nnnnmmmm0011_sz0_pr0");
+test_case!("0110nnnnmmmm0100_sz0_pr0");
+test_case!("0110nnnnmmmm0101_sz0_pr0");
+test_case!("0110nnnnmmmm0110_sz0_pr0");
+test_case!("0110nnnnmmmm0111_sz0_pr0");
+test_case!("0110nnnnmmmm1000_sz0_pr0");
+test_case!("0110nnnnmmmm1001_sz0_pr0");
+test_case!("0110nnnnmmmm1010_sz0_pr0");
+test_case!("0110nnnnmmmm1011_sz0_pr0");
+test_case!("0110nnnnmmmm1100_sz0_pr0");
+test_case!("0110nnnnmmmm1101_sz0_pr0");
+test_case!("0110nnnnmmmm1110_sz0_pr0");
+test_case!("0110nnnnmmmm1111_sz0_pr0");
+test_case!("0111nnnniiiiiiii_sz0_pr0");
+test_case!("10000000nnnndddd_sz0_pr0");
+test_case!("10000001nnnndddd_sz0_pr0");
+test_case!("10000100mmmmdddd_sz0_pr0");
+test_case!("10000101mmmmdddd_sz0_pr0");
+test_case!("10001000iiiiiiii_sz0_pr0");
+test_case!("10001001dddddddd_sz0_pr0");
+test_case!("10001011dddddddd_sz0_pr0");
+test_case!("10001101dddddddd_sz0_pr0");
+test_case!("10001111dddddddd_sz0_pr0");
+test_case!("1001nnnndddddddd_sz0_pr0");
+test_case!("1010dddddddddddd_sz0_pr0");
+test_case!("1011dddddddddddd_sz0_pr0");
+test_case!("11000000dddddddd_sz0_pr0");
+test_case!("11000001dddddddd_sz0_pr0");
+test_case!("11000010dddddddd_sz0_pr0");
+test_case!("11000011iiiiiiii_sz0_pr0");
+test_case!("11000100dddddddd_sz0_pr0");
+test_case!("11000101dddddddd_sz0_pr0");
+test_case!("11000110dddddddd_sz0_pr0");
+test_case!("11000111dddddddd_sz0_pr0");
+test_case!("11001000iiiiiiii_sz0_pr0");
+test_case!("11001001iiiiiiii_sz0_pr0");
+test_case!("11001010iiiiiiii_sz0_pr0");
+test_case!("11001011iiiiiiii_sz0_pr0");
+test_case!("11001100iiiiiiii_sz0_pr0");
+test_case!("11001101iiiiiiii_sz0_pr0");
+test_case!("11001110iiiiiiii_sz0_pr0");
+test_case!("11001111iiiiiiii_sz0_pr0");
+test_case!("1101nnnndddddddd_sz0_pr0");
+test_case!("1110nnnniiiiiiii_sz0_pr0");
+test_case!("1111001111111101_sz0_pr0");
+test_case!("1111101111111101_sz0_pr0");
+test_case!("1111mmm000111101_sz0_pr1");
+test_case!("1111mmm010111101_sz0_pr0");
+test_case!("1111mmmm00011101_sz0_pr0");
+test_case!("1111mmmm00111101_sz0_pr0");
+test_case!("1111nn0111111101_sz0_pr0");
+test_case!("1111nnmm11101101_sz0_pr0");
+test_case!("1111nnn000101101_sz0_pr1");
+test_case!("1111nnn001001101_sz0_pr1");
+test_case!("1111nnn001011101_sz0_pr1");
+test_case!("1111nnn001101101_sz0_pr1");
+test_case!("1111nnn010101101_sz0_pr0");
+test_case!("1111nnn011111101_sz0_pr0");
+test_case!("1111nnn0mmm00000_sz0_pr1");
+test_case!("1111nnn0mmm00001_sz0_pr1");
+test_case!("1111nnn0mmm00010_sz0_pr1");
+test_case!("1111nnn0mmm00011_sz0_pr1");
+test_case!("1111nnn0mmm00100_sz0_pr1");
+test_case!("1111nnn0mmm00101_sz0_pr1");
+test_case!("1111nnn0mmm01100_sz1_pr0");
+test_case!("1111nnn0mmm11100_sz1_pr0");
+test_case!("1111nnn0mmmm0110_sz1_pr0");
+test_case!("1111nnn0mmmm1000_sz1_pr0");
+test_case!("1111nnn0mmmm1001_sz1_pr0");
+test_case!("1111nnn1mmm01100_sz1_pr0");
+test_case!("1111nnn1mmm11100_sz1_pr0");
+test_case!("1111nnn1mmmm0110_sz1_pr0");
+test_case!("1111nnn1mmmm1000_sz1_pr0");
+test_case!("1111nnn1mmmm1001_sz1_pr0");
+test_case!("1111nnnn00001101_sz0_pr0");
+test_case!("1111nnnn00101101_sz0_pr0");
+test_case!("1111nnnn01001101_sz0_pr0");
+test_case!("1111nnnn01011101_sz0_pr0");
+test_case!("1111nnnn01101101_sz0_pr0");
+test_case!("1111nnnn01111101_sz0_pr0");
+test_case!("1111nnnn10001101_sz0_pr0");
+test_case!("1111nnnn10011101_sz0_pr0");
+test_case!("1111nnnnmmm00111_sz1_pr0");
+test_case!("1111nnnnmmm01010_sz1_pr0");
+test_case!("1111nnnnmmm01011_sz1_pr0");
+test_case!("1111nnnnmmm10111_sz1_pr0");
+test_case!("1111nnnnmmm11010_sz1_pr0");
+test_case!("1111nnnnmmm11011_sz1_pr0");
+test_case!("1111nnnnmmmm0000_sz0_pr0");
+test_case!("1111nnnnmmmm0001_sz0_pr0");
+test_case!("1111nnnnmmmm0010_sz0_pr0");
+test_case!("1111nnnnmmmm0011_sz0_pr0");
+test_case!("1111nnnnmmmm0100_sz0_pr0");
+test_case!("1111nnnnmmmm0101_sz0_pr0");
+test_case!("1111nnnnmmmm0110_sz0_pr0");
+test_case!("1111nnnnmmmm0111_sz0_pr0");
+test_case!("1111nnnnmmmm1000_sz0_pr0");
+test_case!("1111nnnnmmmm1001_sz0_pr0");
+test_case!("1111nnnnmmmm1010_sz0_pr0");
+test_case!("1111nnnnmmmm1011_sz0_pr0");
+test_case!("1111nnnnmmmm1100_sz0_pr0");
+test_case!("1111nnnnmmmm1110_sz0_pr0");
