@@ -40,6 +40,10 @@ egui = { git = "https://github.com/emilk/egui", rev = "18ea9ff", features = ["de
 egui-winit = { git = "https://github.com/emilk/egui", rev = "18ea9ff", features = ["clipboard"] }
 egui-wgpu = { git = "https://github.com/emilk/egui", rev = "18ea9ff" }
 
+# Debugger UI server
+include_dir = "0.7"
+tiny_http = "0.12"
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
