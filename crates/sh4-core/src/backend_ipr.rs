@@ -52,16 +52,20 @@ pub fn sh4_store32(dst: *mut u32, src: *const u32) {
 }
 
 #[inline(always)]
-pub fn sh4_store_fpscr(dst: *mut u32, src: *const u32) {
+pub fn sh4_store_fpscr(dst: *mut u32, src: *const u32, fr: *mut u32, xf: *mut u32) {
     unsafe {
         let new_val = *src;
         let old_val = *dst;
-
+        let changed = old_val ^ new_val;
         // Check if DN bit changed (bit 18)
-        if (old_val ^ new_val) & (1 << 18) != 0 {
+        if changed & (1 << 18) != 0 {
             // DN bit changed, sync host FPU DAZ flag
             let dn = (new_val >> 18) & 1;
             set_host_daz(dn != 0);
+        }
+
+        if changed & (1 << 21) != 0 {
+            sh4_frchg(fr, xf);
         }
 
         *dst = new_val;
@@ -536,9 +540,17 @@ pub fn sh4_fstsi(dst: *mut f32, imm: f32) {
 }
 
 #[inline(always)]
-pub fn sh4_frchg() {
-    // No-op for interpreter - bitfield operations done in frontend
+pub fn sh4_frchg(fr: *mut u32, xf: *mut u32) {
+    // Swap the first 16 registers between FR and XF banks
+    unsafe {
+        for i in 0..16 {
+            let temp = *fr.add(i);
+            *fr.add(i) = *xf.add(i);
+            *xf.add(i) = temp;
+        }
+    }
 }
+
 
 #[inline(always)]
 pub fn sh4_fschg() {

@@ -228,7 +228,7 @@ macro_rules! define_op {
 define_op!(sh4_muls32 (dst: *mut u32, src_n: *const u32, src_m: *const u32));
 define_op!(sh4_store32 (dst: *mut u32, src: *const u32));
 define_op!(sh4_store32i (dst: *mut u32, imm: u32));
-define_op!(sh4_store_fpscr (dst: *mut u32, src: *const u32));
+define_op!(sh4_store_fpscr (dst: *mut u32, src: *const u32, fr: *mut u32, xf: *mut u32));
 define_op!(sh4_and (dst: *mut u32, src_n: *const u32, src_m: *const u32));
 define_op!(sh4_xor (dst: *mut u32, src_n: *const u32, src_m: *const u32));
 define_op!(sh4_sub (dst: *mut u32, src_n: *const u32, src_m: *const u32));
@@ -324,11 +324,7 @@ define_op!(sh4_fabs (dst: *mut u32, src: *const u32));
 define_op!(sh4_fsqrt (dst: *mut f32, src: *const f32));
 define_op!(sh4_fstsi (dst: *mut f32, imm: f32));
 
-// frchg/fschg handled specially - panic for recompiler (must invalidate code)
-#[inline(always)]
-pub fn sh4_frchg() {
-    panic!("frchg not supported in recompiler - requires code invalidation");
-}
+define_op!(sh4_frchg (fr: *mut u32, xf: *mut u32));
 
 #[inline(always)]
 pub fn sh4_fschg() {

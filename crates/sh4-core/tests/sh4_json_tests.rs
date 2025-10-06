@@ -50,8 +50,12 @@ fn load_state_into_ctx(ctx: &mut Sh4Ctx, state: &Sh4State) {
         ctx.pr = state.pr;
         ctx.fpul = state.fpul;
 
-        // Use the special FPSCR store function to sync DAZ flag
-        sh4_store_fpscr(&mut ctx.fpscr.0, &state.fpscr);
+        // Set fpscr with DN bit inverted to force DAZ sync
+        // Only invert bit 18 (DN) to avoid triggering bank switches (FR bit)
+        ctx.fpscr.0 = state.fpscr ^ (1 << 18);
+        // Use the special FPSCR store function to sync DAZ flag and handle FR bank switching
+        sh4_store_fpscr(&mut ctx.fpscr.0, &state.fpscr,
+                        &mut ctx.fr.u32s[0], &mut ctx.xf.u32s[0]);
     }
 }
 

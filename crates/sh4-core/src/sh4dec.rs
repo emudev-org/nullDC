@@ -1019,7 +1019,8 @@ sh4op! {
     i0100_nnnn_0110_0110(dc, state, opcode) {
         let n = GetN(opcode);
         backend::sh4_read_mem32(dc, addr_of!((*dc).r[n]), addr_of_mut!((*dc).temp[0]));
-        backend::sh4_store_fpscr(addr_of_mut!((*dc).fpscr.0), addr_of!((*dc).temp[0]));
+        backend::sh4_store_fpscr(addr_of_mut!((*dc).fpscr.0), addr_of!((*dc).temp[0]),
+                                  addr_of_mut!((*dc).fr.u32s[0]), addr_of_mut!((*dc).xf.u32s[0]));
         backend::sh4_addi(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), 4);
     }
 
@@ -1101,7 +1102,8 @@ sh4op! {
     (disas = "lds <REG_N>,FPSCR")
     i0100_nnnn_0110_1010(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_store_fpscr(addr_of_mut!((*dc).fpscr.0), addr_of!((*dc).r[n]));
+        backend::sh4_store_fpscr(addr_of_mut!((*dc).fpscr.0), addr_of!((*dc).r[n]),
+                                  addr_of_mut!((*dc).fr.u32s[0]), addr_of_mut!((*dc).xf.u32s[0]));
     }
 
     (disas = "ldc <REG_N>,DBR")
@@ -1727,7 +1729,7 @@ sh4op! {
     i1111_1011_1111_1101(dc, state, opcode) {
         // XOR FR bit (bit 21) in FPSCR
         backend::sh4_xor_imm(addr_of_mut!((*dc).fpscr.0), addr_of!((*dc).fpscr.0), 1 << 21);
-        backend::sh4_frchg();
+        backend::sh4_frchg(addr_of_mut!((*dc).fr.u32s[0]), addr_of_mut!((*dc).xf.u32s[0]));
     }
 
     (disas = "fschg")
