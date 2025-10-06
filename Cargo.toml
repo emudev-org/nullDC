@@ -18,12 +18,10 @@ opt-level = 3
 debug = true
 
 [dependencies]
-paste = "1.0"
-seq-macro = "0.3"
+sh4-core = { path = "crates/sh4-core" }
 git-version = "0.3"
 wgpu = "26.0.1"
 winit = "0.30.12"
-bitfield = "0.14"
 
 # Disable default features globally
 egui = { git = "https://github.com/emilk/egui", rev = "18ea9ff", default-features = false }

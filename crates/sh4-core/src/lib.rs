@@ -1,4 +1,4 @@
-use crate::dreamcast::sh4::backend_fns::{ dec_start, dec_finalize_shrink, sh4_dec_call_decode, sh4_store32, sh4_store32i, sh4_dec_branch_cond, dec_reserve_dispatcher, dec_patch_dispatcher, dec_run_block, dec_free };
+use backend_fns::{ dec_start, dec_finalize_shrink, sh4_dec_call_decode, sh4_store32, sh4_store32i, sh4_dec_branch_cond, dec_reserve_dispatcher, dec_patch_dispatcher, dec_run_block, dec_free };
 use std::ptr;
 use std::ptr::{ addr_of, addr_of_mut };
 use bitfield::bitfield;
@@ -111,6 +111,10 @@ pub struct Sh4Ctx {
 
     pub fns_entrypoint: *const u8,
 
+    // Memory map (moved from Dreamcast)
+    pub memmap: [*mut u8; 256],
+    pub memmask: [u32; 256],
+
     // Decoder state (for fns/recompiler)
     pub dec_branch: u32,
     pub dec_branch_cond: u32,
@@ -159,6 +163,9 @@ impl Default for Sh4Ctx {
 
             fns_entrypoint: ptr::null(),
 
+            memmap: [ptr::null_mut(); 256],
+            memmask: [0; 256],
+
             ptrs: vec![ptr::null(); 0],
 
             // dec_pc: 0, // TODO, using pc0 for now and restoring it after
@@ -173,46 +180,44 @@ impl Default for Sh4Ctx {
     }
 }
 
-mod sh4mem;
+pub mod sh4mem;
 use sh4mem::read_mem;
 
-mod sh4dec;
+pub mod sh4dec;
 use sh4dec::{SH4_OP_PTR, SH4_OP_DESC};
 
-use crate::dreamcast::Dreamcast;
+pub mod backend_ipr;
+pub mod backend_fns;
 
-mod backend_ipr;
-mod backend_fns;
-
-pub fn sh4_ipr_dispatcher(dc: *mut Dreamcast) {
+pub fn sh4_ipr_dispatcher(ctx: *mut Sh4Ctx) {
     unsafe {
         loop {
             let mut opcode: u16 = 0;
 
-            // Equivalent of: read_mem(dc, dc->ctx.pc, opcode);
-            read_mem(dc, (*dc).ctx.pc0, &mut opcode);
+            // Equivalent of: read_mem(ctx, ctx->pc, opcode);
+            read_mem(ctx, (*ctx).pc0, &mut opcode);
 
             // Call the opcode handler
             let handler = *SH4_OP_PTR.get_unchecked(opcode as usize);
-            handler(dc, opcode);
+            handler(ctx, opcode);
 
-            (*dc).ctx.pc0 = (*dc).ctx.pc1;
-            (*dc).ctx.pc1 = (*dc).ctx.pc2;
-            (*dc).ctx.pc2 = (*dc).ctx.pc2.wrapping_add(2);
+            (*ctx).pc0 = (*ctx).pc1;
+            (*ctx).pc1 = (*ctx).pc2;
+            (*ctx).pc2 = (*ctx).pc2.wrapping_add(2);
 
-            (*dc).ctx.is_delayslot0 = (*dc).ctx.is_delayslot1;
-            (*dc).ctx.is_delayslot1 = 0;
+            (*ctx).is_delayslot0 = (*ctx).is_delayslot1;
+            (*ctx).is_delayslot1 = 0;
 
             // Break when remaining_cycles reaches 0
-            (*dc).ctx.remaining_cycles = (*dc).ctx.remaining_cycles.wrapping_sub(1);
-            if (*dc).ctx.remaining_cycles <= 0 {
+            (*ctx).remaining_cycles = (*ctx).remaining_cycles.wrapping_sub(1);
+            if (*ctx).remaining_cycles <= 0 {
                 break;
             }
         }
     }
 }
 
-unsafe fn sh4_build_block(dc: &mut Dreamcast, start_pc: u32) -> *const u8 {
+unsafe fn sh4_build_block(ctx: &mut Sh4Ctx, start_pc: u32) -> *const u8 {
     let mut remaining_line = (32 - (start_pc & 31)) / 2;
 
     let mut current_pc = start_pc;
@@ -222,51 +227,51 @@ unsafe fn sh4_build_block(dc: &mut Dreamcast, start_pc: u32) -> *const u8 {
 
     dec_reserve_dispatcher();
 
-    dc.ctx.dec_branch = 0;
-    dc.ctx.dec_branch_cond = 0;
-    dc.ctx.dec_branch_next = 0;
-    dc.ctx.dec_branch_target = 0;
-    dc.ctx.dec_branch_dslot = 0;
+    ctx.dec_branch = 0;
+    ctx.dec_branch_cond = 0;
+    ctx.dec_branch_next = 0;
+    ctx.dec_branch_target = 0;
+    ctx.dec_branch_dslot = 0;
 
     loop {
         let mut opcode: u16 = 0;
 
-        // Equivalent of: read_mem(dc, dc->ctx.pc, opcode);
-        read_mem(dc, current_pc, &mut opcode);
+        // Equivalent of: read_mem(ctx, ctx->pc, opcode);
+        read_mem(ctx, current_pc, &mut opcode);
 
-        // println!("{:x}: {}", current_pc, format_disas(SH4DecoderState{pc: current_pc, fpscr_PR: (*dc).ctx.fpscr_PR, fpscr_SZ: (*dc).ctx.fpscr_SZ}, opcode));
+        // println!("{:x}: {}", current_pc, format_disas(SH4DecoderState{pc: current_pc, fpscr_PR: (*ctx).fpscr_PR, fpscr_SZ: (*ctx).fpscr_SZ}, opcode));
 
         // Call the opcode handler
-        dc.ctx.pc0 = current_pc;
+        ctx.pc0 = current_pc;
         let handler = unsafe { (*SH4_OP_DESC.get_unchecked(opcode as usize)).dech };
-        let was_branch_dslot = dc.ctx.dec_branch_dslot;
-        handler(dc, opcode);
+        let was_branch_dslot = ctx.dec_branch_dslot;
+        handler(ctx, opcode);
         if was_branch_dslot != 0 {
-            dc.ctx.dec_branch_dslot = 0;
+            ctx.dec_branch_dslot = 0;
         }
 
-        if dc.ctx.dec_branch != 0 && dc.ctx.dec_branch_dslot == 0 {
-            match dc.ctx.dec_branch {
+        if ctx.dec_branch != 0 && ctx.dec_branch_dslot == 0 {
+            match ctx.dec_branch {
                 1 => {
                     // Conditional branch
                     if was_branch_dslot != 0 {
-                        sh4_dec_branch_cond(addr_of_mut!(dc.ctx.pc0), addr_of!(dc.ctx.virt_jdyn), dc.ctx.dec_branch_cond, dc.ctx.dec_branch_next, dc.ctx.dec_branch_target);
+                        sh4_dec_branch_cond(addr_of_mut!(ctx.pc0), addr_of!(ctx.virt_jdyn), ctx.dec_branch_cond, ctx.dec_branch_next, ctx.dec_branch_target);
                     } else {
-                        sh4_dec_branch_cond(addr_of_mut!(dc.ctx.pc0), addr_of!(dc.ctx.sr_T), dc.ctx.dec_branch_cond, dc.ctx.dec_branch_next, dc.ctx.dec_branch_target);
+                        sh4_dec_branch_cond(addr_of_mut!(ctx.pc0), addr_of!(ctx.sr_T), ctx.dec_branch_cond, ctx.dec_branch_next, ctx.dec_branch_target);
                     }
                 }
                 2 => {
                     // Static branch with immediate target
-                    sh4_store32i(addr_of_mut!(dc.ctx.pc0), dc.ctx.dec_branch_target);
+                    sh4_store32i(addr_of_mut!(ctx.pc0), ctx.dec_branch_target);
                 }
                 3 => {
                     // Dynamic branch with pointer to target
-                    sh4_store32(addr_of_mut!(dc.ctx.pc0), dc.ctx.dec_branch_target_dynamic);
+                    sh4_store32(addr_of_mut!(ctx.pc0), ctx.dec_branch_target_dynamic);
                 }
                 4 => {
                     // Special case for rte
-                    sh4_store32(addr_of_mut!(dc.ctx.pc0), dc.ctx.dec_branch_target_dynamic);
-                    sh4_store32(addr_of_mut!(dc.ctx.sr.0), dc.ctx.dec_branch_ssr);
+                    sh4_store32(addr_of_mut!(ctx.pc0), ctx.dec_branch_target_dynamic);
+                    sh4_store32(addr_of_mut!(ctx.sr.0), ctx.dec_branch_ssr);
                 }
                 _ => panic!("invalid dec_branch value")
             }
@@ -274,11 +279,11 @@ unsafe fn sh4_build_block(dc: &mut Dreamcast, start_pc: u32) -> *const u8 {
         }
 
         if remaining_line == 1 {
-            if dc.ctx.dec_branch != 0 {
-                assert!(dc.ctx.dec_branch_dslot != 0);
+            if ctx.dec_branch != 0 {
+                assert!(ctx.dec_branch_dslot != 0);
                 println!("Warning: branch dslot on different line PC {:08X}", current_pc);
             } else {
-                sh4_store32i(addr_of_mut!(dc.ctx.pc0), current_pc.wrapping_add(2));
+                sh4_store32i(addr_of_mut!(ctx.pc0), current_pc.wrapping_add(2));
                 break;
             }
         }
@@ -288,7 +293,7 @@ unsafe fn sh4_build_block(dc: &mut Dreamcast, start_pc: u32) -> *const u8 {
     }
 
     // TODO: ugly hack but gets the job done
-    dc.ctx.pc0 = start_pc;
+    ctx.pc0 = start_pc;
 
     dec_patch_dispatcher();
     let rv = unsafe { dec_finalize_shrink() };
@@ -296,49 +301,49 @@ unsafe fn sh4_build_block(dc: &mut Dreamcast, start_pc: u32) -> *const u8 {
     rv.0
 }
 
-pub fn sh4_fns_decode_on_demand(dc: &mut Dreamcast) {
-    unsafe { 
-        let new_block = sh4_build_block(dc, dc.ctx.pc0);
-        dc.ctx.ptrs[((dc.ctx.pc0 & 0xFF_FFFF) / 2) as usize] = new_block;
+pub fn sh4_fns_decode_on_demand(ctx: &mut Sh4Ctx) {
+    unsafe {
+        let new_block = sh4_build_block(ctx, ctx.pc0);
+        ctx.ptrs[((ctx.pc0 & 0xFF_FFFF) / 2) as usize] = new_block;
     }
 }
 
-pub fn sh4_fns_dispatcher(dc: *mut Dreamcast) {
+pub fn sh4_fns_dispatcher(ctx: *mut Sh4Ctx) {
     unsafe {
         loop {
-            let pc0 = (*dc).ctx.pc0;
+            let pc0 = (*ctx).pc0;
             let idx = ((pc0 & 0xFF_FFFF) >> 1) as usize;
 
             // ptrs: Vec<BlockFn>
-            let block = *(*dc).ctx.ptrs.as_ptr().add(idx); // copy the fn ptr
+            let block = *(*ctx).ptrs.as_ptr().add(idx); // copy the fn ptr
 
             let block_cycles = dec_run_block(block);
-    
-            (*dc).ctx.remaining_cycles = (*dc).ctx.remaining_cycles.wrapping_sub(block_cycles as i32);
-            if (*dc).ctx.remaining_cycles <= 0 {
+
+            (*ctx).remaining_cycles = (*ctx).remaining_cycles.wrapping_sub(block_cycles as i32);
+            if (*ctx).remaining_cycles <= 0 {
                 break;
             }
         }
     }
 }
 
-pub fn sh4_init_ctx(dc: *mut Dreamcast) {
+pub fn sh4_init_ctx(ctx: *mut Sh4Ctx) {
     let default_fns_entrypoint: *const u8;
 
     unsafe {
         dec_start(1024);
 
-        sh4_dec_call_decode(dc);
+        sh4_dec_call_decode(ctx);
 
         default_fns_entrypoint = dec_finalize_shrink().0;
-    
 
-        (*dc).ctx.fns_entrypoint = default_fns_entrypoint;
-        (*dc).ctx.ptrs = vec![default_fns_entrypoint; 8192 * 1024];
+
+        (*ctx).fns_entrypoint = default_fns_entrypoint;
+        (*ctx).ptrs = vec![default_fns_entrypoint; 8192 * 1024];
     }
 }
 
-pub fn sh4_term_ctx(dc: &mut Dreamcast) {
-    // TODO: Free also dc.ctx.ptrs here
-    unsafe { dec_free(dc.ctx.fns_entrypoint); }
+pub fn sh4_term_ctx(ctx: &mut Sh4Ctx) {
+    // TODO: Free also ctx.ptrs here
+    unsafe { dec_free(ctx.fns_entrypoint); }
 }

@@ -1,7 +1,7 @@
 // backend_fns.rs — single global buffer, 32-byte aligned, sequential packing, realloc growth
 
-use crate::dreamcast::Dreamcast;
-use crate::dreamcast::sh4::backend_ipr; // adjust path if needed
+use super::Sh4Ctx;
+use super::backend_ipr;
 
 use core::{mem, ptr};
 use std::alloc::{alloc, dealloc, realloc, handle_alloc_error, Layout};
@@ -241,16 +241,16 @@ define_op!(sh4_shlr (sr_T: *mut u32, dst: *mut u32, src_n: *const u32));
 define_op!(sh4_shllf (dst: *mut u32, src_n: *const u32, amt: u32));
 define_op!(sh4_shlrf (dst: *mut u32, src_n: *const u32, amt: u32));
 
-define_op!(sh4_write_mem8 (dc: *mut Dreamcast, addr: *const u32, data: *const u32));
-define_op!(sh4_write_mem16 (dc: *mut Dreamcast, addr: *const u32, data: *const u32));
-define_op!(sh4_write_mem32 (dc: *mut Dreamcast, addr: *const u32, data: *const u32));
-define_op!(sh4_write_mem64 (dc: *mut Dreamcast, addr: *const u32, data: *const u64));
+define_op!(sh4_write_mem8 (ctx: *mut Sh4Ctx, addr: *const u32, data: *const u32));
+define_op!(sh4_write_mem16 (ctx: *mut Sh4Ctx, addr: *const u32, data: *const u32));
+define_op!(sh4_write_mem32 (ctx: *mut Sh4Ctx, addr: *const u32, data: *const u32));
+define_op!(sh4_write_mem64 (ctx: *mut Sh4Ctx, addr: *const u32, data: *const u64));
 
-define_op!(sh4_read_mems8 (dc: *mut Dreamcast, addr: *const u32, data: *mut u32));
-define_op!(sh4_read_mems16 (dc: *mut Dreamcast, addr: *const u32, data: *mut u32));
-define_op!(sh4_read_mem32 (dc: *mut Dreamcast, addr: *const u32, data: *mut u32));
-define_op!(sh4_read_mem64 (dc: *mut Dreamcast, addr: *const u32, data: *mut u64));
-define_op!(sh4_read_mem32i (dc: *mut Dreamcast, addr: u32,          data: *mut u32));
+define_op!(sh4_read_mems8 (ctx: *mut Sh4Ctx, addr: *const u32, data: *mut u32));
+define_op!(sh4_read_mems16 (ctx: *mut Sh4Ctx, addr: *const u32, data: *mut u32));
+define_op!(sh4_read_mem32 (ctx: *mut Sh4Ctx, addr: *const u32, data: *mut u32));
+define_op!(sh4_read_mem64 (ctx: *mut Sh4Ctx, addr: *const u32, data: *mut u64));
+define_op!(sh4_read_mem32i (ctx: *mut Sh4Ctx, addr: u32,          data: *mut u32));
 
 define_op!(sh4_fadd (dst: *mut f32, src_n: *const f32, src_m: *const f32));
 define_op!(sh4_fmul (dst: *mut f32, src_n: *const f32, src_m: *const f32));
@@ -268,46 +268,46 @@ define_op!(sh4_fsqrt_d (dst: *mut u32, src: *const u32));
 define_op!(sh4_float_d (dst: *mut u32, src: *const u32));
 define_op!(sh4_ftrc_d (dst: *mut u32, src: *const u32));
 
-// define_op!(sh4_branch_cond       (dc: *mut Dreamcast, T: *const u32, condition: u32, next: u32, target: u32));
-// define_op!(sh4_branch_cond_delay (dc: *mut Dreamcast, T: *const u32, condition: u32, next: u32, target: u32));
-// define_op!(sh4_branch_delay      (dc: *mut Dreamcast, target: u32));
+// define_op!(sh4_branch_cond       (ctx: *mut Sh4Ctx, T: *const u32, condition: u32, next: u32, target: u32));
+// define_op!(sh4_branch_cond_delay (ctx: *mut Sh4Ctx, T: *const u32, condition: u32, next: u32, target: u32));
+// define_op!(sh4_branch_delay      (ctx: *mut Sh4Ctx, target: u32));
 
 define_op!(sh4_dec_branch_cond (dst: *mut u32, jdyn: *const u32, condition: u32, next: u32, target: u32));
-define_op!(sh4_dec_call_decode (dc: *mut Dreamcast));
+define_op!(sh4_dec_call_decode (ctx: *mut Sh4Ctx));
 
 #[inline(always)]
-pub fn sh4_branch_cond(dc: *mut Dreamcast, T: *const u32, condition: u32, next: u32, target: u32) {
+pub fn sh4_branch_cond(ctx: *mut Sh4Ctx, T: *const u32, condition: u32, next: u32, target: u32) {
     unsafe {
-        (*dc).ctx.dec_branch = 1;
-        (*dc).ctx.dec_branch_cond = condition;
-        (*dc).ctx.dec_branch_next = next;
-        (*dc).ctx.dec_branch_target = target;
+        (*ctx).dec_branch = 1;
+        (*ctx).dec_branch_cond = condition;
+        (*ctx).dec_branch_next = next;
+        (*ctx).dec_branch_target = target;
     }
 }
 
 #[inline(always)]
-pub fn sh4_branch_cond_delay(dc: *mut Dreamcast, T: *const u32, condition: u32, next: u32, target: u32) {
+pub fn sh4_branch_cond_delay(ctx: *mut Sh4Ctx, T: *const u32, condition: u32, next: u32, target: u32) {
     unsafe {
-        sh4_store32(addr_of_mut!((*dc).ctx.virt_jdyn), addr_of!((*dc).ctx.sr_T));
+        sh4_store32(addr_of_mut!((*ctx).virt_jdyn), addr_of!((*ctx).sr_T));
 
-        (*dc).ctx.dec_branch = 1;
-        (*dc).ctx.dec_branch_cond = condition;
-        (*dc).ctx.dec_branch_next = next;
-        (*dc).ctx.dec_branch_target = target;
-        (*dc).ctx.dec_branch_dslot = 1;
+        (*ctx).dec_branch = 1;
+        (*ctx).dec_branch_cond = condition;
+        (*ctx).dec_branch_next = next;
+        (*ctx).dec_branch_target = target;
+        (*ctx).dec_branch_dslot = 1;
     }
 }
 
 #[inline(always)]
-pub fn sh4_branch_delay(dc: *mut Dreamcast, target: u32) {
+pub fn sh4_branch_delay(ctx: *mut Sh4Ctx, target: u32) {
     unsafe {
-        (*dc).ctx.dec_branch = 2;
-        (*dc).ctx.dec_branch_target = target;
-        (*dc).ctx.dec_branch_dslot = 1;
+        (*ctx).dec_branch = 2;
+        (*ctx).dec_branch_target = target;
+        (*ctx).dec_branch_dslot = 1;
     }
 }
 
-define_op!(sh4_read_mems16_i (dc: *mut Dreamcast, addr: u32, data: *mut u32));
+define_op!(sh4_read_mems16_i (ctx: *mut Sh4Ctx, addr: u32, data: *mut u32));
 
 define_op!(sh4_fcmp_eq (sr_T: *mut u32, src_n: *const f32, src_m: *const f32));
 define_op!(sh4_fcmp_gt (sr_T: *mut u32, src_n: *const f32, src_m: *const f32));
@@ -338,68 +338,68 @@ pub fn sh4_fschg() {
 // Updated to use pointer parameters matching backend_ipr.rs signatures
 
 #[inline(always)]
-pub fn sh4_jmp(dc: *mut Dreamcast, src: *const u32) {
+pub fn sh4_jmp(ctx: *mut Sh4Ctx, src: *const u32) {
     unsafe {
-        (*dc).ctx.dec_branch = 3;
-        (*dc).ctx.dec_branch_target_dynamic = src;
-        (*dc).ctx.dec_branch_dslot = 1;
+        (*ctx).dec_branch = 3;
+        (*ctx).dec_branch_target_dynamic = src;
+        (*ctx).dec_branch_dslot = 1;
     }
 }
 
 #[inline(always)]
-pub fn sh4_jsr(dc: *mut Dreamcast, src: *const u32, next_pc: u32) {
+pub fn sh4_jsr(ctx: *mut Sh4Ctx, src: *const u32, next_pc: u32) {
     unsafe {
-        sh4_store32i(addr_of_mut!((*dc).ctx.pr), next_pc);
-        (*dc).ctx.dec_branch = 3;
-        (*dc).ctx.dec_branch_target_dynamic = src;
-        (*dc).ctx.dec_branch_dslot = 1;
+        sh4_store32i(addr_of_mut!((*ctx).pr), next_pc);
+        (*ctx).dec_branch = 3;
+        (*ctx).dec_branch_target_dynamic = src;
+        (*ctx).dec_branch_dslot = 1;
     }
 }
 
 #[inline(always)]
-pub fn sh4_braf(dc: *mut Dreamcast, src: *const u32, pc: u32) {
+pub fn sh4_braf(ctx: *mut Sh4Ctx, src: *const u32, pc: u32) {
     unsafe {
         let target = (*src).wrapping_add(pc);
-        (*dc).ctx.dec_branch = 2;
-        (*dc).ctx.dec_branch_target = target;
-        (*dc).ctx.dec_branch_dslot = 1;
+        (*ctx).dec_branch = 2;
+        (*ctx).dec_branch_target = target;
+        (*ctx).dec_branch_dslot = 1;
     }
 }
 
 #[inline(always)]
-pub fn sh4_bsrf(dc: *mut Dreamcast, src: *const u32, pc: u32) {
+pub fn sh4_bsrf(ctx: *mut Sh4Ctx, src: *const u32, pc: u32) {
     unsafe {
-        sh4_store32i(addr_of_mut!((*dc).ctx.pr), pc.wrapping_add(4));
+        sh4_store32i(addr_of_mut!((*ctx).pr), pc.wrapping_add(4));
         let target = (*src).wrapping_add(pc);
-        (*dc).ctx.dec_branch = 2;
-        (*dc).ctx.dec_branch_target = target;
-        (*dc).ctx.dec_branch_dslot = 1;
+        (*ctx).dec_branch = 2;
+        (*ctx).dec_branch_target = target;
+        (*ctx).dec_branch_dslot = 1;
     }
 }
 
 #[inline(always)]
-pub fn sh4_rts(dc: *mut Dreamcast, pr: *const u32) {
+pub fn sh4_rts(ctx: *mut Sh4Ctx, pr: *const u32) {
     unsafe {
-        (*dc).ctx.dec_branch = 3;
-        (*dc).ctx.dec_branch_target_dynamic = pr;
-        (*dc).ctx.dec_branch_dslot = 1;
+        (*ctx).dec_branch = 3;
+        (*ctx).dec_branch_target_dynamic = pr;
+        (*ctx).dec_branch_dslot = 1;
     }
 }
 
 #[inline(always)]
-pub fn sh4_rte(dc: *mut Dreamcast, spc: *const u32, ssr: *const u32) {
+pub fn sh4_rte(ctx: *mut Sh4Ctx, spc: *const u32, ssr: *const u32) {
     unsafe {
         // SR is restored from SSR AFTER delay slot execution
-        (*dc).ctx.dec_branch = 4;
-        (*dc).ctx.dec_branch_target_dynamic = spc;
-        (*dc).ctx.dec_branch_ssr = ssr;
-        (*dc).ctx.dec_branch_dslot = 1;
+        (*ctx).dec_branch = 4;
+        (*ctx).dec_branch_target_dynamic = spc;
+        (*ctx).dec_branch_ssr = ssr;
+        (*ctx).dec_branch_dslot = 1;
     }
 }
 
 define_op!(sh4_shad (dst: *mut u32, src_n: *const u32, src_m: *const u32));
 define_op!(sh4_shld (dst: *mut u32, src_n: *const u32, src_m: *const u32));
-define_op!(sh4_tas (sr_T: *mut u32, dc: *mut Dreamcast, addr: *const u32));
+define_op!(sh4_tas (sr_T: *mut u32, ctx: *mut Sh4Ctx, addr: *const u32));
 define_op!(sh4_not (dst: *mut u32, src: *const u32));
 define_op!(sh4_extuw (dst: *mut u32, src: *const u32));
 define_op!(sh4_extsb (dst: *mut u32, src: *const u32));
@@ -444,34 +444,34 @@ define_op!(sh4_subv (sr_T: *mut u32, dst: *mut u32, src_n: *const u32, src_m: *c
 
 define_op!(sh4_muluw (dst: *mut u32, src_n: *const u32, src_m: *const u32));
 define_op!(sh4_mulsw (dst: *mut u32, src_n: *const u32, src_m: *const u32));
-define_op!(sh4_div0u (sr: *mut crate::dreamcast::sh4::SrStatus, sr_T: *mut u32));
-define_op!(sh4_div0s (sr: *mut crate::dreamcast::sh4::SrStatus, sr_T: *mut u32, src_n: *const u32, src_m: *const u32));
+define_op!(sh4_div0u (sr: *mut crate::SrStatus, sr_T: *mut u32));
+define_op!(sh4_div0s (sr: *mut crate::SrStatus, sr_T: *mut u32, src_n: *const u32, src_m: *const u32));
 define_op!(sh4_cmp_str (sr_T: *mut u32, src_n: *const u32, src_m: *const u32));
 define_op!(sh4_dmulu (dst: *mut u64, src_n: *const u32, src_m: *const u32));
 define_op!(sh4_dmuls (dst: *mut u64, src_n: *const u32, src_m: *const u32));
-define_op!(sh4_div1 (sr: *mut crate::dreamcast::sh4::SrStatus, sr_T: *mut u32, dst: *mut u32, src_n: *const u32, src_m: *const u32));
+define_op!(sh4_div1 (sr: *mut crate::SrStatus, sr_T: *mut u32, dst: *mut u32, src_n: *const u32, src_m: *const u32));
 
-define_op!(sh4_write_mem8_indexed (dc: *mut Dreamcast, base: *const u32, index: *const u32, data: *const u32));
-define_op!(sh4_write_mem16_indexed (dc: *mut Dreamcast, base: *const u32, index: *const u32, data: *const u32));
-define_op!(sh4_write_mem32_indexed (dc: *mut Dreamcast, base: *const u32, index: *const u32, data: *const u32));
-define_op!(sh4_read_mems8_indexed (dc: *mut Dreamcast, base: *const u32, index: *const u32, data: *mut u32));
-define_op!(sh4_read_mems16_indexed (dc: *mut Dreamcast, base: *const u32, index: *const u32, data: *mut u32));
-define_op!(sh4_read_mem32_indexed (dc: *mut Dreamcast, base: *const u32, index: *const u32, data: *mut u32));
-define_op!(sh4_read_mem64_indexed (dc: *mut Dreamcast, base: *const u32, index: *const u32, data: *mut u64));
-define_op!(sh4_write_mem64_indexed (dc: *mut Dreamcast, base: *const u32, index: *const u32, data: *const u64));
+define_op!(sh4_write_mem8_indexed (ctx: *mut Sh4Ctx, base: *const u32, index: *const u32, data: *const u32));
+define_op!(sh4_write_mem16_indexed (ctx: *mut Sh4Ctx, base: *const u32, index: *const u32, data: *const u32));
+define_op!(sh4_write_mem32_indexed (ctx: *mut Sh4Ctx, base: *const u32, index: *const u32, data: *const u32));
+define_op!(sh4_read_mems8_indexed (ctx: *mut Sh4Ctx, base: *const u32, index: *const u32, data: *mut u32));
+define_op!(sh4_read_mems16_indexed (ctx: *mut Sh4Ctx, base: *const u32, index: *const u32, data: *mut u32));
+define_op!(sh4_read_mem32_indexed (ctx: *mut Sh4Ctx, base: *const u32, index: *const u32, data: *mut u32));
+define_op!(sh4_read_mem64_indexed (ctx: *mut Sh4Ctx, base: *const u32, index: *const u32, data: *mut u64));
+define_op!(sh4_write_mem64_indexed (ctx: *mut Sh4Ctx, base: *const u32, index: *const u32, data: *const u64));
 
-define_op!(sh4_tst_mem (sr_T: *mut u32, dc: *mut Dreamcast, base: *const u32, index: *const u32, imm: u32));
-define_op!(sh4_and_mem (dc: *mut Dreamcast, base: *const u32, index: *const u32, imm: u8));
-define_op!(sh4_xor_mem (dc: *mut Dreamcast, base: *const u32, index: *const u32, imm: u8));
-define_op!(sh4_or_mem (dc: *mut Dreamcast, base: *const u32, index: *const u32, imm: u8));
+define_op!(sh4_tst_mem (sr_T: *mut u32, ctx: *mut Sh4Ctx, base: *const u32, index: *const u32, imm: u32));
+define_op!(sh4_and_mem (ctx: *mut Sh4Ctx, base: *const u32, index: *const u32, imm: u8));
+define_op!(sh4_xor_mem (ctx: *mut Sh4Ctx, base: *const u32, index: *const u32, imm: u8));
+define_op!(sh4_or_mem (ctx: *mut Sh4Ctx, base: *const u32, index: *const u32, imm: u8));
 
-define_op!(sh4_write_mem8_disp (dc: *mut Dreamcast, base: *const u32, disp: u32, data: *const u32));
-define_op!(sh4_write_mem16_disp (dc: *mut Dreamcast, base: *const u32, disp: u32, data: *const u32));
-define_op!(sh4_write_mem32_disp (dc: *mut Dreamcast, base: *const u32, disp: u32, data: *const u32));
-define_op!(sh4_read_mems8_disp (dc: *mut Dreamcast, base: *const u32, disp: u32, data: *mut u32));
-define_op!(sh4_read_mems16_disp (dc: *mut Dreamcast, base: *const u32, disp: u32, data: *mut u32));
-define_op!(sh4_read_mem32_disp (dc: *mut Dreamcast, base: *const u32, disp: u32, data: *mut u32));
-define_op!(sh4_write_mem64_disp (dc: *mut Dreamcast, base: *const u32, disp: u32, data: *const u64));
+define_op!(sh4_write_mem8_disp (ctx: *mut Sh4Ctx, base: *const u32, disp: u32, data: *const u32));
+define_op!(sh4_write_mem16_disp (ctx: *mut Sh4Ctx, base: *const u32, disp: u32, data: *const u32));
+define_op!(sh4_write_mem32_disp (ctx: *mut Sh4Ctx, base: *const u32, disp: u32, data: *const u32));
+define_op!(sh4_read_mems8_disp (ctx: *mut Sh4Ctx, base: *const u32, disp: u32, data: *mut u32));
+define_op!(sh4_read_mems16_disp (ctx: *mut Sh4Ctx, base: *const u32, disp: u32, data: *mut u32));
+define_op!(sh4_read_mem32_disp (ctx: *mut Sh4Ctx, base: *const u32, disp: u32, data: *mut u32));
+define_op!(sh4_write_mem64_disp (ctx: *mut Sh4Ctx, base: *const u32, disp: u32, data: *const u64));
 
 define_op!(sh4_fsrra (dst: *mut f32, src: *const f32));
 define_op!(sh4_fipr (fr: *mut f32, n: usize, m: usize));

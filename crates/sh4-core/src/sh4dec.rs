@@ -8,12 +8,12 @@
 use std::ptr::{addr_of, addr_of_mut};
 
 // Pull in the machine types and backends from the parent module.
-use crate::dreamcast::Dreamcast;
+use super::Sh4Ctx;
 
 #[derive(Copy, Clone)]
 pub struct sh4_opcodelistentry {
-    pub oph: fn(*mut Dreamcast, u16),
-    pub dech: fn(*mut Dreamcast, u16),
+    pub oph: fn(*mut Sh4Ctx, u16),
+    pub dech: fn(*mut Sh4Ctx, u16),
     pub handler_name: &'static str,
     pub mask: u16,
     pub key: u16,
@@ -58,7 +58,7 @@ macro_rules! sh4op {
             use super::*;
             $(
                 sh4op!(@emit $name ( $($params)* ) { $($body)* }
-                       ; backend = crate::dreamcast::sh4::backend_ipr);
+                       ; backend = crate::backend_ipr);
             )*
         }
         // Decoder expansion
@@ -66,7 +66,7 @@ macro_rules! sh4op {
             use super::*;
             $(
                 sh4op!(@emit $name ( $($params)* ) { $($body)* }
-                       ; backend = crate::dreamcast::sh4::backend_fns);
+                       ; backend = crate::backend_fns);
             )*
         }
 
@@ -99,7 +99,7 @@ macro_rules! sh4op {
         ; backend = $backend:path
     ) => {
         #[allow(non_snake_case)]
-        pub(crate) fn $name($dc: *mut Dreamcast, $opcode: u16) {
+        pub(crate) fn $name($dc: *mut Sh4Ctx, $opcode: u16) {
             #[allow(unused_unsafe)]
             unsafe {
                 #[allow(unused_imports)]
@@ -116,16 +116,16 @@ macro_rules! sh4op {
         ; backend = $backend:path
     ) => {
         #[allow(non_snake_case)]
-        pub(crate) fn $name($dc: *mut Dreamcast, $opcode: u16) {
+        pub(crate) fn $name($dc: *mut Sh4Ctx, $opcode: u16) {
             #[allow(unused_unsafe)]
             unsafe {
                 #[allow(unused_imports)]
                 use $backend as backend;
 
                 let $state = SH4DecoderState {
-                    pc: (*$dc).ctx.pc0,
-                    fpscr_PR: (*$dc).ctx.fpscr.PR(),
-                    fpscr_SZ: (*$dc).ctx.fpscr.SZ(),
+                    pc: (*$dc).pc0,
+                    fpscr_PR: (*$dc).fpscr.PR(),
+                    fpscr_SZ: (*$dc).fpscr.SZ(),
                 };
 
                 { $($body)* }
@@ -147,7 +147,7 @@ macro_rules! sh4op {
 #[inline(always)] fn branch_target_s8(pc: u32, disp8: i32) -> u32 { (disp8 as i64 * 2 + 4 + pc as i64) as u32 }
 #[inline(always)] fn branch_target_s12(pc: u32, disp12: i32) -> u32 { (disp12 as i64 * 2 + 4 + pc as i64) as u32 }
 
-fn i_not_implemented(dc: *mut Dreamcast, state: SH4DecoderState, opcode: u16) {
+fn i_not_implemented(dc: *mut Sh4Ctx, state: SH4DecoderState, opcode: u16) {
     let desc_ptr: *const sh4_opcodelistentry = &SH4_OP_DESC[opcode as usize];
     let diss = unsafe {
         if desc_ptr.is_null() {
@@ -160,9 +160,9 @@ fn i_not_implemented(dc: *mut Dreamcast, state: SH4DecoderState, opcode: u16) {
     panic!("{:08X}: {:04X} {} [i_not_implemented]", state.pc, opcode, diss);
 }
 
-fn i_not_known(dc: *mut Dreamcast, opcode: u16) {
+fn i_not_known(dc: *mut Sh4Ctx, opcode: u16) {
     unsafe {
-        let pc = (*dc).ctx.pc0;
+        let pc = (*dc).pc0;
         let desc_ptr = &SH4_OP_DESC[opcode as usize];
         panic!("{:08X}: {:04X} {} [i_not_known]", pc, opcode, desc_ptr.diss);
     }
@@ -173,7 +173,7 @@ sh4op! {
     i0000_nnnn_mmmm_0111(dc, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_muls32(addr_of_mut!((*dc).ctx.mac.parts.l), addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
+        backend::sh4_muls32(addr_of_mut!((*dc).mac.parts.l), addr_of!((*dc).r[n]), addr_of!((*dc).r[m]));
     }
 
     (disas = "nop")
@@ -184,92 +184,92 @@ sh4op! {
     (disas = "sts FPUL,<REG_N>")
     i0000_nnnn_0101_1010(dc, opcode) {
         let n = GetN(opcode);
-        backend::sh4_store32(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.fpul));
+        backend::sh4_store32(addr_of_mut!((*dc).r[n]), addr_of!((*dc).fpul));
     }
 
     (disas = "sts MACL,<REG_N>")
     i0000_nnnn_0001_1010(dc, opcode) {
         let n = GetN(opcode);
-        backend::sh4_store32(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.mac.parts.l));
+        backend::sh4_store32(addr_of_mut!((*dc).r[n]), addr_of!((*dc).mac.parts.l));
     }
 
     (disas = "mov.b <REG_M>,@<REG_N>")
     i0010_nnnn_mmmm_0000(dc, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_write_mem8(dc, addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
+        backend::sh4_write_mem8(dc, addr_of!((*dc).r[n]), addr_of!((*dc).r[m]));
     }
 
     (disas = "mov.w <REG_M>,@<REG_N>")
     i0010_nnnn_mmmm_0001(dc, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_write_mem16(dc, addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
+        backend::sh4_write_mem16(dc, addr_of!((*dc).r[n]), addr_of!((*dc).r[m]));
     }
 
     (disas = "mov.l <REG_M>,@<REG_N>")
     i0010_nnnn_mmmm_0010(dc, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_write_mem32(dc, addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
+        backend::sh4_write_mem32(dc, addr_of!((*dc).r[n]), addr_of!((*dc).r[m]));
     }
 
     (disas = "and <REG_M>,<REG_N>")
     i0010_nnnn_mmmm_1001(dc, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_and(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
+        backend::sh4_and(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), addr_of!((*dc).r[m]));
     }
 
     (disas = "xor <REG_M>,<REG_N>")
     i0010_nnnn_mmmm_1010(dc, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_xor(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
+        backend::sh4_xor(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), addr_of!((*dc).r[m]));
     }
 
     (disas = "sub <REG_M>,<REG_N>")
     i0011_nnnn_mmmm_1000(dc, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_sub(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
+        backend::sh4_sub(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), addr_of!((*dc).r[m]));
     }
 
     (disas = "add <REG_M>,<REG_N>")
     i0011_nnnn_mmmm_1100(dc, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_add(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
+        backend::sh4_add(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), addr_of!((*dc).r[m]));
     }
 
     (disas = "dt <REG_N>")
     i0100_nnnn_0001_0000(dc, opcode) {
         let n = GetN(opcode);
-        backend::sh4_dt(addr_of_mut!((*dc).ctx.sr_T), addr_of_mut!((*dc).ctx.r[n]));
+        backend::sh4_dt(addr_of_mut!((*dc).sr_T), addr_of_mut!((*dc).r[n]));
     }
 
     (disas = "shlr <REG_N>")
     i0100_nnnn_0000_0001(dc, opcode) {
         let n = GetN(opcode);
-        backend::sh4_shlr(addr_of_mut!((*dc).ctx.sr_T), addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]));
+        backend::sh4_shlr(addr_of_mut!((*dc).sr_T), addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]));
     }
 
     (disas = "shll8 <REG_N>")
     i0100_nnnn_0001_1000(dc, opcode) {
         let n = GetN(opcode);
-        backend::sh4_shllf(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), 8);
+        backend::sh4_shllf(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), 8);
     }
 
     (disas = "shlr2 <REG_N>")
     i0100_nnnn_0000_1001(dc, opcode) {
         let n = GetN(opcode);
-        backend::sh4_shlrf(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), 2);
+        backend::sh4_shlrf(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), 2);
     }
 
     (disas = "shlr16 <REG_N>")
     i0100_nnnn_0010_1001(dc, opcode) {
         let n = GetN(opcode);
-        backend::sh4_shlrf(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), 16);
+        backend::sh4_shlrf(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), 16);
     }
 
     (disas = "mov.b @<REG_M>,<REG_N>")
@@ -277,35 +277,35 @@ sh4op! {
         let n = GetN(opcode);
         let m = GetM(opcode);
 
-        backend::sh4_read_mems8(dc, addr_of!((*dc).ctx.r[m]), addr_of_mut!((*dc).ctx.r[n]));
+        backend::sh4_read_mems8(dc, addr_of!((*dc).r[m]), addr_of_mut!((*dc).r[n]));
     }
 
     (disas = "mov <REG_M>,<REG_N>")
     i0110_nnnn_mmmm_0011(dc, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_store32(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
+        backend::sh4_store32(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[m]));
     }
 
     (disas = "neg <REG_M>,<REG_N>")
     i0110_nnnn_mmmm_1011(dc, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_neg(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
+        backend::sh4_neg(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[m]));
     }
 
     (disas = "extu.b <REG_M>,<REG_N>")
     i0110_nnnn_mmmm_1100(dc, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_extub(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
+        backend::sh4_extub(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[m]));
     }
 
     (disas = "add #<simm8>,<REG_N>")
     i0111_nnnn_iiii_iiii(dc, opcode) {
         let n = GetN(opcode);
         let stmp1 = GetSImm8(opcode);
-        backend::sh4_addi(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), stmp1 as u32);
+        backend::sh4_addi(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), stmp1 as u32);
     }
 
     (disas = "bf <bdisp8>")
@@ -313,7 +313,7 @@ sh4op! {
         let disp8 = GetSImm8(opcode);
         let next = state.pc.wrapping_add(2);
         let target = branch_target_s8(state.pc, disp8);
-        backend::sh4_branch_cond(dc, addr_of!((*dc).ctx.sr_T), 0, next, target);
+        backend::sh4_branch_cond(dc, addr_of!((*dc).sr_T), 0, next, target);
     }
 
     (disas = "bf/s <bdisp8>")
@@ -321,7 +321,7 @@ sh4op! {
         let disp8 = GetSImm8(opcode);
         let next = state.pc.wrapping_add(4);
         let target = branch_target_s8(state.pc, disp8);
-        backend::sh4_branch_cond_delay(dc, addr_of!((*dc).ctx.sr_T), 0, next, target);
+        backend::sh4_branch_cond_delay(dc, addr_of!((*dc).sr_T), 0, next, target);
     }
 
     (disas = "bra <bdisp12>")
@@ -335,40 +335,40 @@ sh4op! {
     i1100_0111_iiii_iiii(dc, state, opcode) {
         let disp8 = GetImm8(opcode) as i32;
         let addr = data_target_s8(state.pc, disp8);
-        backend::sh4_store32i(addr_of_mut!((*dc).ctx.r[0]), addr);
+        backend::sh4_store32i(addr_of_mut!((*dc).r[0]), addr);
     }
     (disas = "mov.b R0,@(<disp4b>,<REG_M>)")
     i1000_0000_mmmm_iiii(dc, state, opcode) {
         let m = GetM(opcode);
         let disp = GetImm4(opcode);
-        backend::sh4_write_mem8_disp(dc, addr_of!((*dc).ctx.r[m]), disp, addr_of!((*dc).ctx.r[0]));
+        backend::sh4_write_mem8_disp(dc, addr_of!((*dc).r[m]), disp, addr_of!((*dc).r[0]));
     }
 
     (disas = "mov.w R0,@(<disp4w>,<REG_M>)")
     i1000_0001_mmmm_iiii(dc, state, opcode) {
         let m = GetM(opcode);
         let disp = GetImm4(opcode) << 1;
-        backend::sh4_write_mem16_disp(dc, addr_of!((*dc).ctx.r[m]), disp, addr_of!((*dc).ctx.r[0]));
+        backend::sh4_write_mem16_disp(dc, addr_of!((*dc).r[m]), disp, addr_of!((*dc).r[0]));
     }
 
     (disas = "mov.b @(<disp4b>,<REG_M>),R0")
     i1000_0100_mmmm_iiii(dc, state, opcode) {
         let m = GetM(opcode);
         let disp = GetImm4(opcode);
-        backend::sh4_read_mems8_disp(dc, addr_of!((*dc).ctx.r[m]), disp, addr_of_mut!((*dc).ctx.r[0]));
+        backend::sh4_read_mems8_disp(dc, addr_of!((*dc).r[m]), disp, addr_of_mut!((*dc).r[0]));
     }
 
     (disas = "mov.w @(<disp4w>,<REG_M>),R0")
     i1000_0101_mmmm_iiii(dc, state, opcode) {
         let m = GetM(opcode);
         let disp = GetImm4(opcode) << 1;
-        backend::sh4_read_mems16_disp(dc, addr_of!((*dc).ctx.r[m]), disp, addr_of_mut!((*dc).ctx.r[0]));
+        backend::sh4_read_mems16_disp(dc, addr_of!((*dc).r[m]), disp, addr_of_mut!((*dc).r[0]));
     }
 
     (disas = "cmp/eq #<simm8hex>,R0")
     i1000_1000_iiii_iiii(dc, state, opcode) {
         let imm = GetSImm8(opcode) as u32;
-        backend::sh4_cmp_eq_imm(addr_of_mut!((*dc).ctx.sr_T), addr_of!((*dc).ctx.r[0]), imm);
+        backend::sh4_cmp_eq_imm(addr_of_mut!((*dc).sr_T), addr_of!((*dc).r[0]), imm);
     }
 
 
@@ -378,14 +378,14 @@ sh4op! {
         let disp8 = GetImm8(opcode) as i32;
         let addr = data_target_s8(state.pc, disp8);
 
-        backend::sh4_read_mem32i(dc, addr, addr_of_mut!((*dc).ctx.r[n]));
+        backend::sh4_read_mem32i(dc, addr, addr_of_mut!((*dc).r[n]));
     }
 
     (disas = "mov #<simm8hex>,<REG_N>")
     i1110_nnnn_iiii_iiii(dc, opcode) {
         let n = GetN(opcode);
         let imm = GetSImm8(opcode);
-        backend::sh4_store32i(addr_of_mut!((*dc).ctx.r[n]), imm as u32);
+        backend::sh4_store32i(addr_of_mut!((*dc).r[n]), imm as u32);
     }
 
     (disas = "fadd <FREG_M_SD_F>,<FREG_N_SD_F>")
@@ -393,11 +393,11 @@ sh4op! {
         if !state.fpscr_PR {
             let n = GetN(opcode);
             let m = GetM(opcode);
-            unsafe { backend::sh4_fadd(addr_of_mut!((*dc).ctx.fr.f32s[n]), addr_of!((*dc).ctx.fr.f32s[n]), addr_of!((*dc).ctx.fr.f32s[m])); };
+            unsafe { backend::sh4_fadd(addr_of_mut!((*dc).fr.f32s[n]), addr_of!((*dc).fr.f32s[n]), addr_of!((*dc).fr.f32s[m])); };
         } else {
             let n = (GetN(opcode) >> 1) & 0x7;
             let m = (GetM(opcode) >> 1) & 0x7;
-            backend::sh4_fadd_d(addr_of_mut!((*dc).ctx.fr.u32s[n << 1]), addr_of!((*dc).ctx.fr.u32s[n << 1]), addr_of!((*dc).ctx.fr.u32s[m << 1]));
+            backend::sh4_fadd_d(addr_of_mut!((*dc).fr.u32s[n << 1]), addr_of!((*dc).fr.u32s[n << 1]), addr_of!((*dc).fr.u32s[m << 1]));
         }
     }
 
@@ -406,11 +406,11 @@ sh4op! {
         if !state.fpscr_PR {
             let n = GetN(opcode);
             let m = GetM(opcode);
-            unsafe { backend::sh4_fsub(addr_of_mut!((*dc).ctx.fr.f32s[n]), addr_of!((*dc).ctx.fr.f32s[n]), addr_of!((*dc).ctx.fr.f32s[m])); };
+            unsafe { backend::sh4_fsub(addr_of_mut!((*dc).fr.f32s[n]), addr_of!((*dc).fr.f32s[n]), addr_of!((*dc).fr.f32s[m])); };
         } else {
             let n = (GetN(opcode) >> 1) & 0x7;
             let m = (GetM(opcode) >> 1) & 0x7;
-            backend::sh4_fsub_d(addr_of_mut!((*dc).ctx.fr.u32s[n << 1]), addr_of!((*dc).ctx.fr.u32s[n << 1]), addr_of!((*dc).ctx.fr.u32s[m << 1]));
+            backend::sh4_fsub_d(addr_of_mut!((*dc).fr.u32s[n << 1]), addr_of!((*dc).fr.u32s[n << 1]), addr_of!((*dc).fr.u32s[m << 1]));
         }
     }
 
@@ -419,11 +419,11 @@ sh4op! {
         if !state.fpscr_PR {
             let n = GetN(opcode);
             let m = GetM(opcode);
-            unsafe { backend::sh4_fmul(addr_of_mut!((*dc).ctx.fr.f32s[n]), addr_of!((*dc).ctx.fr.f32s[n]), addr_of!((*dc).ctx.fr.f32s[m])); };
+            unsafe { backend::sh4_fmul(addr_of_mut!((*dc).fr.f32s[n]), addr_of!((*dc).fr.f32s[n]), addr_of!((*dc).fr.f32s[m])); };
         } else {
             let n = (GetN(opcode) >> 1) & 0x7;
             let m = (GetM(opcode) >> 1) & 0x7;
-            backend::sh4_fmul_d(addr_of_mut!((*dc).ctx.fr.u32s[n << 1]), addr_of!((*dc).ctx.fr.u32s[n << 1]), addr_of!((*dc).ctx.fr.u32s[m << 1]));
+            backend::sh4_fmul_d(addr_of_mut!((*dc).fr.u32s[n << 1]), addr_of!((*dc).fr.u32s[n << 1]), addr_of!((*dc).fr.u32s[m << 1]));
         }
     }
 
@@ -432,11 +432,11 @@ sh4op! {
         if !state.fpscr_PR {
             let n = GetN(opcode);
             let m = GetM(opcode);
-            unsafe { backend::sh4_fdiv(addr_of_mut!((*dc).ctx.fr.f32s[n]), addr_of!((*dc).ctx.fr.f32s[n]), addr_of!((*dc).ctx.fr.f32s[m])); };
+            unsafe { backend::sh4_fdiv(addr_of_mut!((*dc).fr.f32s[n]), addr_of!((*dc).fr.f32s[n]), addr_of!((*dc).fr.f32s[m])); };
         } else {
             let n = (GetN(opcode) >> 1) & 0x7;
             let m = (GetM(opcode) >> 1) & 0x7;
-            backend::sh4_fdiv_d(addr_of_mut!((*dc).ctx.fr.u32s[n << 1]), addr_of!((*dc).ctx.fr.u32s[n << 1]), addr_of!((*dc).ctx.fr.u32s[m << 1]));
+            backend::sh4_fdiv_d(addr_of_mut!((*dc).fr.u32s[n << 1]), addr_of!((*dc).fr.u32s[n << 1]), addr_of!((*dc).fr.u32s[m << 1]));
         }
     }
 
@@ -445,7 +445,7 @@ sh4op! {
         if !state.fpscr_SZ {
             let n = GetN(opcode);
             let m = GetM(opcode);
-            unsafe { backend::sh4_read_mem32(dc, addr_of!((*dc).ctx.r[m]), addr_of_mut!((*dc).ctx.fr.u32s[n])); }
+            unsafe { backend::sh4_read_mem32(dc, addr_of!((*dc).r[m]), addr_of_mut!((*dc).fr.u32s[n])); }
         } else {
             panic!("fmov.s @<REG_M>,<FREG_N>: SZ=1 mode not implemented");
         }
@@ -456,7 +456,7 @@ sh4op! {
         if !state.fpscr_SZ {
             let n = GetN(opcode);
             let m = GetM(opcode);
-            unsafe { backend::sh4_store32(addr_of_mut!((*dc).ctx.fr.u32s[n]), addr_of!((*dc).ctx.fr.u32s[m])); }
+            unsafe { backend::sh4_store32(addr_of_mut!((*dc).fr.u32s[n]), addr_of!((*dc).fr.u32s[m])); }
         } else {
             panic!("fmov <FREG_M>,<FREG_N>: SZ=1 mode not implemented");
         }
@@ -466,7 +466,7 @@ sh4op! {
     i1111_nnn0_1111_1101(dc, state, opcode) {
         let n = (GetN(opcode) & 0xE) as usize;
         if !state.fpscr_PR {
-            unsafe { backend::sh4_fsca(addr_of_mut!((*dc).ctx.fr.f32s[n]), addr_of!((*dc).ctx.fpul)); }
+            unsafe { backend::sh4_fsca(addr_of_mut!((*dc).fr.f32s[n]), addr_of!((*dc).fpul)); }
 
         } else {
             panic!("fsca: double precision mode not supported");
@@ -477,10 +477,10 @@ sh4op! {
     i1111_nnnn_0010_1101(dc, state, opcode) {
         if !state.fpscr_PR {
             let n = GetN(opcode);
-            unsafe { backend::sh4_float(addr_of_mut!((*dc).ctx.fr.f32s[n]), addr_of!((*dc).ctx.fpul)); }
+            unsafe { backend::sh4_float(addr_of_mut!((*dc).fr.f32s[n]), addr_of!((*dc).fpul)); }
         } else {
             let n = (GetN(opcode) >> 1) & 0x7;
-            backend::sh4_float_d(addr_of_mut!((*dc).ctx.fr.u32s[n << 1]), addr_of!((*dc).ctx.fpul));
+            backend::sh4_float_d(addr_of_mut!((*dc).fr.u32s[n << 1]), addr_of!((*dc).fpul));
         }
     }
 
@@ -488,75 +488,75 @@ sh4op! {
     i1111_nnnn_0011_1101(dc, state, opcode) {
         if !state.fpscr_PR {
             let n = GetN(opcode);
-            unsafe { backend::sh4_ftrc(addr_of_mut!((*dc).ctx.fpul), addr_of!((*dc).ctx.fr.f32s[n])); }
+            unsafe { backend::sh4_ftrc(addr_of_mut!((*dc).fpul), addr_of!((*dc).fr.f32s[n])); }
         } else {
             let n = (GetN(opcode) >> 1) & 0x7;
-            backend::sh4_ftrc_d(addr_of_mut!((*dc).ctx.fpul), addr_of!((*dc).ctx.fr.u32s[n << 1]));
+            backend::sh4_ftrc_d(addr_of_mut!((*dc).fpul), addr_of!((*dc).fr.u32s[n << 1]));
         }
     }
 
     (disas = "lds <REG_N>,FPUL")
     i0100_nnnn_0101_1010(dc, opcode) {
         let n = GetN(opcode);
-        backend::sh4_store32(addr_of_mut!((*dc).ctx.fpul), addr_of!((*dc).ctx.r[n]));
+        backend::sh4_store32(addr_of_mut!((*dc).fpul), addr_of!((*dc).r[n]));
     }
 
     (disas = "stc SR,<REG_N>")
     i0000_nnnn_0000_0010(dc, state, opcode) {
         let n = GetN(opcode);
         // Compose SR: start with sr.0 (which has T_h=0)
-        backend::sh4_store32(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.sr.0));
+        backend::sh4_store32(addr_of_mut!((*dc).r[n]), addr_of!((*dc).sr.0));
         // OR in the T bit from sr_T
-        backend::sh4_or(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.sr_T));
+        backend::sh4_or(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), addr_of!((*dc).sr_T));
     }
 
     (disas = "stc GBR,<REG_N>")
     i0000_nnnn_0001_0010(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_store32(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.gbr));
+        backend::sh4_store32(addr_of_mut!((*dc).r[n]), addr_of!((*dc).gbr));
     }
 
     (disas = "stc VBR,<REG_N>")
     i0000_nnnn_0010_0010(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_store32(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.vbr));
+        backend::sh4_store32(addr_of_mut!((*dc).r[n]), addr_of!((*dc).vbr));
     }
 
     (disas = "stc SSR,<REG_N>")
     i0000_nnnn_0011_0010(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_store32(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.ssr));
+        backend::sh4_store32(addr_of_mut!((*dc).r[n]), addr_of!((*dc).ssr));
     }
 
     (disas = "sts SGR,<REG_N>")
     i0000_nnnn_0011_1010(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_store32(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.sgr));
+        backend::sh4_store32(addr_of_mut!((*dc).r[n]), addr_of!((*dc).sgr));
     }
 
     (disas = "stc SPC,<REG_N>")
     i0000_nnnn_0100_0010(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_store32(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.spc));
+        backend::sh4_store32(addr_of_mut!((*dc).r[n]), addr_of!((*dc).spc));
     }
 
     (disas = "stc RM_BANK,<REG_N>")
     i0000_nnnn_1mmm_0010(dc, state, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode) & 0x7;
-        backend::sh4_store32(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r_bank[m]));
+        backend::sh4_store32(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r_bank[m]));
     }
 
     (disas = "braf <REG_N>")
     i0000_nnnn_0010_0011(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_braf(dc, addr_of!((*dc).ctx.r[n]), state.pc);
+        backend::sh4_braf(dc, addr_of!((*dc).r[n]), state.pc);
     }
 
     (disas = "bsrf <REG_N>")
     i0000_nnnn_0000_0011(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_bsrf(dc, addr_of!((*dc).ctx.r[n]), state.pc);
+        backend::sh4_bsrf(dc, addr_of!((*dc).r[n]), state.pc);
     }
 
     (disas = "movca.l R0,@<REG_N>")
@@ -564,7 +564,7 @@ sh4op! {
         // Simplified implementation: write R0 to @Rn
         // Full implementation would need OIX cache handling for addresses with bit 25 set
         let n = GetN(opcode);
-        backend::sh4_write_mem32(dc, addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[0]));
+        backend::sh4_write_mem32(dc, addr_of!((*dc).r[n]), addr_of!((*dc).r[0]));
     }
 
     (disas = "ocbi @<REG_N>")
@@ -591,38 +591,38 @@ sh4op! {
     i0000_nnnn_mmmm_0100(dc, state, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_write_mem8_indexed(dc, addr_of!((*dc).ctx.r[0]), addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
+        backend::sh4_write_mem8_indexed(dc, addr_of!((*dc).r[0]), addr_of!((*dc).r[n]), addr_of!((*dc).r[m]));
     }
 
     (disas = "mov.w <REG_M>,@(R0,<REG_N>)")
     i0000_nnnn_mmmm_0101(dc, state, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_write_mem16_indexed(dc, addr_of!((*dc).ctx.r[0]), addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
+        backend::sh4_write_mem16_indexed(dc, addr_of!((*dc).r[0]), addr_of!((*dc).r[n]), addr_of!((*dc).r[m]));
     }
 
     (disas = "mov.l <REG_M>,@(R0,<REG_N>)")
     i0000_nnnn_mmmm_0110(dc, state, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_write_mem32_indexed(dc, addr_of!((*dc).ctx.r[0]), addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
+        backend::sh4_write_mem32_indexed(dc, addr_of!((*dc).r[0]), addr_of!((*dc).r[n]), addr_of!((*dc).r[m]));
     }
 
     (disas = "clrmac")
     i0000_0000_0010_1000(dc, state, opcode) {
-        backend::sh4_store32i(addr_of_mut!((*dc).ctx.mac.parts.h), 0);
-        backend::sh4_store32i(addr_of_mut!((*dc).ctx.mac.parts.l), 0);
+        backend::sh4_store32i(addr_of_mut!((*dc).mac.parts.h), 0);
+        backend::sh4_store32i(addr_of_mut!((*dc).mac.parts.l), 0);
     }
 
     (disas = "clrs")
     i0000_0000_0100_1000(dc, state, opcode) {
         // Clear S bit (bit 1) in SR
-        backend::sh4_andi(addr_of_mut!((*dc).ctx.sr.0), addr_of!((*dc).ctx.sr.0), 0xFFFFFFFD);
+        backend::sh4_andi(addr_of_mut!((*dc).sr.0), addr_of!((*dc).sr.0), 0xFFFFFFFD);
     }
 
     (disas = "clrt")
     i0000_0000_0000_1000(dc, state, opcode) {
-        backend::sh4_clrt(addr_of_mut!((*dc).ctx.sr_T));
+        backend::sh4_clrt(addr_of_mut!((*dc).sr_T));
     }
 
     (disas = "ldtlb")
@@ -636,52 +636,52 @@ sh4op! {
     (disas = "sets")
     i0000_0000_0101_1000(dc, state, opcode) {
         // Set S bit (bit 1) in SR
-        backend::sh4_or_imm(addr_of_mut!((*dc).ctx.sr.0), addr_of!((*dc).ctx.sr.0), 2);
+        backend::sh4_or_imm(addr_of_mut!((*dc).sr.0), addr_of!((*dc).sr.0), 2);
     }
 
     (disas = "sett")
     i0000_0000_0001_1000(dc, state, opcode) {
-        backend::sh4_sett(addr_of_mut!((*dc).ctx.sr_T));
+        backend::sh4_sett(addr_of_mut!((*dc).sr_T));
     }
 
     (disas = "div0u")
     i0000_0000_0001_1001(dc, state, opcode) {
-        backend::sh4_div0u(addr_of_mut!((*dc).ctx.sr), addr_of_mut!((*dc).ctx.sr_T));
+        backend::sh4_div0u(addr_of_mut!((*dc).sr), addr_of_mut!((*dc).sr_T));
     }
 
     (disas = "movt <REG_N>")
     i0000_nnnn_0010_1001(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_movt(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.sr_T));
+        backend::sh4_movt(addr_of_mut!((*dc).r[n]), addr_of!((*dc).sr_T));
     }
 
     (disas = "sts FPSCR,<REG_N>")
     i0000_nnnn_0110_1010(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_store32(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.fpscr.0));
+        backend::sh4_store32(addr_of_mut!((*dc).r[n]), addr_of!((*dc).fpscr.0));
     }
 
     (disas = "sts DBR,<REG_N>")
     i0000_nnnn_1111_1010(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_store32(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.dbr));
+        backend::sh4_store32(addr_of_mut!((*dc).r[n]), addr_of!((*dc).dbr));
     }
 
     (disas = "sts MACH,<REG_N>")
     i0000_nnnn_0000_1010(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_store32(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.mac.parts.h));
+        backend::sh4_store32(addr_of_mut!((*dc).r[n]), addr_of!((*dc).mac.parts.h));
     }
 
     (disas = "rte")
     i0000_0000_0010_1011(dc, state, opcode) {
-        backend::sh4_rte(dc, addr_of!((*dc).ctx.spc), addr_of!((*dc).ctx.ssr));
+        backend::sh4_rte(dc, addr_of!((*dc).spc), addr_of!((*dc).ssr));
         // TODO: Recheck interrupts after SR change
     }
 
     (disas = "rts")
     i0000_0000_0000_1011(dc, state, opcode) {
-        backend::sh4_rts(dc, addr_of!((*dc).ctx.pr));
+        backend::sh4_rts(dc, addr_of!((*dc).pr));
     }
 
     (disas = "sleep")
@@ -694,21 +694,21 @@ sh4op! {
     i0000_nnnn_mmmm_1100(dc, state, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_read_mems8_indexed(dc, addr_of!((*dc).ctx.r[0]), addr_of!((*dc).ctx.r[m]), addr_of_mut!((*dc).ctx.r[n]));
+        backend::sh4_read_mems8_indexed(dc, addr_of!((*dc).r[0]), addr_of!((*dc).r[m]), addr_of_mut!((*dc).r[n]));
     }
 
     (disas = "mov.w @(R0,<REG_M>),<REG_N>")
     i0000_nnnn_mmmm_1101(dc, state, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_read_mems16_indexed(dc, addr_of!((*dc).ctx.r[0]), addr_of!((*dc).ctx.r[m]), addr_of_mut!((*dc).ctx.r[n]));
+        backend::sh4_read_mems16_indexed(dc, addr_of!((*dc).r[0]), addr_of!((*dc).r[m]), addr_of_mut!((*dc).r[n]));
     }
 
     (disas = "mov.l @(R0,<REG_M>),<REG_N>")
     i0000_nnnn_mmmm_1110(dc, state, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_read_mem32_indexed(dc, addr_of!((*dc).ctx.r[0]), addr_of!((*dc).ctx.r[m]), addr_of_mut!((*dc).ctx.r[n]));
+        backend::sh4_read_mem32_indexed(dc, addr_of!((*dc).r[0]), addr_of!((*dc).r[m]), addr_of_mut!((*dc).r[n]));
     }
 
     (disas = "mac.l @<REG_M>+,@<REG_N>+")
@@ -717,16 +717,16 @@ sh4op! {
         let m = GetM(opcode);
         if n == m {
             // Special case: read from r[n], then r[n]+4
-            backend::sh4_read_mem32(dc, addr_of!((*dc).ctx.r[n]), addr_of_mut!((*dc).ctx.temp[0]));
-            backend::sh4_read_mem32_disp(dc, addr_of!((*dc).ctx.r[n]), 4, addr_of_mut!((*dc).ctx.temp[1]));
-            backend::sh4_mac_l_mul(addr_of_mut!((*dc).ctx.mac.full), addr_of!((*dc).ctx.temp[0]), addr_of!((*dc).ctx.temp[1]));
-            backend::sh4_addi(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), 4);
+            backend::sh4_read_mem32(dc, addr_of!((*dc).r[n]), addr_of_mut!((*dc).temp[0]));
+            backend::sh4_read_mem32_disp(dc, addr_of!((*dc).r[n]), 4, addr_of_mut!((*dc).temp[1]));
+            backend::sh4_mac_l_mul(addr_of_mut!((*dc).mac.full), addr_of!((*dc).temp[0]), addr_of!((*dc).temp[1]));
+            backend::sh4_addi(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), 4);
         } else {
-            backend::sh4_read_mem32(dc, addr_of!((*dc).ctx.r[n]), addr_of_mut!((*dc).ctx.temp[0]));
-            backend::sh4_read_mem32(dc, addr_of!((*dc).ctx.r[m]), addr_of_mut!((*dc).ctx.temp[1]));
-            backend::sh4_mac_l_mul(addr_of_mut!((*dc).ctx.mac.full), addr_of!((*dc).ctx.temp[0]), addr_of!((*dc).ctx.temp[1]));
-            backend::sh4_addi(addr_of_mut!((*dc).ctx.r[m]), addr_of!((*dc).ctx.r[m]), 4);
-            backend::sh4_addi(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), 4);
+            backend::sh4_read_mem32(dc, addr_of!((*dc).r[n]), addr_of_mut!((*dc).temp[0]));
+            backend::sh4_read_mem32(dc, addr_of!((*dc).r[m]), addr_of_mut!((*dc).temp[1]));
+            backend::sh4_mac_l_mul(addr_of_mut!((*dc).mac.full), addr_of!((*dc).temp[0]), addr_of!((*dc).temp[1]));
+            backend::sh4_addi(addr_of_mut!((*dc).r[m]), addr_of!((*dc).r[m]), 4);
+            backend::sh4_addi(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), 4);
         }
     }
 
@@ -735,525 +735,525 @@ sh4op! {
         let n = GetN(opcode);
         let m = GetM(opcode);
         let disp = GetImm4(opcode) << 2;
-        backend::sh4_write_mem32_disp(dc, addr_of!((*dc).ctx.r[n]), disp, addr_of!((*dc).ctx.r[m]));
+        backend::sh4_write_mem32_disp(dc, addr_of!((*dc).r[n]), disp, addr_of!((*dc).r[m]));
     }
 
     (disas = "mov.b <REG_M>,@-<REG_N>")
     i0010_nnnn_mmmm_0100(dc, state, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_write_mem8_disp(dc, addr_of!((*dc).ctx.r[n]), (-1i32) as u32, addr_of!((*dc).ctx.r[m]));
-        backend::sh4_addi(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), (-1i32) as u32);
+        backend::sh4_write_mem8_disp(dc, addr_of!((*dc).r[n]), (-1i32) as u32, addr_of!((*dc).r[m]));
+        backend::sh4_addi(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), (-1i32) as u32);
     }
 
     (disas = "mov.w <REG_M>,@-<REG_N>")
     i0010_nnnn_mmmm_0101(dc, state, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_write_mem16_disp(dc, addr_of!((*dc).ctx.r[n]), (-2i32) as u32, addr_of!((*dc).ctx.r[m]));
-        backend::sh4_addi(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), (-2i32) as u32);
+        backend::sh4_write_mem16_disp(dc, addr_of!((*dc).r[n]), (-2i32) as u32, addr_of!((*dc).r[m]));
+        backend::sh4_addi(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), (-2i32) as u32);
     }
 
     (disas = "mov.l <REG_M>,@-<REG_N>")
     i0010_nnnn_mmmm_0110(dc, state, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_write_mem32_disp(dc, addr_of!((*dc).ctx.r[n]), (-4i32) as u32, addr_of!((*dc).ctx.r[m]));
-        backend::sh4_addi(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), (-4i32) as u32);
+        backend::sh4_write_mem32_disp(dc, addr_of!((*dc).r[n]), (-4i32) as u32, addr_of!((*dc).r[m]));
+        backend::sh4_addi(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), (-4i32) as u32);
     }
 
     (disas = "div0s <REG_M>,<REG_N>")
     i0010_nnnn_mmmm_0111(dc, state, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_div0s(addr_of_mut!((*dc).ctx.sr), addr_of_mut!((*dc).ctx.sr_T), addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
+        backend::sh4_div0s(addr_of_mut!((*dc).sr), addr_of_mut!((*dc).sr_T), addr_of!((*dc).r[n]), addr_of!((*dc).r[m]));
     }
 
     (disas = "tst <REG_M>,<REG_N>")
     i0010_nnnn_mmmm_1000(dc, state, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_tst(addr_of_mut!((*dc).ctx.sr_T), addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
+        backend::sh4_tst(addr_of_mut!((*dc).sr_T), addr_of!((*dc).r[n]), addr_of!((*dc).r[m]));
     }
 
     (disas = "or <REG_M>,<REG_N>")
     i0010_nnnn_mmmm_1011(dc, state, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_or(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
+        backend::sh4_or(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), addr_of!((*dc).r[m]));
     }
 
     (disas = "cmp/str <REG_M>,<REG_N>")
     i0010_nnnn_mmmm_1100(dc, state, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_cmp_str(addr_of_mut!((*dc).ctx.sr_T), addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
+        backend::sh4_cmp_str(addr_of_mut!((*dc).sr_T), addr_of!((*dc).r[n]), addr_of!((*dc).r[m]));
     }
 
     (disas = "xtrct <REG_M>,<REG_N>")
     i0010_nnnn_mmmm_1101(dc, state, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_xtrct(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
+        backend::sh4_xtrct(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), addr_of!((*dc).r[m]));
     }
 
     (disas = "mulu.w <REG_M>,<REG_N>")
     i0010_nnnn_mmmm_1110(dc, state, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_muluw(addr_of_mut!((*dc).ctx.mac.parts.l), addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
+        backend::sh4_muluw(addr_of_mut!((*dc).mac.parts.l), addr_of!((*dc).r[n]), addr_of!((*dc).r[m]));
     }
 
     (disas = "muls.w <REG_M>,<REG_N>")
     i0010_nnnn_mmmm_1111(dc, state, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_mulsw(addr_of_mut!((*dc).ctx.mac.parts.l), addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
+        backend::sh4_mulsw(addr_of_mut!((*dc).mac.parts.l), addr_of!((*dc).r[n]), addr_of!((*dc).r[m]));
     }
 
     (disas = "cmp/eq <REG_M>,<REG_N>")
     i0011_nnnn_mmmm_0000(dc, state, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_cmp_eq(addr_of_mut!((*dc).ctx.sr_T), addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
+        backend::sh4_cmp_eq(addr_of_mut!((*dc).sr_T), addr_of!((*dc).r[n]), addr_of!((*dc).r[m]));
     }
 
     (disas = "cmp/hs <REG_M>,<REG_N>")
     i0011_nnnn_mmmm_0010(dc, state, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_cmp_hs(addr_of_mut!((*dc).ctx.sr_T), addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
+        backend::sh4_cmp_hs(addr_of_mut!((*dc).sr_T), addr_of!((*dc).r[n]), addr_of!((*dc).r[m]));
     }
 
     (disas = "cmp/ge <REG_M>,<REG_N>")
     i0011_nnnn_mmmm_0011(dc, state, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_cmp_ge(addr_of_mut!((*dc).ctx.sr_T), addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
+        backend::sh4_cmp_ge(addr_of_mut!((*dc).sr_T), addr_of!((*dc).r[n]), addr_of!((*dc).r[m]));
     }
 
     (disas = "div1 <REG_M>,<REG_N>")
     i0011_nnnn_mmmm_0100(dc, state, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_div1(addr_of_mut!((*dc).ctx.sr), addr_of_mut!((*dc).ctx.sr_T), addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
+        backend::sh4_div1(addr_of_mut!((*dc).sr), addr_of_mut!((*dc).sr_T), addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), addr_of!((*dc).r[m]));
     }
 
     (disas = "dmulu.l <REG_M>,<REG_N>")
     i0011_nnnn_mmmm_0101(dc, state, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_dmulu(addr_of_mut!((*dc).ctx.mac.full), addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
+        backend::sh4_dmulu(addr_of_mut!((*dc).mac.full), addr_of!((*dc).r[n]), addr_of!((*dc).r[m]));
     }
 
     (disas = "cmp/hi <REG_M>,<REG_N>")
     i0011_nnnn_mmmm_0110(dc, state, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_cmp_hi(addr_of_mut!((*dc).ctx.sr_T), addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
+        backend::sh4_cmp_hi(addr_of_mut!((*dc).sr_T), addr_of!((*dc).r[n]), addr_of!((*dc).r[m]));
     }
 
     (disas = "cmp/gt <REG_M>,<REG_N>")
     i0011_nnnn_mmmm_0111(dc, state, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_cmp_gt(addr_of_mut!((*dc).ctx.sr_T), addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
+        backend::sh4_cmp_gt(addr_of_mut!((*dc).sr_T), addr_of!((*dc).r[n]), addr_of!((*dc).r[m]));
     }
 
     (disas = "subc <REG_M>,<REG_N>")
     i0011_nnnn_mmmm_1010(dc, state, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_subc(addr_of_mut!((*dc).ctx.sr_T), addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
+        backend::sh4_subc(addr_of_mut!((*dc).sr_T), addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), addr_of!((*dc).r[m]));
     }
 
     (disas = "subv <REG_M>,<REG_N>")
     i0011_nnnn_mmmm_1011(dc, state, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_subv(addr_of_mut!((*dc).ctx.sr_T), addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
+        backend::sh4_subv(addr_of_mut!((*dc).sr_T), addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), addr_of!((*dc).r[m]));
     }
 
     (disas = "dmuls.l <REG_M>,<REG_N>")
     i0011_nnnn_mmmm_1101(dc, state, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_dmuls(addr_of_mut!((*dc).ctx.mac.full), addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
+        backend::sh4_dmuls(addr_of_mut!((*dc).mac.full), addr_of!((*dc).r[n]), addr_of!((*dc).r[m]));
     }
 
     (disas = "addc <REG_M>,<REG_N>")
     i0011_nnnn_mmmm_1110(dc, state, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_addc(addr_of_mut!((*dc).ctx.sr_T), addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
+        backend::sh4_addc(addr_of_mut!((*dc).sr_T), addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), addr_of!((*dc).r[m]));
     }
 
     (disas = "addv <REG_M>,<REG_N>")
     i0011_nnnn_mmmm_1111(dc, state, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_addv(addr_of_mut!((*dc).ctx.sr_T), addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
+        backend::sh4_addv(addr_of_mut!((*dc).sr_T), addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), addr_of!((*dc).r[m]));
     }
 
     (disas = "sts.l FPUL,@-<REG_N>")
     i0100_nnnn_0101_0010(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_write_mem32_disp(dc, addr_of!((*dc).ctx.r[n]), (-4i32) as u32, addr_of!((*dc).ctx.fpul));
-        backend::sh4_addi(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), (-4i32) as u32);
+        backend::sh4_write_mem32_disp(dc, addr_of!((*dc).r[n]), (-4i32) as u32, addr_of!((*dc).fpul));
+        backend::sh4_addi(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), (-4i32) as u32);
     }
 
     (disas = "sts.l FPSCR,@-<REG_N>")
     i0100_nnnn_0110_0010(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_write_mem32_disp(dc, addr_of!((*dc).ctx.r[n]), (-4i32) as u32, addr_of!((*dc).ctx.fpscr.0));
-        backend::sh4_addi(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), (-4i32) as u32);
+        backend::sh4_write_mem32_disp(dc, addr_of!((*dc).r[n]), (-4i32) as u32, addr_of!((*dc).fpscr.0));
+        backend::sh4_addi(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), (-4i32) as u32);
     }
 
     (disas = "sts.l MACH,@-<REG_N>")
     i0100_nnnn_0000_0010(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_write_mem32_disp(dc, addr_of!((*dc).ctx.r[n]), (-4i32) as u32, addr_of!((*dc).ctx.mac.parts.h));
-        backend::sh4_addi(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), (-4i32) as u32);
+        backend::sh4_write_mem32_disp(dc, addr_of!((*dc).r[n]), (-4i32) as u32, addr_of!((*dc).mac.parts.h));
+        backend::sh4_addi(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), (-4i32) as u32);
     }
 
     (disas = "sts.l MACL,@-<REG_N>")
     i0100_nnnn_0001_0010(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_write_mem32_disp(dc, addr_of!((*dc).ctx.r[n]), (-4i32) as u32, addr_of!((*dc).ctx.mac.parts.l));
-        backend::sh4_addi(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), (-4i32) as u32);
+        backend::sh4_write_mem32_disp(dc, addr_of!((*dc).r[n]), (-4i32) as u32, addr_of!((*dc).mac.parts.l));
+        backend::sh4_addi(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), (-4i32) as u32);
     }
 
     (disas = "sts.l PR,@-<REG_N>")
     i0100_nnnn_0010_0010(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_write_mem32_disp(dc, addr_of!((*dc).ctx.r[n]), (-4i32) as u32, addr_of!((*dc).ctx.pr));
-        backend::sh4_addi(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), (-4i32) as u32);
+        backend::sh4_write_mem32_disp(dc, addr_of!((*dc).r[n]), (-4i32) as u32, addr_of!((*dc).pr));
+        backend::sh4_addi(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), (-4i32) as u32);
     }
 
     (disas = "stc.l DBR,@-<REG_N>")
     i0100_nnnn_1111_0010(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_write_mem32_disp(dc, addr_of!((*dc).ctx.r[n]), (-4i32) as u32, addr_of!((*dc).ctx.dbr));
-        backend::sh4_addi(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), (-4i32) as u32);
+        backend::sh4_write_mem32_disp(dc, addr_of!((*dc).r[n]), (-4i32) as u32, addr_of!((*dc).dbr));
+        backend::sh4_addi(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), (-4i32) as u32);
     }
 
     (disas = "stc.l SR,@-<REG_N>")
     i0100_nnnn_0000_0011(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_write_mem32_disp(dc, addr_of!((*dc).ctx.r[n]), (-4i32) as u32, addr_of!((*dc).ctx.sr.0));
-        backend::sh4_addi(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), (-4i32) as u32);
+        backend::sh4_write_mem32_disp(dc, addr_of!((*dc).r[n]), (-4i32) as u32, addr_of!((*dc).sr.0));
+        backend::sh4_addi(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), (-4i32) as u32);
     }
 
     (disas = "stc.l GBR,@-<REG_N>")
     i0100_nnnn_0001_0011(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_write_mem32_disp(dc, addr_of!((*dc).ctx.r[n]), (-4i32) as u32, addr_of!((*dc).ctx.gbr));
-        backend::sh4_addi(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), (-4i32) as u32);
+        backend::sh4_write_mem32_disp(dc, addr_of!((*dc).r[n]), (-4i32) as u32, addr_of!((*dc).gbr));
+        backend::sh4_addi(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), (-4i32) as u32);
     }
 
     (disas = "stc.l VBR,@-<REG_N>")
     i0100_nnnn_0010_0011(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_write_mem32_disp(dc, addr_of!((*dc).ctx.r[n]), (-4i32) as u32, addr_of!((*dc).ctx.vbr));
-        backend::sh4_addi(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), (-4i32) as u32);
+        backend::sh4_write_mem32_disp(dc, addr_of!((*dc).r[n]), (-4i32) as u32, addr_of!((*dc).vbr));
+        backend::sh4_addi(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), (-4i32) as u32);
     }
 
     (disas = "stc.l SSR,@-<REG_N>")
     i0100_nnnn_0011_0011(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_write_mem32_disp(dc, addr_of!((*dc).ctx.r[n]), (-4i32) as u32, addr_of!((*dc).ctx.ssr));
-        backend::sh4_addi(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), (-4i32) as u32);
+        backend::sh4_write_mem32_disp(dc, addr_of!((*dc).r[n]), (-4i32) as u32, addr_of!((*dc).ssr));
+        backend::sh4_addi(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), (-4i32) as u32);
     }
 
     (disas = "stc.l SPC,@-<REG_N>")
     i0100_nnnn_0100_0011(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_write_mem32_disp(dc, addr_of!((*dc).ctx.r[n]), (-4i32) as u32, addr_of!((*dc).ctx.spc));
-        backend::sh4_addi(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), (-4i32) as u32);
+        backend::sh4_write_mem32_disp(dc, addr_of!((*dc).r[n]), (-4i32) as u32, addr_of!((*dc).spc));
+        backend::sh4_addi(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), (-4i32) as u32);
     }
 
     (disas = "stc <RM_BANK>,@-<REG_N>")
     i0100_nnnn_1mmm_0011(dc, state, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode) & 0x7;
-        backend::sh4_write_mem32_disp(dc, addr_of!((*dc).ctx.r[n]), (-4i32) as u32, addr_of!((*dc).ctx.r_bank[m]));
-        backend::sh4_addi(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), (-4i32) as u32);
+        backend::sh4_write_mem32_disp(dc, addr_of!((*dc).r[n]), (-4i32) as u32, addr_of!((*dc).r_bank[m]));
+        backend::sh4_addi(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), (-4i32) as u32);
     }
 
     (disas = "lds.l @<REG_N>+,MACH")
     i0100_nnnn_0000_0110(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_read_mem32(dc, addr_of!((*dc).ctx.r[n]), addr_of_mut!((*dc).ctx.mac.parts.h));
-        backend::sh4_addi(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), 4);
+        backend::sh4_read_mem32(dc, addr_of!((*dc).r[n]), addr_of_mut!((*dc).mac.parts.h));
+        backend::sh4_addi(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), 4);
     }
 
     (disas = "lds.l @<REG_N>+,MACL")
     i0100_nnnn_0001_0110(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_read_mem32(dc, addr_of!((*dc).ctx.r[n]), addr_of_mut!((*dc).ctx.mac.parts.l));
-        backend::sh4_addi(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), 4);
+        backend::sh4_read_mem32(dc, addr_of!((*dc).r[n]), addr_of_mut!((*dc).mac.parts.l));
+        backend::sh4_addi(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), 4);
     }
 
     (disas = "lds.l @<REG_N>+,PR")
     i0100_nnnn_0010_0110(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_read_mem32(dc, addr_of!((*dc).ctx.r[n]), addr_of_mut!((*dc).ctx.pr));
-        backend::sh4_addi(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), 4);
+        backend::sh4_read_mem32(dc, addr_of!((*dc).r[n]), addr_of_mut!((*dc).pr));
+        backend::sh4_addi(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), 4);
     }
 
     (disas = "ldc.l @<REG_N>+,SGR")
     i0100_nnnn_0011_0110(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_read_mem32(dc, addr_of!((*dc).ctx.r[n]), addr_of_mut!((*dc).ctx.sgr));
-        backend::sh4_addi(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), 4);
+        backend::sh4_read_mem32(dc, addr_of!((*dc).r[n]), addr_of_mut!((*dc).sgr));
+        backend::sh4_addi(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), 4);
     }
 
     (disas = "lds.l @<REG_N>+,FPUL")
     i0100_nnnn_0101_0110(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_read_mem32(dc, addr_of!((*dc).ctx.r[n]), addr_of_mut!((*dc).ctx.fpul));
-        backend::sh4_addi(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), 4);
+        backend::sh4_read_mem32(dc, addr_of!((*dc).r[n]), addr_of_mut!((*dc).fpul));
+        backend::sh4_addi(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), 4);
     }
 
     (disas = "lds.l @<REG_N>+,FPSCR")
     i0100_nnnn_0110_0110(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_read_mem32(dc, addr_of!((*dc).ctx.r[n]), addr_of_mut!((*dc).ctx.fpscr.0));
-        backend::sh4_addi(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), 4);
+        backend::sh4_read_mem32(dc, addr_of!((*dc).r[n]), addr_of_mut!((*dc).fpscr.0));
+        backend::sh4_addi(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), 4);
     }
 
     (disas = "ldc.l @<REG_N>+,DBR")
     i0100_nnnn_1111_0110(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_read_mem32(dc, addr_of!((*dc).ctx.r[n]), addr_of_mut!((*dc).ctx.dbr));
-        backend::sh4_addi(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), 4);
+        backend::sh4_read_mem32(dc, addr_of!((*dc).r[n]), addr_of_mut!((*dc).dbr));
+        backend::sh4_addi(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), 4);
     }
 
     (disas = "ldc.l @<REG_N>+,SR")
     i0100_nnnn_0000_0111(dc, state, opcode) {
         let n = GetN(opcode);
         // Read SR value into temp
-        backend::sh4_read_mem32(dc, addr_of!((*dc).ctx.r[n]), addr_of_mut!((*dc).ctx.temp[0]));
-        backend::sh4_addi(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), 4);
+        backend::sh4_read_mem32(dc, addr_of!((*dc).r[n]), addr_of_mut!((*dc).temp[0]));
+        backend::sh4_addi(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), 4);
         // Extract T bit (bit 0) to sr_T
-        backend::sh4_andi(addr_of_mut!((*dc).ctx.sr_T), addr_of!((*dc).ctx.temp[0]), 1);
+        backend::sh4_andi(addr_of_mut!((*dc).sr_T), addr_of!((*dc).temp[0]), 1);
         // Clear T_h bit (bit 0) in sr.full and store
-        backend::sh4_andi(addr_of_mut!((*dc).ctx.temp[1]), addr_of!((*dc).ctx.temp[0]), 0xFFFFFFFE);
-        backend::sh4_store32(addr_of_mut!((*dc).ctx.sr.0), addr_of!((*dc).ctx.temp[1]));
+        backend::sh4_andi(addr_of_mut!((*dc).temp[1]), addr_of!((*dc).temp[0]), 0xFFFFFFFE);
+        backend::sh4_store32(addr_of_mut!((*dc).sr.0), addr_of!((*dc).temp[1]));
         // TODO: Recheck interrupts after SR change
     }
 
     (disas = "ldc.l @<REG_N>+,GBR")
     i0100_nnnn_0001_0111(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_read_mem32(dc, addr_of!((*dc).ctx.r[n]), addr_of_mut!((*dc).ctx.gbr));
-        backend::sh4_addi(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), 4);
+        backend::sh4_read_mem32(dc, addr_of!((*dc).r[n]), addr_of_mut!((*dc).gbr));
+        backend::sh4_addi(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), 4);
     }
 
     (disas = "ldc.l @<REG_N>+,VBR")
     i0100_nnnn_0010_0111(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_read_mem32(dc, addr_of!((*dc).ctx.r[n]), addr_of_mut!((*dc).ctx.vbr));
-        backend::sh4_addi(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), 4);
+        backend::sh4_read_mem32(dc, addr_of!((*dc).r[n]), addr_of_mut!((*dc).vbr));
+        backend::sh4_addi(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), 4);
     }
 
     (disas = "ldc.l @<REG_N>+,SSR")
     i0100_nnnn_0011_0111(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_read_mem32(dc, addr_of!((*dc).ctx.r[n]), addr_of_mut!((*dc).ctx.ssr));
-        backend::sh4_addi(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), 4);
+        backend::sh4_read_mem32(dc, addr_of!((*dc).r[n]), addr_of_mut!((*dc).ssr));
+        backend::sh4_addi(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), 4);
     }
 
     (disas = "ldc.l @<REG_N>+,SPC")
     i0100_nnnn_0100_0111(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_read_mem32(dc, addr_of!((*dc).ctx.r[n]), addr_of_mut!((*dc).ctx.spc));
-        backend::sh4_addi(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), 4);
+        backend::sh4_read_mem32(dc, addr_of!((*dc).r[n]), addr_of_mut!((*dc).spc));
+        backend::sh4_addi(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), 4);
     }
 
     (disas = "ldc.l @<REG_N>+,RM_BANK")
     i0100_nnnn_1mmm_0111(dc, state, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode) & 0x7;
-        backend::sh4_read_mem32(dc, addr_of!((*dc).ctx.r[n]), addr_of_mut!((*dc).ctx.r_bank[m]));
-        backend::sh4_addi(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), 4);
+        backend::sh4_read_mem32(dc, addr_of!((*dc).r[n]), addr_of_mut!((*dc).r_bank[m]));
+        backend::sh4_addi(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), 4);
     }
 
     (disas = "lds <REG_N>,MACH")
     i0100_nnnn_0000_1010(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_store32(addr_of_mut!((*dc).ctx.mac.parts.h), addr_of!((*dc).ctx.r[n]));
+        backend::sh4_store32(addr_of_mut!((*dc).mac.parts.h), addr_of!((*dc).r[n]));
     }
 
     (disas = "lds <REG_N>,MACL")
     i0100_nnnn_0001_1010(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_store32(addr_of_mut!((*dc).ctx.mac.parts.l), addr_of!((*dc).ctx.r[n]));
+        backend::sh4_store32(addr_of_mut!((*dc).mac.parts.l), addr_of!((*dc).r[n]));
     }
 
     (disas = "lds <REG_N>,PR")
     i0100_nnnn_0010_1010(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_store32(addr_of_mut!((*dc).ctx.pr), addr_of!((*dc).ctx.r[n]));
+        backend::sh4_store32(addr_of_mut!((*dc).pr), addr_of!((*dc).r[n]));
     }
 
     (disas = "lds <REG_N>,FPSCR")
     i0100_nnnn_0110_1010(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_store32(addr_of_mut!((*dc).ctx.fpscr.0), addr_of!((*dc).ctx.r[n]));
+        backend::sh4_store32(addr_of_mut!((*dc).fpscr.0), addr_of!((*dc).r[n]));
     }
 
     (disas = "ldc <REG_N>,DBR")
     i0100_nnnn_1111_1010(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_store32(addr_of_mut!((*dc).ctx.dbr), addr_of!((*dc).ctx.r[n]));
+        backend::sh4_store32(addr_of_mut!((*dc).dbr), addr_of!((*dc).r[n]));
     }
 
     (disas = "ldc <REG_N>,SR")
     i0100_nnnn_0000_1110(dc, state, opcode) {
         let n = GetN(opcode);
         // Extract T bit (bit 0) to sr_T
-        backend::sh4_andi(addr_of_mut!((*dc).ctx.sr_T), addr_of!((*dc).ctx.r[n]), 1);
+        backend::sh4_andi(addr_of_mut!((*dc).sr_T), addr_of!((*dc).r[n]), 1);
         // Clear T_h bit (bit 0) in sr.full and store
-        backend::sh4_andi(addr_of_mut!((*dc).ctx.temp[0]), addr_of!((*dc).ctx.r[n]), 0xFFFFFFFE);
-        backend::sh4_store32(addr_of_mut!((*dc).ctx.sr.0), addr_of!((*dc).ctx.temp[0]));
+        backend::sh4_andi(addr_of_mut!((*dc).temp[0]), addr_of!((*dc).r[n]), 0xFFFFFFFE);
+        backend::sh4_store32(addr_of_mut!((*dc).sr.0), addr_of!((*dc).temp[0]));
         // TODO: Recheck interrupts after SR change
     }
 
     (disas = "ldc <REG_N>,GBR")
     i0100_nnnn_0001_1110(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_store32(addr_of_mut!((*dc).ctx.gbr), addr_of!((*dc).ctx.r[n]));
+        backend::sh4_store32(addr_of_mut!((*dc).gbr), addr_of!((*dc).r[n]));
     }
 
     (disas = "ldc <REG_N>,VBR")
     i0100_nnnn_0010_1110(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_store32(addr_of_mut!((*dc).ctx.vbr), addr_of!((*dc).ctx.r[n]));
+        backend::sh4_store32(addr_of_mut!((*dc).vbr), addr_of!((*dc).r[n]));
     }
 
     (disas = "ldc <REG_N>,SSR")
     i0100_nnnn_0011_1110(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_store32(addr_of_mut!((*dc).ctx.ssr), addr_of!((*dc).ctx.r[n]));
+        backend::sh4_store32(addr_of_mut!((*dc).ssr), addr_of!((*dc).r[n]));
     }
 
     (disas = "ldc <REG_N>,SPC")
     i0100_nnnn_0100_1110(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_store32(addr_of_mut!((*dc).ctx.spc), addr_of!((*dc).ctx.r[n]));
+        backend::sh4_store32(addr_of_mut!((*dc).spc), addr_of!((*dc).r[n]));
     }
 
     (disas = "ldc <REG_N>,<RM_BANK>")
     i0100_nnnn_1mmm_1110(dc, state, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode) & 0x7;
-        backend::sh4_store32(addr_of_mut!((*dc).ctx.r_bank[m]), addr_of!((*dc).ctx.r[n]));
+        backend::sh4_store32(addr_of_mut!((*dc).r_bank[m]), addr_of!((*dc).r[n]));
     }
 
     (disas = "shll <REG_N>")
     i0100_nnnn_0000_0000(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_shll(addr_of_mut!((*dc).ctx.sr_T), addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]));
+        backend::sh4_shll(addr_of_mut!((*dc).sr_T), addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]));
     }
 
     (disas = "shal <REG_N>")
     i0100_nnnn_0010_0000(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_shal(addr_of_mut!((*dc).ctx.sr_T), addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]));
+        backend::sh4_shal(addr_of_mut!((*dc).sr_T), addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]));
     }
 
     (disas = "cmp/pz <REG_N>")
     i0100_nnnn_0001_0001(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_cmp_pz(addr_of_mut!((*dc).ctx.sr_T), addr_of!((*dc).ctx.r[n]));
+        backend::sh4_cmp_pz(addr_of_mut!((*dc).sr_T), addr_of!((*dc).r[n]));
     }
 
     (disas = "shar <REG_N>")
     i0100_nnnn_0010_0001(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_shar(addr_of_mut!((*dc).ctx.sr_T), addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]));
+        backend::sh4_shar(addr_of_mut!((*dc).sr_T), addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]));
     }
 
     (disas = "rotcl <REG_N>")
     i0100_nnnn_0010_0100(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_rotcl(addr_of_mut!((*dc).ctx.sr_T), addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]));
+        backend::sh4_rotcl(addr_of_mut!((*dc).sr_T), addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]));
     }
 
     (disas = "rotl <REG_N>")
     i0100_nnnn_0000_0100(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_rotl(addr_of_mut!((*dc).ctx.sr_T), addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]));
+        backend::sh4_rotl(addr_of_mut!((*dc).sr_T), addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]));
     }
 
     (disas = "cmp/pl <REG_N>")
     i0100_nnnn_0001_0101(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_cmp_pl(addr_of_mut!((*dc).ctx.sr_T), addr_of!((*dc).ctx.r[n]));
+        backend::sh4_cmp_pl(addr_of_mut!((*dc).sr_T), addr_of!((*dc).r[n]));
     }
 
     (disas = "rotcr <REG_N>")
     i0100_nnnn_0010_0101(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_rotcr(addr_of_mut!((*dc).ctx.sr_T), addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]));
+        backend::sh4_rotcr(addr_of_mut!((*dc).sr_T), addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]));
     }
 
     (disas = "rotr <REG_N>")
     i0100_nnnn_0000_0101(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_rotr(addr_of_mut!((*dc).ctx.sr_T), addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]));
+        backend::sh4_rotr(addr_of_mut!((*dc).sr_T), addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]));
     }
 
     (disas = "shll2 <REG_N>")
     i0100_nnnn_0000_1000(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_shllf(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), 2);
+        backend::sh4_shllf(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), 2);
     }
 
     (disas = "shll16 <REG_N>")
     i0100_nnnn_0010_1000(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_shllf(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), 16);
+        backend::sh4_shllf(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), 16);
     }
 
     (disas = "shlr8 <REG_N>")
     i0100_nnnn_0001_1001(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_shlrf(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), 8);
+        backend::sh4_shlrf(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), 8);
     }
 
     (disas = "jmp @<REG_N>")
     i0100_nnnn_0010_1011(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_jmp(dc, addr_of!((*dc).ctx.r[n]));
+        backend::sh4_jmp(dc, addr_of!((*dc).r[n]));
     }
 
     (disas = "jsr @<REG_N>")
     i0100_nnnn_0000_1011(dc, state, opcode) {
         let n = GetN(opcode);
         let next_pc = state.pc.wrapping_add(4);
-        backend::sh4_jsr(dc, addr_of!((*dc).ctx.r[n]), next_pc);
+        backend::sh4_jsr(dc, addr_of!((*dc).r[n]), next_pc);
     }
 
     (disas = "tas.b @<REG_N>")
     i0100_nnnn_0001_1011(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_tas(addr_of_mut!((*dc).ctx.sr_T), dc, addr_of!((*dc).ctx.r[n]));
+        backend::sh4_tas(addr_of_mut!((*dc).sr_T), dc, addr_of!((*dc).r[n]));
     }
 
     (disas = "shad <REG_M>,<REG_N>")
     i0100_nnnn_mmmm_1100(dc, state, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_shad(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
+        backend::sh4_shad(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), addr_of!((*dc).r[m]));
     }
 
     (disas = "shld <REG_M>,<REG_N>")
     i0100_nnnn_mmmm_1101(dc, state, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_shld(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
+        backend::sh4_shld(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), addr_of!((*dc).r[m]));
     }
 
     (disas = "mac.w @<REG_M>+,@<REG_N>+")
@@ -1262,16 +1262,16 @@ sh4op! {
         let m = GetM(opcode);
         if n == m {
             // Special case: read from r[n], then r[n]+2
-            backend::sh4_read_mems16(dc, addr_of!((*dc).ctx.r[n]), addr_of_mut!((*dc).ctx.temp[0]));
-            backend::sh4_read_mems16_disp(dc, addr_of!((*dc).ctx.r[n]), 2, addr_of_mut!((*dc).ctx.temp[1]));
-            backend::sh4_mac_w_mul(addr_of_mut!((*dc).ctx.mac.full), addr_of!((*dc).ctx.temp[0]), addr_of!((*dc).ctx.temp[1]));
-            backend::sh4_addi(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), 2);
+            backend::sh4_read_mems16(dc, addr_of!((*dc).r[n]), addr_of_mut!((*dc).temp[0]));
+            backend::sh4_read_mems16_disp(dc, addr_of!((*dc).r[n]), 2, addr_of_mut!((*dc).temp[1]));
+            backend::sh4_mac_w_mul(addr_of_mut!((*dc).mac.full), addr_of!((*dc).temp[0]), addr_of!((*dc).temp[1]));
+            backend::sh4_addi(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), 2);
         } else {
-            backend::sh4_read_mems16(dc, addr_of!((*dc).ctx.r[n]), addr_of_mut!((*dc).ctx.temp[0]));
-            backend::sh4_read_mems16(dc, addr_of!((*dc).ctx.r[m]), addr_of_mut!((*dc).ctx.temp[1]));
-            backend::sh4_mac_w_mul(addr_of_mut!((*dc).ctx.mac.full), addr_of!((*dc).ctx.temp[0]), addr_of!((*dc).ctx.temp[1]));
-            backend::sh4_addi(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), 2);
-            backend::sh4_addi(addr_of_mut!((*dc).ctx.r[m]), addr_of!((*dc).ctx.r[m]), 2);
+            backend::sh4_read_mems16(dc, addr_of!((*dc).r[n]), addr_of_mut!((*dc).temp[0]));
+            backend::sh4_read_mems16(dc, addr_of!((*dc).r[m]), addr_of_mut!((*dc).temp[1]));
+            backend::sh4_mac_w_mul(addr_of_mut!((*dc).mac.full), addr_of!((*dc).temp[0]), addr_of!((*dc).temp[1]));
+            backend::sh4_addi(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), 2);
+            backend::sh4_addi(addr_of_mut!((*dc).r[m]), addr_of!((*dc).r[m]), 2);
         }
     }
 
@@ -1281,7 +1281,7 @@ sh4op! {
         let n = GetN(opcode);
         let m = GetM(opcode);
         let disp = GetImm4(opcode) << 2;
-        backend::sh4_read_mem32_disp(dc, addr_of!((*dc).ctx.r[m]), disp, addr_of_mut!((*dc).ctx.r[n]));
+        backend::sh4_read_mem32_disp(dc, addr_of!((*dc).r[m]), disp, addr_of_mut!((*dc).r[n]));
     }
 
     // 6xxx
@@ -1289,23 +1289,23 @@ sh4op! {
     i0110_nnnn_mmmm_0001(dc, state, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_read_mems16(dc, addr_of!((*dc).ctx.r[m]), addr_of_mut!((*dc).ctx.r[n]));
+        backend::sh4_read_mems16(dc, addr_of!((*dc).r[m]), addr_of_mut!((*dc).r[n]));
     }
 
     (disas = "mov.l @<REG_M>,<REG_N>")
     i0110_nnnn_mmmm_0010(dc, state, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_read_mem32(dc, addr_of!((*dc).ctx.r[m]), addr_of_mut!((*dc).ctx.r[n]));
+        backend::sh4_read_mem32(dc, addr_of!((*dc).r[m]), addr_of_mut!((*dc).r[n]));
     }
 
     (disas = "mov.b @<REG_M>+,<REG_N>")
     i0110_nnnn_mmmm_0100(dc, state, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_read_mems8(dc, addr_of!((*dc).ctx.r[m]), addr_of_mut!((*dc).ctx.r[n]));
+        backend::sh4_read_mems8(dc, addr_of!((*dc).r[m]), addr_of_mut!((*dc).r[n]));
         if n != m {
-            backend::sh4_addi(addr_of_mut!((*dc).ctx.r[m]), addr_of!((*dc).ctx.r[m]), 1);
+            backend::sh4_addi(addr_of_mut!((*dc).r[m]), addr_of!((*dc).r[m]), 1);
         }
     }
 
@@ -1313,9 +1313,9 @@ sh4op! {
     i0110_nnnn_mmmm_0101(dc, state, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_read_mems16(dc, addr_of!((*dc).ctx.r[m]), addr_of_mut!((*dc).ctx.r[n]));
+        backend::sh4_read_mems16(dc, addr_of!((*dc).r[m]), addr_of_mut!((*dc).r[n]));
         if n != m {
-            backend::sh4_addi(addr_of_mut!((*dc).ctx.r[m]), addr_of!((*dc).ctx.r[m]), 2);
+            backend::sh4_addi(addr_of_mut!((*dc).r[m]), addr_of!((*dc).r[m]), 2);
         }
     }
 
@@ -1323,9 +1323,9 @@ sh4op! {
     i0110_nnnn_mmmm_0110(dc, state, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_read_mem32(dc, addr_of!((*dc).ctx.r[m]), addr_of_mut!((*dc).ctx.r[n]));
+        backend::sh4_read_mem32(dc, addr_of!((*dc).r[m]), addr_of_mut!((*dc).r[n]));
         if n != m {
-            backend::sh4_addi(addr_of_mut!((*dc).ctx.r[m]), addr_of!((*dc).ctx.r[m]), 4);
+            backend::sh4_addi(addr_of_mut!((*dc).r[m]), addr_of!((*dc).r[m]), 4);
         }
     }
 
@@ -1333,49 +1333,49 @@ sh4op! {
     i0110_nnnn_mmmm_0111(dc, state, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_not(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
+        backend::sh4_not(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[m]));
     }
 
     (disas = "swap.b <REG_M>,<REG_N>")
     i0110_nnnn_mmmm_1000(dc, state, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_swapb(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
+        backend::sh4_swapb(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[m]));
     }
 
     (disas = "swap.w <REG_M>,<REG_N>")
     i0110_nnnn_mmmm_1001(dc, state, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_swapw(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
+        backend::sh4_swapw(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[m]));
     }
 
     (disas = "negc <REG_M>,<REG_N>")
     i0110_nnnn_mmmm_1010(dc, state, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_negc(addr_of_mut!((*dc).ctx.sr_T), addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
+        backend::sh4_negc(addr_of_mut!((*dc).sr_T), addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[m]));
     }
 
     (disas = "extu.w <REG_M>,<REG_N>")
     i0110_nnnn_mmmm_1101(dc, state, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_extuw(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
+        backend::sh4_extuw(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[m]));
     }
 
     (disas = "exts.b <REG_M>,<REG_N>")
     i0110_nnnn_mmmm_1110(dc, state, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_extsb(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
+        backend::sh4_extsb(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[m]));
     }
 
     (disas = "exts.w <REG_M>,<REG_N>")
     i0110_nnnn_mmmm_1111(dc, state, opcode) {
         let n = GetN(opcode);
         let m = GetM(opcode);
-        backend::sh4_extsw(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[m]));
+        backend::sh4_extsw(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[m]));
     }
 
     //8xxx
@@ -1385,7 +1385,7 @@ sh4op! {
         let n = GetN(opcode);
         let disp = GetImm8(opcode);
         let addr = (disp << 1).wrapping_add(state.pc).wrapping_add(4);
-        backend::sh4_read_mems16_i(dc, addr, addr_of_mut!((*dc).ctx.r[n]));
+        backend::sh4_read_mems16_i(dc, addr, addr_of_mut!((*dc).r[n]));
     }
 
 
@@ -1394,7 +1394,7 @@ sh4op! {
         let disp = GetSImm8(opcode);
         let target = branch_target_s8(state.pc, disp);
         let next = state.pc.wrapping_add(2);
-        backend::sh4_branch_cond(dc, addr_of!((*dc).ctx.sr_T), 1, next, target);
+        backend::sh4_branch_cond(dc, addr_of!((*dc).sr_T), 1, next, target);
     }
 
     (disas = "bt/s <bdisp8>")
@@ -1402,7 +1402,7 @@ sh4op! {
         let disp = GetSImm8(opcode);
         let target = branch_target_s8(state.pc, disp);
         let next = state.pc.wrapping_add(2);
-        backend::sh4_branch_cond_delay(dc, addr_of!((*dc).ctx.sr_T), 1, next, target);
+        backend::sh4_branch_cond_delay(dc, addr_of!((*dc).sr_T), 1, next, target);
     }
 
     
@@ -1412,7 +1412,7 @@ sh4op! {
         let disp = GetSImm12(opcode);
         let target = branch_target_s12(state.pc, disp);
         let next_pc = state.pc.wrapping_add(4);
-        backend::sh4_store32i(addr_of_mut!((*dc).ctx.pr), next_pc);
+        backend::sh4_store32i(addr_of_mut!((*dc).pr), next_pc);
         backend::sh4_branch_delay(dc, target);
     }
 
@@ -1421,19 +1421,19 @@ sh4op! {
     (disas = "mov.b R0,@(<disp8b>,GBR)")
     i1100_0000_iiii_iiii(dc, state, opcode) {
         let disp = GetImm8(opcode);
-        backend::sh4_write_mem8_disp(dc, addr_of!((*dc).ctx.gbr), disp, addr_of!((*dc).ctx.r[0]));
+        backend::sh4_write_mem8_disp(dc, addr_of!((*dc).gbr), disp, addr_of!((*dc).r[0]));
     }
 
     (disas = "mov.w R0,@(<disp8w>,GBR)")
     i1100_0001_iiii_iiii(dc, state, opcode) {
         let disp = GetImm8(opcode) << 1;
-        backend::sh4_write_mem16_disp(dc, addr_of!((*dc).ctx.gbr), disp, addr_of!((*dc).ctx.r[0]));
+        backend::sh4_write_mem16_disp(dc, addr_of!((*dc).gbr), disp, addr_of!((*dc).r[0]));
     }
 
     (disas = "mov.l R0,@(<disp8dw>,GBR)")
     i1100_0010_iiii_iiii(dc, state, opcode) {
         let disp = GetImm8(opcode) << 2;
-        backend::sh4_write_mem32_disp(dc, addr_of!((*dc).ctx.gbr), disp, addr_of!((*dc).ctx.r[0]));
+        backend::sh4_write_mem32_disp(dc, addr_of!((*dc).gbr), disp, addr_of!((*dc).r[0]));
     }
 
     (disas = "trapa #<imm8>")
@@ -1449,84 +1449,84 @@ sh4op! {
     (disas = "mov.b @(<GBRdisp8b>),R0")
     i1100_0100_iiii_iiii(dc, state, opcode) {
         let disp = GetImm8(opcode);
-        backend::sh4_read_mems8_disp(dc, addr_of!((*dc).ctx.gbr), disp, addr_of_mut!((*dc).ctx.r[0]));
+        backend::sh4_read_mems8_disp(dc, addr_of!((*dc).gbr), disp, addr_of_mut!((*dc).r[0]));
     }
 
     (disas = "mov.w @(<GBRdisp8w>),R0")
     i1100_0101_iiii_iiii(dc, state, opcode) {
         let disp = GetImm8(opcode) << 1;
-        backend::sh4_read_mems16_disp(dc, addr_of!((*dc).ctx.gbr), disp, addr_of_mut!((*dc).ctx.r[0]));
+        backend::sh4_read_mems16_disp(dc, addr_of!((*dc).gbr), disp, addr_of_mut!((*dc).r[0]));
     }
 
     (disas = "mov.l @(<GBRdisp8dw>),R0")
     i1100_0110_iiii_iiii(dc, state, opcode) {
         let disp = GetImm8(opcode) << 2;
-        backend::sh4_read_mem32_disp(dc, addr_of!((*dc).ctx.gbr), disp, addr_of_mut!((*dc).ctx.r[0]));
+        backend::sh4_read_mem32_disp(dc, addr_of!((*dc).gbr), disp, addr_of_mut!((*dc).r[0]));
     }
 
     (disas = "tst #<imm8>,R0")
     i1100_1000_iiii_iiii(dc, state, opcode) {
         let imm = GetImm8(opcode);
-        backend::sh4_tst_imm(addr_of_mut!((*dc).ctx.sr_T), addr_of!((*dc).ctx.r[0]), imm);
+        backend::sh4_tst_imm(addr_of_mut!((*dc).sr_T), addr_of!((*dc).r[0]), imm);
     }
 
     (disas = "and #<imm8>,R0")
     i1100_1001_iiii_iiii(dc, state, opcode) {
         let imm = GetImm8(opcode);
-        backend::sh4_and_imm(addr_of_mut!((*dc).ctx.r[0]), addr_of!((*dc).ctx.r[0]), imm);
+        backend::sh4_and_imm(addr_of_mut!((*dc).r[0]), addr_of!((*dc).r[0]), imm);
     }
 
     (disas = "xor #<imm8>,R0")
     i1100_1010_iiii_iiii(dc, state, opcode) {
         let imm = GetImm8(opcode);
-        backend::sh4_xor_imm(addr_of_mut!((*dc).ctx.r[0]), addr_of!((*dc).ctx.r[0]), imm);
+        backend::sh4_xor_imm(addr_of_mut!((*dc).r[0]), addr_of!((*dc).r[0]), imm);
     }
 
     (disas = "or #<imm8>,R0")
     i1100_1011_iiii_iiii(dc, state, opcode) {
         let imm = GetImm8(opcode);
-        backend::sh4_or_imm(addr_of_mut!((*dc).ctx.r[0]), addr_of!((*dc).ctx.r[0]), imm);
+        backend::sh4_or_imm(addr_of_mut!((*dc).r[0]), addr_of!((*dc).r[0]), imm);
     }
 
     (disas = "tst.b #<imm8>,@(R0,GBR)")
     i1100_1100_iiii_iiii(dc, state, opcode) {
         let imm = GetImm8(opcode);
-        backend::sh4_tst_mem(addr_of_mut!((*dc).ctx.sr_T), dc, addr_of!((*dc).ctx.gbr), addr_of!((*dc).ctx.r[0]), imm as u32);
+        backend::sh4_tst_mem(addr_of_mut!((*dc).sr_T), dc, addr_of!((*dc).gbr), addr_of!((*dc).r[0]), imm as u32);
     }
 
     (disas = "and.b #<imm8>,@(R0,GBR)")
     i1100_1101_iiii_iiii(dc, state, opcode) {
         let imm = GetImm8(opcode);
-        backend::sh4_and_mem(dc, addr_of!((*dc).ctx.gbr), addr_of!((*dc).ctx.r[0]), imm as u8);
+        backend::sh4_and_mem(dc, addr_of!((*dc).gbr), addr_of!((*dc).r[0]), imm as u8);
     }
 
     (disas = "xor.b #<imm8>,@(R0,GBR)")
     i1100_1110_iiii_iiii(dc, state, opcode) {
         let imm = GetImm8(opcode);
-        backend::sh4_xor_mem(dc, addr_of!((*dc).ctx.gbr), addr_of!((*dc).ctx.r[0]), imm as u8);
+        backend::sh4_xor_mem(dc, addr_of!((*dc).gbr), addr_of!((*dc).r[0]), imm as u8);
     }
 
     (disas = "or.b #<imm8>,@(R0,GBR)")
     i1100_1111_iiii_iiii(dc, state, opcode) {
         let imm = GetImm8(opcode);
-        backend::sh4_or_mem(dc, addr_of!((*dc).ctx.gbr), addr_of!((*dc).ctx.r[0]), imm as u8);
+        backend::sh4_or_mem(dc, addr_of!((*dc).gbr), addr_of!((*dc).r[0]), imm as u8);
     }
 
     //Fxxx
     (disas = "flds <FREG_N>,FPUL")
     i1111_nnnn_0001_1101(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_store32(addr_of_mut!((*dc).ctx.fpul), addr_of!((*dc).ctx.fr.u32s[n]));
+        backend::sh4_store32(addr_of_mut!((*dc).fpul), addr_of!((*dc).fr.u32s[n]));
     }
 
     (disas = "fneg <FREG_N_SD_F>")
     i1111_nnnn_0100_1101(dc, state, opcode) {
         let n = GetN(opcode);
         if !state.fpscr_PR {
-            unsafe { backend::sh4_fneg(addr_of_mut!((*dc).ctx.fr.u32s[n]), addr_of!((*dc).ctx.fr.u32s[n])); };
+            unsafe { backend::sh4_fneg(addr_of_mut!((*dc).fr.u32s[n]), addr_of!((*dc).fr.u32s[n])); };
         } else {
             let n_even = n & 0xE;
-            unsafe { backend::sh4_fneg(addr_of_mut!((*dc).ctx.fr.u32s[n_even]), addr_of!((*dc).ctx.fr.u32s[n_even])); };
+            unsafe { backend::sh4_fneg(addr_of_mut!((*dc).fr.u32s[n_even]), addr_of!((*dc).fr.u32s[n_even])); };
         }
     }
 
@@ -1534,10 +1534,10 @@ sh4op! {
     i1111_nnnn_0101_1101(dc, state, opcode) {
         let n = GetN(opcode);
         if !state.fpscr_PR {
-            unsafe { backend::sh4_fabs(addr_of_mut!((*dc).ctx.fr.u32s[n]), addr_of!((*dc).ctx.fr.u32s[n])); };
+            unsafe { backend::sh4_fabs(addr_of_mut!((*dc).fr.u32s[n]), addr_of!((*dc).fr.u32s[n])); };
         } else {
             let n_even = n & 0xE;
-            unsafe { backend::sh4_fabs(addr_of_mut!((*dc).ctx.fr.u32s[n_even]), addr_of!((*dc).ctx.fr.u32s[n_even])); };
+            unsafe { backend::sh4_fabs(addr_of_mut!((*dc).fr.u32s[n_even]), addr_of!((*dc).fr.u32s[n_even])); };
         }
     }
 
@@ -1545,10 +1545,10 @@ sh4op! {
     i1111_nnnn_0110_1101(dc, state, opcode) {
         let n = GetN(opcode);
         if !state.fpscr_PR {
-            unsafe { backend::sh4_fsqrt(addr_of_mut!((*dc).ctx.fr.f32s[n]), addr_of!((*dc).ctx.fr.f32s[n])); };
+            unsafe { backend::sh4_fsqrt(addr_of_mut!((*dc).fr.f32s[n]), addr_of!((*dc).fr.f32s[n])); };
         } else {
             let n_d = (n >> 1) & 0x7;
-            backend::sh4_fsqrt_d(addr_of_mut!((*dc).ctx.fr.u32s[n_d << 1]), addr_of!((*dc).ctx.fr.u32s[n_d << 1]));
+            backend::sh4_fsqrt_d(addr_of_mut!((*dc).fr.u32s[n_d << 1]), addr_of!((*dc).fr.u32s[n_d << 1]));
         }
     }
 
@@ -1556,7 +1556,7 @@ sh4op! {
     i1111_nnnn_1000_1101(dc, state, opcode) {
         if !state.fpscr_PR {
             let n = GetN(opcode);
-            unsafe { backend::sh4_fstsi(addr_of_mut!((*dc).ctx.fr.f32s[n]), 0.0f32); };
+            unsafe { backend::sh4_fstsi(addr_of_mut!((*dc).fr.f32s[n]), 0.0f32); };
         }
         // else: no-op in double precision mode (C++ just returns)
     }
@@ -1565,7 +1565,7 @@ sh4op! {
     i1111_nnnn_1001_1101(dc, state, opcode) {
         if !state.fpscr_PR {
             let n = GetN(opcode);
-            unsafe { backend::sh4_fstsi(addr_of_mut!((*dc).ctx.fr.f32s[n]), 1.0f32); };
+            unsafe { backend::sh4_fstsi(addr_of_mut!((*dc).fr.f32s[n]), 1.0f32); };
         }
         // else: no-op in double precision mode (C++ just returns)
     }
@@ -1574,7 +1574,7 @@ sh4op! {
     i1111_nn01_1111_1101(dc, state, opcode) {
         if !state.fpscr_PR {
             let n = (GetN(opcode) & 0xC) as usize;
-            backend::sh4_ftrv(addr_of_mut!((*dc).ctx.fr.f32s[0]), addr_of!((*dc).ctx.xf.f32s[0]), n);
+            backend::sh4_ftrv(addr_of_mut!((*dc).fr.f32s[0]), addr_of!((*dc).xf.f32s[0]), n);
         } else {
             panic!("ftrv: double precision mode not supported");
         }
@@ -1585,11 +1585,11 @@ sh4op! {
         let n = GetN(opcode);
         let m = GetM(opcode);
         if !state.fpscr_PR {
-            backend::sh4_fcmp_eq(addr_of_mut!((*dc).ctx.sr_T), addr_of!((*dc).ctx.fr.f32s[n]), addr_of!((*dc).ctx.fr.f32s[m]));
+            backend::sh4_fcmp_eq(addr_of_mut!((*dc).sr_T), addr_of!((*dc).fr.f32s[n]), addr_of!((*dc).fr.f32s[m]));
         } else {
             let n_d = (n >> 1) & 0x7;
             let m_d = (m >> 1) & 0x7;
-            backend::sh4_fcmp_eq_d(addr_of_mut!((*dc).ctx.sr_T), addr_of!((*dc).ctx.fr.u32s[n_d << 1]), addr_of!((*dc).ctx.fr.u32s[m_d << 1]));
+            backend::sh4_fcmp_eq_d(addr_of_mut!((*dc).sr_T), addr_of!((*dc).fr.u32s[n_d << 1]), addr_of!((*dc).fr.u32s[m_d << 1]));
         }
     }
 
@@ -1598,11 +1598,11 @@ sh4op! {
         let n = GetN(opcode);
         let m = GetM(opcode);
         if !state.fpscr_PR {
-            backend::sh4_fcmp_gt(addr_of_mut!((*dc).ctx.sr_T), addr_of!((*dc).ctx.fr.f32s[n]), addr_of!((*dc).ctx.fr.f32s[m]));
+            backend::sh4_fcmp_gt(addr_of_mut!((*dc).sr_T), addr_of!((*dc).fr.f32s[n]), addr_of!((*dc).fr.f32s[m]));
         } else {
             let n_d = (n >> 1) & 0x7;
             let m_d = (m >> 1) & 0x7;
-            backend::sh4_fcmp_gt_d(addr_of_mut!((*dc).ctx.sr_T), addr_of!((*dc).ctx.fr.u32s[n_d << 1]), addr_of!((*dc).ctx.fr.u32s[m_d << 1]));
+            backend::sh4_fcmp_gt_d(addr_of_mut!((*dc).sr_T), addr_of!((*dc).fr.u32s[n_d << 1]), addr_of!((*dc).fr.u32s[m_d << 1]));
         }
     }
 
@@ -1611,13 +1611,13 @@ sh4op! {
         let n = GetN(opcode);
         let m = GetM(opcode);
         if !state.fpscr_SZ {
-            backend::sh4_read_mem32_indexed(dc, addr_of!((*dc).ctx.r[m]), addr_of!((*dc).ctx.r[0]), addr_of_mut!((*dc).ctx.fr.u32s[n]));
+            backend::sh4_read_mem32_indexed(dc, addr_of!((*dc).r[m]), addr_of!((*dc).r[0]), addr_of_mut!((*dc).fr.u32s[n]));
         } else {
             let n_d = n >> 1;
             if (n & 0x1) == 0 {
-                backend::sh4_read_mem64_indexed(dc, addr_of!((*dc).ctx.r[m]), addr_of!((*dc).ctx.r[0]), addr_of_mut!((*dc).ctx.fr.u64s[n_d]));
+                backend::sh4_read_mem64_indexed(dc, addr_of!((*dc).r[m]), addr_of!((*dc).r[0]), addr_of_mut!((*dc).fr.u64s[n_d]));
             } else {
-                backend::sh4_read_mem64_indexed(dc, addr_of!((*dc).ctx.r[m]), addr_of!((*dc).ctx.r[0]), addr_of_mut!((*dc).ctx.xf.u64s[n_d]));
+                backend::sh4_read_mem64_indexed(dc, addr_of!((*dc).r[m]), addr_of!((*dc).r[0]), addr_of_mut!((*dc).xf.u64s[n_d]));
             }
         }
     }
@@ -1627,13 +1627,13 @@ sh4op! {
         let n = GetN(opcode);
         let m = GetM(opcode);
         if !state.fpscr_SZ {
-            backend::sh4_write_mem32_indexed(dc, addr_of!((*dc).ctx.r[0]), addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.fr.u32s[m]));
+            backend::sh4_write_mem32_indexed(dc, addr_of!((*dc).r[0]), addr_of!((*dc).r[n]), addr_of!((*dc).fr.u32s[m]));
         } else {
             let m_d = m >> 1;
             if (m & 0x1) == 0 {
-                backend::sh4_write_mem64_indexed(dc, addr_of!((*dc).ctx.r[0]), addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.fr.u64s[m_d]));
+                backend::sh4_write_mem64_indexed(dc, addr_of!((*dc).r[0]), addr_of!((*dc).r[n]), addr_of!((*dc).fr.u64s[m_d]));
             } else {
-                backend::sh4_write_mem64_indexed(dc, addr_of!((*dc).ctx.r[0]), addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.xf.u64s[m_d]));
+                backend::sh4_write_mem64_indexed(dc, addr_of!((*dc).r[0]), addr_of!((*dc).r[n]), addr_of!((*dc).xf.u64s[m_d]));
             }
         }
     }
@@ -1643,16 +1643,16 @@ sh4op! {
         let n = GetN(opcode);
         let m = GetM(opcode);
         if !state.fpscr_SZ {
-            backend::sh4_read_mem32(dc, addr_of!((*dc).ctx.r[m]), addr_of_mut!((*dc).ctx.fr.u32s[n]));
-            backend::sh4_addi(addr_of_mut!((*dc).ctx.r[m]), addr_of!((*dc).ctx.r[m]), 4);
+            backend::sh4_read_mem32(dc, addr_of!((*dc).r[m]), addr_of_mut!((*dc).fr.u32s[n]));
+            backend::sh4_addi(addr_of_mut!((*dc).r[m]), addr_of!((*dc).r[m]), 4);
         } else {
             let n_d = n >> 1;
             if (n & 0x1) == 0 {
-                backend::sh4_read_mem64(dc, addr_of!((*dc).ctx.r[m]), addr_of_mut!((*dc).ctx.fr.u64s[n_d]));
+                backend::sh4_read_mem64(dc, addr_of!((*dc).r[m]), addr_of_mut!((*dc).fr.u64s[n_d]));
             } else {
-                backend::sh4_read_mem64(dc, addr_of!((*dc).ctx.r[m]), addr_of_mut!((*dc).ctx.xf.u64s[n_d]));
+                backend::sh4_read_mem64(dc, addr_of!((*dc).r[m]), addr_of_mut!((*dc).xf.u64s[n_d]));
             }
-            backend::sh4_addi(addr_of_mut!((*dc).ctx.r[m]), addr_of!((*dc).ctx.r[m]), 8);
+            backend::sh4_addi(addr_of_mut!((*dc).r[m]), addr_of!((*dc).r[m]), 8);
         }
     }
 
@@ -1661,13 +1661,13 @@ sh4op! {
         let n = GetN(opcode);
         let m = GetM(opcode);
         if !state.fpscr_SZ {
-            backend::sh4_write_mem32(dc, addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.fr.u32s[m]));
+            backend::sh4_write_mem32(dc, addr_of!((*dc).r[n]), addr_of!((*dc).fr.u32s[m]));
         } else {
             let m_d = m >> 1;
             if (m & 0x1) == 0 {
-                backend::sh4_write_mem64(dc, addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.fr.u64s[m_d]));
+                backend::sh4_write_mem64(dc, addr_of!((*dc).r[n]), addr_of!((*dc).fr.u64s[m_d]));
             } else {
-                backend::sh4_write_mem64(dc, addr_of!((*dc).ctx.r[n]), addr_of!((*dc).ctx.xf.u64s[m_d]));
+                backend::sh4_write_mem64(dc, addr_of!((*dc).r[n]), addr_of!((*dc).xf.u64s[m_d]));
             }
         }
     }
@@ -1677,16 +1677,16 @@ sh4op! {
         let n = GetN(opcode);
         let m = GetM(opcode);
         if !state.fpscr_SZ {
-            backend::sh4_write_mem32_disp(dc, addr_of!((*dc).ctx.r[n]), (-4i32) as u32, addr_of!((*dc).ctx.fr.u32s[m]));
-            backend::sh4_addi(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), (-4i32) as u32);
+            backend::sh4_write_mem32_disp(dc, addr_of!((*dc).r[n]), (-4i32) as u32, addr_of!((*dc).fr.u32s[m]));
+            backend::sh4_addi(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), (-4i32) as u32);
         } else {
             let m_d = m >> 1;
             if (m & 0x1) == 0 {
-                backend::sh4_write_mem64_disp(dc, addr_of!((*dc).ctx.r[n]), (-8i32) as u32, addr_of!((*dc).ctx.fr.u64s[m_d]));
+                backend::sh4_write_mem64_disp(dc, addr_of!((*dc).r[n]), (-8i32) as u32, addr_of!((*dc).fr.u64s[m_d]));
             } else {
-                backend::sh4_write_mem64_disp(dc, addr_of!((*dc).ctx.r[n]), (-8i32) as u32, addr_of!((*dc).ctx.xf.u64s[m_d]));
+                backend::sh4_write_mem64_disp(dc, addr_of!((*dc).r[n]), (-8i32) as u32, addr_of!((*dc).xf.u64s[m_d]));
             }
-            backend::sh4_addi(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), (-8i32) as u32);
+            backend::sh4_addi(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), (-8i32) as u32);
         }
     }
 
@@ -1695,7 +1695,7 @@ sh4op! {
     i1111_nnnn_1011_1101(dc, state, opcode) {
         if state.fpscr_PR {
             let n_d = (GetN(opcode) >> 1) & 0x7;
-            backend::sh4_fcnvds(addr_of_mut!((*dc).ctx.fpul), addr_of!((*dc).ctx.fr.u32s[n_d << 1]));
+            backend::sh4_fcnvds(addr_of_mut!((*dc).fpul), addr_of!((*dc).fr.u32s[n_d << 1]));
         } else {
             panic!("fcnvds: single precision mode not supported");
         }
@@ -1705,7 +1705,7 @@ sh4op! {
     i1111_nnnn_1010_1101(dc, state, opcode) {
         if state.fpscr_PR {
             let n_d = (GetN(opcode) >> 1) & 0x7;
-            backend::sh4_fcnvsd(addr_of_mut!((*dc).ctx.fr.u32s[n_d << 1]), addr_of!((*dc).ctx.fpul));
+            backend::sh4_fcnvsd(addr_of_mut!((*dc).fr.u32s[n_d << 1]), addr_of!((*dc).fpul));
         } else {
             panic!("fcnvsd: single precision mode not supported");
         }
@@ -1716,7 +1716,7 @@ sh4op! {
         if !state.fpscr_PR {
             let n = (GetN(opcode) & 0xC) as usize;
             let m = ((GetN(opcode) & 0x3) << 2) as usize;
-            backend::sh4_fipr(addr_of_mut!((*dc).ctx.fr.f32s[0]), n, m);
+            backend::sh4_fipr(addr_of_mut!((*dc).fr.f32s[0]), n, m);
         } else {
             panic!("fipr: double precision mode not supported");
         }
@@ -1725,28 +1725,28 @@ sh4op! {
     (disas = "frchg")
     i1111_1011_1111_1101(dc, state, opcode) {
         // XOR FR bit (bit 21) in FPSCR
-        backend::sh4_xor_imm(addr_of_mut!((*dc).ctx.fpscr.0), addr_of!((*dc).ctx.fpscr.0), 1 << 21);
+        backend::sh4_xor_imm(addr_of_mut!((*dc).fpscr.0), addr_of!((*dc).fpscr.0), 1 << 21);
         backend::sh4_frchg();
     }
 
     (disas = "fschg")
     i1111_0011_1111_1101(dc, state, opcode) {
         // XOR SZ bit (bit 20) in FPSCR and toggle fpscr_SZ cache
-        backend::sh4_xor_imm(addr_of_mut!((*dc).ctx.fpscr.0), addr_of!((*dc).ctx.fpscr.0), 1 << 20);
+        backend::sh4_xor_imm(addr_of_mut!((*dc).fpscr.0), addr_of!((*dc).fpscr.0), 1 << 20);
         backend::sh4_fschg();
     }
 
     (disas = "fsts FPUL,<FREG_N>")
     i1111_nnnn_0000_1101(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_store32(addr_of_mut!((*dc).ctx.fr.u32s[n]), addr_of!((*dc).ctx.fpul));
+        backend::sh4_store32(addr_of_mut!((*dc).fr.u32s[n]), addr_of!((*dc).fpul));
     }
 
     (disas = "fsrra <FREG_N>")
     i1111_nnnn_0111_1101(dc, state, opcode) {
         if !state.fpscr_PR {
             let n = GetN(opcode);
-            backend::sh4_fsrra(addr_of_mut!((*dc).ctx.fr.f32s[n]), addr_of!((*dc).ctx.fr.f32s[n]));
+            backend::sh4_fsrra(addr_of_mut!((*dc).fr.f32s[n]), addr_of!((*dc).fr.f32s[n]));
         } else {
             panic!("fsrra: double precision mode not supported");
         }
@@ -1757,7 +1757,7 @@ sh4op! {
         if !state.fpscr_PR {
             let n = GetN(opcode);
             let m = GetM(opcode);
-            backend::sh4_fmac(addr_of_mut!((*dc).ctx.fr.f32s[n]), addr_of!((*dc).ctx.fr.f32s[0]), addr_of!((*dc).ctx.fr.f32s[m]));
+            backend::sh4_fmac(addr_of_mut!((*dc).fr.f32s[n]), addr_of!((*dc).fr.f32s[0]), addr_of!((*dc).fr.f32s[m]));
         } else {
             panic!("fmac: double precision mode not supported");
         }
@@ -1767,19 +1767,19 @@ sh4op! {
     (disas = "sts PR,<REG_N>")
     i0000_nnnn_0010_1010(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_store32(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.pr));
+        backend::sh4_store32(addr_of_mut!((*dc).r[n]), addr_of!((*dc).pr));
     }
     (disas = "ldc <REG_N>,SGR")
     i0100_nnnn_0011_1010(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_store32(addr_of_mut!((*dc).ctx.sgr), addr_of!((*dc).ctx.r[n]));
+        backend::sh4_store32(addr_of_mut!((*dc).sgr), addr_of!((*dc).r[n]));
     }
 
     (disas = "stc.l SGR,@-<REG_N>")
     i0100_nnnn_0011_0010(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_write_mem32_disp(dc, addr_of!((*dc).ctx.r[n]), (-4i32) as u32, addr_of!((*dc).ctx.sgr));
-        backend::sh4_addi(addr_of_mut!((*dc).ctx.r[n]), addr_of!((*dc).ctx.r[n]), (-4i32) as u32);
+        backend::sh4_write_mem32_disp(dc, addr_of!((*dc).r[n]), (-4i32) as u32, addr_of!((*dc).sgr));
+        backend::sh4_addi(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), (-4i32) as u32);
     }
 }
 
@@ -1796,13 +1796,13 @@ const MASK_NH2BIT: u16 = 0xF3FF;
 
 pub const fn build_opcode_tables(
     opcodes: &[sh4_opcodelistentry]
-) -> ([fn(*mut Dreamcast, u16); 0x10000],
+) -> ([fn(*mut Sh4Ctx, u16); 0x10000],
       [sh4_opcodelistentry; 0x10000])
 {
     // The sentinel is always the last element of OPCODES
     let sentinel = opcodes[opcodes.len() - 1];
 
-    let mut ptrs: [fn(*mut Dreamcast, u16); 0x10000] = [sentinel.oph; 0x10000];
+    let mut ptrs: [fn(*mut Sh4Ctx, u16); 0x10000] = [sentinel.oph; 0x10000];
     let mut descs: [sh4_opcodelistentry; 0x10000] = [sentinel; 0x10000];
 
     let mut i = 0;
@@ -1845,11 +1845,11 @@ pub const fn build_opcode_tables(
 
 // Make the final tables visible to the crate.
 const SH4_OP_TABLES: (
-    [fn(*mut Dreamcast, u16); 0x10000],
+    [fn(*mut Sh4Ctx, u16); 0x10000],
     [sh4_opcodelistentry; 0x10000]
 ) = build_opcode_tables(OPCODES);
 
-pub(crate) const SH4_OP_PTR:  [fn(*mut Dreamcast, u16); 0x10000] = SH4_OP_TABLES.0;
+pub(crate) const SH4_OP_PTR:  [fn(*mut Sh4Ctx, u16); 0x10000] = SH4_OP_TABLES.0;
 pub(crate) const SH4_OP_DESC: [sh4_opcodelistentry; 0x10000]     = SH4_OP_TABLES.1;
 
 // // Re-export for parent (and callers) to `use sh4dec::{...}` or via the re-export in dreamcast_sh4.rs

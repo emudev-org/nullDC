@@ -1,0 +1,4 @@
+[submodule "vendor/sh4-tests"]
+	path = vendor/sh4-tests
+	url = https://github.com/SingleStepTests/sh4.git
+	shallow = true
