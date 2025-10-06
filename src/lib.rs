@@ -1,6 +1,3 @@
-// For wasm builds, emit a dynamic lib (which becomes .wasm for wasm32).
-#![cfg_attr(target_arch = "wasm32", crate_type = "cdylib")]
-
 use std::sync::Arc;
 use std::ptr;
 

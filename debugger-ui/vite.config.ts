@@ -11,11 +11,14 @@ function resolveVersion(): string {
 }
 
 const appVersion = resolveVersion();
+const useBroadcast = process.env.VITE_USE_BROADCAST === 'true';
 
 // https://vite.dev/config/
 export default defineConfig({
+  base: './',
   plugins: [react()],
   define: {
     __APP_VERSION__: JSON.stringify(appVersion),
+    __USE_BROADCAST__: JSON.stringify(useBroadcast),
   },
 });

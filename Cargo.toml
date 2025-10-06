@@ -10,6 +10,7 @@ all-features = true
 
 [lib]
 name = "nulldc"
+crate-type = ["rlib", "cdylib"]
 
 [profile.release]
 lto = "thin"
