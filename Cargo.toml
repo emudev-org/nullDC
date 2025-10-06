@@ -23,6 +23,7 @@ seq-macro = "0.3"
 git-version = "0.3"
 wgpu = "26.0.1"
 winit = "0.30.12"
+bitfield = "0.14"
 
 # Disable default features globally
 egui = { git = "https://github.com/emilk/egui", rev = "18ea9ff", default-features = false }
