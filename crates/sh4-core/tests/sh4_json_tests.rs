@@ -1,5 +1,6 @@
 // SingleStepTests integration test
 use sh4_core::{Sh4Ctx, sh4_ipr_dispatcher};
+use sh4_core::sh4dec::{format_disas, SH4DecoderState};
 
 mod test_reader;
 use test_reader::{load_test_file, Sh4State};
@@ -11,7 +12,8 @@ macro_rules! test_case {
         paste::paste! {
             #[test]
             fn [<test_ $name>]() {
-                run_test_file(concat!("../../vendor/sh4-tests/", $name, ".json.bin"));
+                let test_path = concat!("../../vendor/sh4-tests/", $name, ".json.bin");
+                run_test_file(test_path);
             }
         }
     };
@@ -214,6 +216,32 @@ fn test_load_single_instruction() {
     assert_eq!(tests.len(), 500);
 }
 
+// Helper to extract opcode pattern from test file path and convert to u16
+// E.g., "0000mmmm00000011_sz0_pr0.json.bin" -> binary pattern with wildcards as 0
+fn parse_opcode_pattern_from_path(test_path: &str) -> Option<(u16, String)> {
+    let file_name = std::path::Path::new(test_path)
+        .file_name()?
+        .to_str()?;
+
+    // Extract the pattern part before the first underscore or .json
+    let pattern = file_name.split('_').next()?;
+
+    if pattern.len() != 16 {
+        return None;
+    }
+
+    let mut opcode: u16 = 0;
+    for c in pattern.chars() {
+        opcode <<= 1;
+        if c == '1' {
+            opcode |= 1;
+        }
+        // '0', 'n', 'm', 'd', 'i' all become 0
+    }
+
+    Some((opcode, pattern.to_string()))
+}
+
 // Generalized test runner that works for any test file
 fn run_test_file(test_path: &str) {
     if !std::path::Path::new(test_path).exists() {
@@ -222,6 +250,9 @@ fn run_test_file(test_path: &str) {
 
     let tests = load_test_file(test_path)
         .unwrap_or_else(|e| panic!("Failed to load test file {}: {}", test_path, e));
+
+    // Parse opcode pattern from filename for disassembly
+    let opcode_info = parse_opcode_pattern_from_path(test_path);
 
     let mut passed = 0;
     let mut failed = 0;
@@ -261,6 +292,18 @@ fn run_test_file(test_path: &str) {
             Err(e) => {
                 println!("Test {} failed: {}", test_idx, e);
                 println!("  Opcodes: {:04X?}", test.opcodes);
+
+                // Print disassembly if we have opcode info
+                if let Some((opcode, ref pattern)) = opcode_info {
+                    let decoder_state = SH4DecoderState {
+                        pc: test.initial.pc,
+                        fpscr_PR: (test.initial.fpscr & (1 << 19)) != 0,
+                        fpscr_SZ: (test.initial.fpscr & (1 << 20)) != 0,
+                    };
+                    let disasm = format_disas(decoder_state, opcode);
+                    println!("  Pattern: {} -> {}", pattern, disasm);
+                }
+
                 println!("  PC: 0x{:08X} -> 0x{:08X}", test.initial.pc, test.final_state.pc);
                 failed += 1;
                 if failed >= 10 {
@@ -274,7 +317,21 @@ fn run_test_file(test_path: &str) {
     println!("\nTest results: {} passed, {} failed out of {} total",
              passed, failed, tests.len());
 
-    assert_eq!(failed, 0, "{} tests failed", failed);
+    if failed > 0 {
+        // Generate a helpful error message with disassembly
+        let error_msg = if let Some((opcode, ref pattern)) = opcode_info {
+            let decoder_state = SH4DecoderState {
+                pc: 0,
+                fpscr_PR: test_path.contains("_pr1"),
+                fpscr_SZ: test_path.contains("_sz1"),
+            };
+            let disasm = format_disas(decoder_state, opcode);
+            format!("{} tests failed - Pattern: {} -> {}", failed, pattern, disasm)
+        } else {
+            format!("{} tests failed", failed)
+        };
+        panic!("{}", error_msg);
+    }
 }
 
 // Generate test cases using the macro
