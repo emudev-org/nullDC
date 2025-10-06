@@ -1018,7 +1018,8 @@ sh4op! {
     (disas = "lds.l @<REG_N>+,FPSCR")
     i0100_nnnn_0110_0110(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_read_mem32(dc, addr_of!((*dc).r[n]), addr_of_mut!((*dc).fpscr.0));
+        backend::sh4_read_mem32(dc, addr_of!((*dc).r[n]), addr_of_mut!((*dc).temp[0]));
+        backend::sh4_store_fpscr(addr_of_mut!((*dc).fpscr.0), addr_of!((*dc).temp[0]));
         backend::sh4_addi(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), 4);
     }
 
@@ -1100,7 +1101,7 @@ sh4op! {
     (disas = "lds <REG_N>,FPSCR")
     i0100_nnnn_0110_1010(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_store32(addr_of_mut!((*dc).fpscr.0), addr_of!((*dc).r[n]));
+        backend::sh4_store_fpscr(addr_of_mut!((*dc).fpscr.0), addr_of!((*dc).r[n]));
     }
 
     (disas = "ldc <REG_N>,DBR")

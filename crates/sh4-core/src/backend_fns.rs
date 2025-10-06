@@ -228,6 +228,7 @@ macro_rules! define_op {
 define_op!(sh4_muls32 (dst: *mut u32, src_n: *const u32, src_m: *const u32));
 define_op!(sh4_store32 (dst: *mut u32, src: *const u32));
 define_op!(sh4_store32i (dst: *mut u32, imm: u32));
+define_op!(sh4_store_fpscr (dst: *mut u32, src: *const u32));
 define_op!(sh4_and (dst: *mut u32, src_n: *const u32, src_m: *const u32));
 define_op!(sh4_xor (dst: *mut u32, src_n: *const u32, src_m: *const u32));
 define_op!(sh4_sub (dst: *mut u32, src_n: *const u32, src_m: *const u32));

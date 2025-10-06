@@ -1,6 +1,7 @@
 // SingleStepTests integration test
 use sh4_core::{Sh4Ctx, sh4_ipr_dispatcher};
 use sh4_core::sh4dec::{format_disas, SH4DecoderState};
+use sh4_core::backend_ipr::sh4_store_fpscr;
 
 mod test_reader;
 use test_reader::{load_test_file, Sh4State};
@@ -47,8 +48,10 @@ fn load_state_into_ctx(ctx: &mut Sh4Ctx, state: &Sh4State) {
         ctx.mac.parts.l = state.macl;
         ctx.mac.parts.h = state.mach;
         ctx.pr = state.pr;
-        ctx.fpscr.0 = state.fpscr;
         ctx.fpul = state.fpul;
+
+        // Use the special FPSCR store function to sync DAZ flag
+        sh4_store_fpscr(&mut ctx.fpscr.0, &state.fpscr);
     }
 }
 

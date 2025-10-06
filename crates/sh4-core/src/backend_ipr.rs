@@ -52,6 +52,51 @@ pub fn sh4_store32(dst: *mut u32, src: *const u32) {
 }
 
 #[inline(always)]
+pub fn sh4_store_fpscr(dst: *mut u32, src: *const u32) {
+    unsafe {
+        let new_val = *src;
+        let old_val = *dst;
+
+        // Check if DN bit changed (bit 18)
+        if (old_val ^ new_val) & (1 << 18) != 0 {
+            // DN bit changed, sync host FPU DAZ flag
+            let dn = (new_val >> 18) & 1;
+            set_host_daz(dn != 0);
+        }
+
+        *dst = new_val;
+    }
+}
+
+// Set host FPU Denormals-Are-Zero flag
+#[inline(always)]
+fn set_host_daz(enable: bool) {
+    #[cfg(target_arch = "x86_64")]
+    unsafe {
+        // Get current MXCSR
+        let mut mxcsr: u32 = 0;
+        std::arch::asm!("stmxcsr [{}]", in(reg) &mut mxcsr, options(nostack));
+
+        // Bit 6 is DAZ (Denormals Are Zero)
+        if enable {
+            mxcsr |= 1 << 6;  // Set DAZ
+        } else {
+            mxcsr &= !(1 << 6);  // Clear DAZ
+        }
+
+        // Set new MXCSR
+        std::arch::asm!("ldmxcsr [{}]", in(reg) &mxcsr, options(nostack));
+    }
+
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        // On non-x86_64 architectures, we can't set DAZ
+        // The emulator will need software emulation for denormals
+        let _ = enable;
+    }
+}
+
+#[inline(always)]
 pub fn sh4_store32i(dst: *mut u32, imm: u32) {
     unsafe {
         *dst = imm;
