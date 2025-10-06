@@ -225,7 +225,6 @@ fn run_test_file(test_path: &str) {
 
     let mut passed = 0;
     let mut failed = 0;
-    let mut unimplemented = 0;
 
     for (test_idx, test) in tests.iter().enumerate() {
         // Create CPU context and memory for each test
@@ -250,43 +249,10 @@ fn run_test_file(test_path: &str) {
             memory[offset + 1] = ((opcode >> 8) & 0xFF) as u8;
         }
 
-        // Execute for the number of cycles in the test - catch panics for unimplemented opcodes
+        // Execute for the number of cycles in the test
         ctx.remaining_cycles = test.cycles.len() as i32;
-        let exec_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            unsafe {
-                sh4_ipr_dispatcher(&mut ctx);
-            }
-        }));
-
-        // Check if execution panicked (likely unimplemented opcode)
-        if let Err(panic_err) = exec_result {
-            let panic_msg = if let Some(s) = panic_err.downcast_ref::<String>() {
-                s.clone()
-            } else if let Some(s) = panic_err.downcast_ref::<&str>() {
-                s.to_string()
-            } else {
-                "Unknown panic".to_string()
-            };
-
-            // Check if it's an unimplemented opcode panic
-            if panic_msg.contains("unknown opcode") || panic_msg.contains("i_not_known") {
-                println!("Test {} unimplemented: Unimplemented opcode", test_idx);
-                println!("  Opcodes: {:04X?}", test.opcodes);
-                println!("  Error: {}", panic_msg);
-                unimplemented += 1;
-                continue;
-            } else {
-                // Some other panic - this is a real failure
-                println!("Test {} failed with panic: {}", test_idx, panic_msg);
-                println!("  Opcodes: {:04X?}", test.opcodes);
-                println!("  PC: 0x{:08X} -> 0x{:08X}", test.initial.pc, test.final_state.pc);
-                failed += 1;
-                if failed >= 10 {
-                    println!("Stopping after 10 failures");
-                    break;
-                }
-                continue;
-            }
+        unsafe {
+            sh4_ipr_dispatcher(&mut ctx);
         }
 
         // Compare final state
@@ -305,8 +271,8 @@ fn run_test_file(test_path: &str) {
         }
     }
 
-    println!("\nTest results: {} passed, {} failed, {} unimplemented out of {} total",
-             passed, failed, unimplemented, tests.len());
+    println!("\nTest results: {} passed, {} failed out of {} total",
+             passed, failed, tests.len());
 
     assert_eq!(failed, 0, "{} tests failed", failed);
 }
