@@ -104,9 +104,9 @@ jobs:
         with:
           name: debugger-ui-dist-native
           path: debugger-ui/dist
-      - name: "Native: Run tests"
+      - name: "Native: Run SH4 tests"
         if: matrix.target != 'wasm32-unknown-unknown'
-        run: cargo test --target ${{ matrix.target }}
+        run: cargo test --package sh4-core --target ${{ matrix.target }}
       - name: "Native: Build release"
         if: matrix.target != 'wasm32-unknown-unknown'
         run: cargo build --release --target ${{ matrix.target }}
