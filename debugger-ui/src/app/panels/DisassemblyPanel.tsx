@@ -13,7 +13,7 @@ import VolumeUpIcon from "@mui/icons-material/VolumeUp";
 import type { DisassemblyLine } from "../../lib/debuggerSchema";
 import { useSessionStore } from "../../state/sessionStore";
 import { useDebuggerDataStore } from "../../state/debuggerDataStore";
-import { categoryStates, type BreakpointCategory } from "../../state/breakpointCategoryState";
+import { categoryStates, syncCategoryStatesToServer, type BreakpointCategory } from "../../state/breakpointCategoryState";
 
 const WHEEL_PIXEL_THRESHOLD = 60;
 const INSTRUCTIONS_PER_TICK = 6;
@@ -89,7 +89,7 @@ const DisassemblyView = ({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const currentPcRef = useRef<number | undefined>(undefined);
   const lineRefsMap = useRef<Map<number, HTMLDivElement>>(new Map());
-  const [categoryStateVersion, setCategoryStateVersion] = useState(0);
+  const [, forceUpdate] = useState(0);
 
   const instructionSize = useMemo(() => instructionSizeForTarget(target), [target]);
   const maxAddress = useMemo(() => maxAddressForTarget(target), [target]);
@@ -98,18 +98,6 @@ const DisassemblyView = ({
   const category: BreakpointCategory = target === "sh4" ? "sh4" : target === "arm7" ? "arm7" : "dsp";
   const categoryState = categoryStates.get(category);
 
-  // Sync category states to server whenever they change
-  useEffect(() => {
-    if (!client) return;
-
-    const categories: Record<string, { muted: boolean; soloed: boolean }> = {};
-    for (const [key, value] of categoryStates.entries()) {
-      categories[key] = { muted: value.muted, soloed: value.soloed };
-    }
-
-    void client.setCategoryStates(categories);
-  }, [client, categoryStateVersion]);
-
   const handleMuteToggle = useCallback(() => {
     const state = categoryStates.get(category);
     if (state) {
@@ -117,7 +105,8 @@ const DisassemblyView = ({
       if (state.muted) {
         state.soloed = false; // Can't be both muted and soloed
       }
-      setCategoryStateVersion((v) => v + 1);
+      forceUpdate((v) => v + 1);
+      syncCategoryStatesToServer();
     }
   }, [category]);
 
@@ -134,7 +123,8 @@ const DisassemblyView = ({
           }
         }
       }
-      setCategoryStateVersion((v) => v + 1);
+      forceUpdate((v) => v + 1);
+      syncCategoryStatesToServer();
     }
   }, [category]);
 

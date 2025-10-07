@@ -22,7 +22,7 @@ import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import RadioButtonCheckedIcon from "@mui/icons-material/RadioButtonChecked";
 import { useDebuggerDataStore } from "../../state/debuggerDataStore";
 import { useSessionStore } from "../../state/sessionStore";
-import { categoryStates, type BreakpointCategory } from "../../state/breakpointCategoryState";
+import { categoryStates, setClient, syncCategoryStatesToServer, type BreakpointCategory } from "../../state/breakpointCategoryState";
 import { useCallback, useState, useEffect } from "react";
 import type { BreakpointDescriptor } from "../../lib/debuggerSchema";
 
@@ -88,17 +88,10 @@ const BreakpointsView = ({ title, filter, addMode, showCategoryControls = false 
 
   const filteredBreakpoints = filter ? breakpoints.filter((bp) => filter(bp.location)) : breakpoints;
 
-  // Sync category states to server whenever they change
+  // Set the client for the shared category state module
   useEffect(() => {
-    if (!client || !showCategoryControls) return;
-
-    const categories: Record<string, { muted: boolean; soloed: boolean }> = {};
-    for (const [key, value] of categoryStates.entries()) {
-      categories[key] = { muted: value.muted, soloed: value.soloed };
-    }
-
-    void client.setCategoryStates(categories);
-  }, [client, categoryStateVersion, showCategoryControls]);
+    setClient(client);
+  }, [client]);
 
   const handleRemove = useCallback(
     async (id: string) => {
@@ -122,6 +115,7 @@ const BreakpointsView = ({ title, filter, addMode, showCategoryControls = false 
         state.soloed = false; // Can't be both muted and soloed
       }
       setCategoryStateVersion((v) => v + 1);
+      syncCategoryStatesToServer();
     }
   }, []);
 
@@ -139,6 +133,7 @@ const BreakpointsView = ({ title, filter, addMode, showCategoryControls = false 
         }
       }
       setCategoryStateVersion((v) => v + 1);
+      syncCategoryStatesToServer();
     }
   }, []);
 
