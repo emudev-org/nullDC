@@ -1,4 +1,5 @@
 use backend_fns::{ dec_start, dec_finalize_shrink, sh4_dec_call_decode, sh4_store32, sh4_store32i, sh4_dec_branch_cond, dec_reserve_dispatcher, dec_patch_dispatcher, dec_run_block, dec_free };
+
 use std::ptr;
 use std::ptr::{ addr_of, addr_of_mut };
 use bitfield::bitfield;
@@ -160,6 +161,7 @@ pub struct Sh4Ctx {
     pub pr: u32,
 
     pub virt_jdyn: u32,
+
     pub temp: [u32; 8],
 
     pub fns_entrypoint: *const u8,
@@ -176,7 +178,6 @@ pub struct Sh4Ctx {
     pub dec_branch_next: u32,
     pub dec_branch_target: u32,
     pub dec_branch_target_dynamic: *const u32,
-    pub dec_branch_ssr: *const u32,
     pub dec_branch_dslot: u32,
 
     // for fns dispatcher
@@ -214,6 +215,7 @@ impl Default for Sh4Ctx {
             pr: 0,
 
             virt_jdyn: 0,
+
             temp: [0; 8],
 
             fns_entrypoint: ptr::null(),
@@ -231,7 +233,6 @@ impl Default for Sh4Ctx {
             dec_branch_next: 0,
             dec_branch_target: 0,
             dec_branch_target_dynamic: ptr::null(),
-            dec_branch_ssr: ptr::null(),
             dec_branch_dslot: 0,
         }
     }
@@ -256,6 +257,7 @@ pub fn sh4_ipr_dispatcher(ctx: *mut Sh4Ctx) {
 
             // Call the opcode handler
             let handler = *SH4_OP_PTR.get_unchecked(opcode as usize);
+
             handler(ctx, opcode);
 
             (*ctx).pc0 = (*ctx).pc1;
@@ -324,11 +326,6 @@ unsafe fn sh4_build_block(ctx: &mut Sh4Ctx, start_pc: u32) -> *const u8 {
                 3 => {
                     // Dynamic branch with pointer to target
                     sh4_store32(addr_of_mut!(ctx.pc0), ctx.dec_branch_target_dynamic);
-                }
-                4 => {
-                    // Special case for rte
-                    sh4_store32(addr_of_mut!(ctx.pc0), ctx.dec_branch_target_dynamic);
-                    sh4_store32(addr_of_mut!(ctx.sr.0), ctx.dec_branch_ssr);
                 }
                 _ => panic!("invalid dec_branch value")
             }

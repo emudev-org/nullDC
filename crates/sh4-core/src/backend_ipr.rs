@@ -59,12 +59,13 @@ pub fn sh4_store64(dst: *mut u64, src: *const u64) {
 }
 
 #[inline(always)]
-pub fn sh4_store_sr(dst: *mut u32, src: *const u32, r: *mut u32, r_bank: *mut u32) {
+pub fn sh4_store_sr(dst: *mut u32, dst_t: *mut u32, src: *const u32, r: *mut u32, r_bank: *mut u32) {
     unsafe {
         // Bit layout: MD(30), RB(29), BL(28), FD(15), IMASK(7-4), M(9), Q(8), S(1), T(0)
         const SR_MASK: u32 = 0x700083F2;
 
         let mut new_val = *src & SR_MASK;
+        let new_t = *src & 1;
         let old_val = *dst;
 
         let old_rb = (old_val >> 29) & 1;
@@ -85,6 +86,7 @@ pub fn sh4_store_sr(dst: *mut u32, src: *const u32, r: *mut u32, r_bank: *mut u3
         }
 
         *dst = new_val;
+        *dst_t = new_t;
     }
 }
 
@@ -668,10 +670,9 @@ pub fn sh4_rts(ctx: *mut Sh4Ctx, pr: *const u32) {
 }
 
 #[inline(always)]
-pub fn sh4_rte(ctx: *mut Sh4Ctx, spc: *const u32, ssr: *const u32) {
+pub fn sh4_rte(ctx: *mut Sh4Ctx, spc: *const u32) {
     unsafe {
         let newpc = *spc;
-        (*ctx).sr.0 = *ssr;
         (*ctx).pc2 = newpc;
         (*ctx).is_delayslot1 = 1;
     }

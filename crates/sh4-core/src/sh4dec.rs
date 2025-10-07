@@ -702,8 +702,11 @@ sh4op! {
 
     (disas = "rte")
     i0000_0000_0010_1011(dc, state, opcode) {
-        backend::sh4_rte(dc, addr_of!((*dc).spc), addr_of!((*dc).ssr));
-        // TODO: Recheck interrupts after SR change
+        // FIXME: RTE dslot insn access uses MD before change
+        backend::sh4_store32(addr_of_mut!((*dc).virt_jdyn), addr_of!((*dc).spc));
+        backend::sh4_store_sr(addr_of_mut!((*dc).sr.0), addr_of_mut!((*dc).sr_T), addr_of!((*dc).ssr),
+                              addr_of_mut!((*dc).r[0]), addr_of_mut!((*dc).r_bank[0]));
+        backend::sh4_rte(dc, addr_of!((*dc).virt_jdyn));
     }
 
     (disas = "rts")
@@ -1065,7 +1068,7 @@ sh4op! {
         backend::sh4_addi(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), 4);
         backend::sh4_andi(addr_of_mut!((*dc).sr_T), addr_of!((*dc).temp[0]), 1);
         backend::sh4_andi(addr_of_mut!((*dc).temp[1]), addr_of!((*dc).temp[0]), 0xFFFFFFFE);
-        backend::sh4_store_sr(addr_of_mut!((*dc).sr.0), addr_of!((*dc).temp[1]),
+        backend::sh4_store_sr(addr_of_mut!((*dc).sr.0), addr_of_mut!((*dc).sr_T), addr_of!((*dc).temp[1]),
                               addr_of_mut!((*dc).r[0]), addr_of_mut!((*dc).r_bank[0]));
         // TODO: Recheck interrupts after SR change
     }
@@ -1144,7 +1147,7 @@ sh4op! {
         backend::sh4_andi(addr_of_mut!((*dc).sr_T), addr_of!((*dc).r[n]), 1);
         // Clear T_h bit (bit 0) in sr.full and store with bank switching
         backend::sh4_andi(addr_of_mut!((*dc).temp[0]), addr_of!((*dc).r[n]), 0xFFFFFFFE);
-        backend::sh4_store_sr(addr_of_mut!((*dc).sr.0), addr_of!((*dc).temp[0]),
+        backend::sh4_store_sr(addr_of_mut!((*dc).sr.0), addr_of_mut!((*dc).sr_T), addr_of!((*dc).temp[0]),
                               addr_of_mut!((*dc).r[0]), addr_of_mut!((*dc).r_bank[0]));
         // TODO: Recheck interrupts after SR change
     }
