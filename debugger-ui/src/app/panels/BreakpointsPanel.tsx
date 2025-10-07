@@ -143,9 +143,18 @@ const BreakpointsView = ({ title, filter, addMode, showCategoryControls = false 
     let location: string;
     let kind: BreakpointDescriptor["kind"];
 
-    if (addMode === "event" || addMode === "dsp") {
+    if (addMode === "event") {
       location = trimmed;
       kind = "event";
+    } else if (addMode === "dsp") {
+      // Parse step value for DSP breakpoints
+      const normalized = trimmed.replace(/^0x/i, "");
+      const parsed = Number.parseInt(normalized, 16);
+      if (Number.isNaN(parsed)) {
+        return;
+      }
+      location = `dc.aica.dsp.step == 0x${parsed.toString(16).toUpperCase().padStart(8, "0")}`;
+      kind = "code";
     } else {
       // Parse address for PC breakpoints
       const normalized = trimmed.replace(/^0x/i, "");
@@ -163,9 +172,11 @@ const BreakpointsView = ({ title, filter, addMode, showCategoryControls = false 
   }, [newBreakpoint, addBreakpoint, addMode]);
 
   const placeholder =
-    addMode === "event" || addMode === "dsp"
+    addMode === "event"
       ? "Event name (e.g., dc.aica.channel[0].step)"
-      : `Address (e.g., 0x8C0000A0)`;
+      : addMode === "dsp"
+        ? "Step value (e.g., 0, 5, 0x10)"
+        : `Address (e.g., 0x8C0000A0)`;
 
   // Group breakpoints by category for the all-categories view
   const categorizedBreakpoints: Partial<Record<BreakpointCategory, BreakpointDescriptor[]>> = showCategoryControls
@@ -196,7 +207,7 @@ const BreakpointsView = ({ title, filter, addMode, showCategoryControls = false 
     <Panel>
       <Box sx={{ p: 1.5, borderBottom: "1px solid", borderColor: "divider" }}>
         <Stack direction="row" spacing={1}>
-          {addMode === "event" || addMode === "dsp" ? (
+          {addMode === "event" ? (
             <Autocomplete
               size="small"
               fullWidth
@@ -403,7 +414,7 @@ export const DspBreakpointsPanel = () => (
     title="DSP: Breakpoints"
     filter={(loc) => {
       const lower = loc.toLowerCase();
-      return lower.includes("aica") || lower.includes("dsp");
+      return lower.includes("dsp");
     }}
     addMode="dsp"
   />

@@ -170,7 +170,7 @@ const DisassemblyView = ({
   // Map addresses to breakpoints
   const breakpointsByAddress = useMemo(() => {
     const map = new Map<number, { id: string; enabled: boolean }>();
-    const cpuPath = target === "dsp" ? "dc.aica.dsp" : target === "sh4" ? "dc.sh4.cpu" : "dc.arm7.cpu";
+    const cpuPath = target === "dsp" ? "dc.aica.dsp" : target === "sh4" ? "dc.sh4.cpu" : "dc.aica.arm7";
     const counterName = target === "dsp" ? "step" : "pc";
 
     for (const bp of breakpoints) {
@@ -318,7 +318,7 @@ const DisassemblyView = ({
         await removeBreakpoint(existing.id);
       } else {
         // Add new breakpoint
-        const cpuPath = target === "dsp" ? "dc.aica.dsp" : target === "sh4" ? "dc.sh4.cpu" : "dc.arm7.cpu";
+        const cpuPath = target === "dsp" ? "dc.aica.dsp" : target === "sh4" ? "dc.sh4.cpu" : "dc.aica.arm7";
         const counterName = target === "dsp" ? "step" : "pc";
         const location = `${cpuPath}.${counterName} == ${formatHexAddress(lineAddress)}`;
         await addBreakpoint(location, "code");

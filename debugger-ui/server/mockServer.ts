@@ -788,7 +788,7 @@ const collectRegistersFromTree = (tree: DeviceNodeDescriptor[]): Array<{ path: s
 };
 
 const checkBreakpoint = (path: string, registerName: string, value: number): BreakpointDescriptor | undefined => {
-  const location = `${path}.${registerName.toLowerCase()} == 0x${value.toString(16).toUpperCase()}`;
+  const location = `${path}.${registerName.toLowerCase()} == 0x${value.toString(16).toUpperCase().padStart(8, "0")}`;
   for (const bp of serverBreakpoints.values()) {
     if (bp.location === location && bp.enabled && bp.kind === "code" && isBreakpointActive(bp)) {
       return bp;
@@ -854,7 +854,7 @@ const broadcastTick = () => {
       setRegisterValue("dc.aica.arm7", "PC", `0x${newPc.toString(16).toUpperCase().padStart(8, "0")}`);
 
       // Check if we hit a breakpoint
-      const hitBp = checkBreakpoint("dc.aica.arm7", "PC", newPc);
+      const hitBp = checkBreakpoint("dc.aica.arm7", "pc", newPc);
       if (hitBp && !hitBreakpointId) {
         isRunning = false;
         hitBp.hitCount++;
@@ -884,8 +884,8 @@ const broadcastTick = () => {
       const newStep = (step + 1) % 8; // Loop 0..7
       setRegisterValue("dc.aica.dsp", "STEP", `0x${newStep.toString(16).toUpperCase().padStart(3, "0")}`);
 
-      // Check if we hit a breakpoint
-      const hitBp = checkBreakpoint("dc.aica.dsp", "STEP", newStep);
+      // Check if we hit a breakpoint (using lowercase "step" for compatibility)
+      const hitBp = checkBreakpoint("dc.aica.dsp", "step", newStep);
       if (hitBp && !hitBreakpointId) {
         isRunning = false;
         hitBp.hitCount++;
