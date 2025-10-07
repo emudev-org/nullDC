@@ -142,6 +142,13 @@ jobs:
           crate: trunk
           version: ${{ steps.toolvers.outputs.trunk_version }}
 
+      - name: "WASM: Install wasm-opt"
+        if: matrix.target == 'wasm32-unknown-unknown'
+        uses: baptiste0928/cargo-install@v3
+        with:
+          crate: wasm-opt
+          version: ${{ steps.toolvers.outputs.wasm_opt_version }}
+          
       - name: "WASM: Download debugger-ui"
         if: matrix.target == 'wasm32-unknown-unknown'
         uses: actions/download-artifact@v4
@@ -154,11 +161,6 @@ jobs:
         run: |
           trunk build
 
-      - name: "WASM: Install binaryen (wasm-opt)"
-        if: matrix.target == 'wasm32-unknown-unknown'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y binaryen
 
       - name: "WASM: Optimize with wasm-opt"
         if: matrix.target == 'wasm32-unknown-unknown'
