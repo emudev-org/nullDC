@@ -1,3 +1,7 @@
+[workspace]
+members = ["crates/sh4-core"]
+default-members = ["."]
+
 [package]
 name = "nullDC"
 version = "2.0.0-pre"
