@@ -116,7 +116,8 @@
 
   </div>
   <p align="center"><a href="/debugger/">Open Debugger UI</a></p>
-  <link data-trunk rel="rust" data-target-name="nulldc" />
+  <link data-trunk rel="rust" data-target-name="nulldc" data-wasm-opt="0" />
+  <!-- wasm-opt disabled: Trunk doesn't support passing --enable-bulk-memory flag -->
   <link data-trunk rel="copy-dir" href="debugger-ui/dist" data-target-path="debugger" />
 </body>
 
