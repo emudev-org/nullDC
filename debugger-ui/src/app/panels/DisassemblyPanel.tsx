@@ -597,7 +597,7 @@ const DisassemblyView = ({
             </Typography>
           ) : (
             <Stack
-              spacing={0.25}
+              spacing={0}
               sx={{
                 "& .current-instruction": {
                   color: "primary.main",
@@ -647,7 +647,7 @@ const DisassemblyView = ({
                       gap: 1,
                       alignItems: "stretch",
                       px: 0.5,
-                      py: 0.25,
+                      py: 0,
                       border: "2px solid transparent",
                       borderRadius: 1,
                       "&:hover .breakpoint-gutter": {
