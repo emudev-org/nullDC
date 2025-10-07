@@ -35,7 +35,7 @@ export const Panel = ({ title, action, footer, children }: PanelProps) => {
               {title}
             </Typography>
           )}
-          {action && <Box sx={{ display: "flex", gap: 1, ml: title ? 0 : "auto" }}>{action}</Box>}
+          {action && <Box sx={{ display: "flex", gap: 1, ml: title ? 0 : "auto", flex: title ? 0 : 1 }}>{action}</Box>}
         </Box>
       )}
       <Box sx={{ flex: 1, overflow: "auto" }}>{children}</Box>

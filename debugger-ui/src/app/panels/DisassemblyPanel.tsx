@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Box, Button, CircularProgress, IconButton, Paper, Stack, TextField, Tooltip, Typography } from "@mui/material";
+import { Box, Button, CircularProgress, IconButton, InputAdornment, Paper, Stack, TextField, Tooltip, Typography } from "@mui/material";
 import CircleIcon from "@mui/icons-material/Circle";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import RadioButtonCheckedIcon from "@mui/icons-material/RadioButtonChecked";
@@ -10,6 +10,7 @@ import ArrowUpwardRoundedIcon from "@mui/icons-material/ArrowUpwardRounded";
 import SubdirectoryArrowRightIcon from "@mui/icons-material/SubdirectoryArrowRight";
 import VolumeOffIcon from "@mui/icons-material/VolumeOff";
 import VolumeUpIcon from "@mui/icons-material/VolumeUp";
+import RefreshIcon from "@mui/icons-material/Refresh";
 import type { DisassemblyLine } from "../../lib/debuggerSchema";
 import { useSessionStore } from "../../state/sessionStore";
 import { useDebuggerDataStore } from "../../state/debuggerDataStore";
@@ -88,6 +89,8 @@ const DisassemblyView = ({
   const pendingScrollSteps = useRef(0);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const currentPcRef = useRef<number | undefined>(undefined);
+  const targetAddressRef = useRef<number | undefined>(undefined);
+  const targetTimestampRef = useRef<number | undefined>(undefined);
   const lineRefsMap = useRef<Map<number, HTMLDivElement>>(new Map());
   const [, forceUpdate] = useState(0);
 
@@ -215,7 +218,10 @@ const DisassemblyView = ({
 
   useEffect(() => {
     const normalized = normalizeAddress(address, maxAddress, instructionSize);
-    setAddressInput(formatAddressInput(target, normalized));
+    // Display the address 10 instructions down (the intended target), not the fetch start
+    const displayAddress = Math.min(maxAddress, normalized + instructionSize * 10);
+    setAddressInput(formatAddressInput(target, displayAddress));
+
     void fetchDisassembly(normalized);
   }, [address, fetchDisassembly, instructionSize, maxAddress, target]);
 
@@ -283,7 +289,26 @@ const DisassemblyView = ({
     const contextOffset = instructionSize * 10;
     const targetAddress = Math.max(0, parsed - contextOffset);
     setAddress(normalizeAddress(targetAddress, maxAddress, instructionSize));
+
+    // Set target address and timestamp for animation trigger
+    targetAddressRef.current = parsed;
+    targetTimestampRef.current = Date.now();
+
+    // Update DOM when lines are available
+    setTimeout(() => {
+      const element = lineRefsMap.current.get(parsed);
+      if (element) {
+        element.classList.remove("target-address");
+        // Force reflow to restart animation
+        void element.offsetWidth;
+        element.classList.add("target-address");
+      }
+    }, 0);
   }, [addressInput, instructionSize, maxAddress, target]);
+
+  const handleRefresh = useCallback(() => {
+    void fetchDisassembly(address);
+  }, [fetchDisassembly, address]);
 
   const handleBreakpointClick = useCallback(
     async (lineAddress: number) => {
@@ -468,10 +493,25 @@ const DisassemblyView = ({
             }}
             sx={{ width: 160 }}
             disabled={connectionState !== "connected"}
+            slotProps={{
+              input: {
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <Button size="small" onClick={handleAddressSubmit} disabled={connectionState !== "connected"} sx={{ minWidth: "auto", px: 1 }}>
+                      Go
+                    </Button>
+                  </InputAdornment>
+                ),
+              },
+            }}
           />
-          <Button size="small" onClick={handleAddressSubmit} disabled={connectionState !== "connected"} sx={{ minWidth: "auto", px: 1.5 }}>
-            Go
-          </Button>
+          <Tooltip title="Refresh">
+            <span>
+              <IconButton size="small" onClick={handleRefresh} disabled={loading || connectionState !== "connected"}>
+                <RefreshIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
         </Stack>
       </Box>
       <Box sx={{ flex: 1, overflow: "auto" }}>
@@ -525,6 +565,19 @@ const DisassemblyView = ({
                   fontWeight: 600,
                   border: "2px solid",
                   borderColor: "success.main",
+                },
+                "& .target-address": {
+                  border: "2px solid",
+                  borderColor: "warning.main",
+                  animation: "fadeOutTarget 2s forwards",
+                },
+                "@keyframes fadeOutTarget": {
+                  "0%": {
+                    borderColor: "warning.main",
+                  },
+                  "100%": {
+                    borderColor: "transparent",
+                  },
                 },
               }}
             >

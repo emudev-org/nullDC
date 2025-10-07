@@ -6,7 +6,7 @@ export const ThreadsPanel = () => {
   const threads = useDebuggerDataStore((state) => state.threads);
 
   return (
-    <Panel title="Threads">
+    <Panel>
       {threads.length === 0 ? (
         <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
           No thread information available.

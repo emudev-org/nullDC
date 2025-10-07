@@ -84,9 +84,9 @@ const mainTabs = [
 
 const sidePanelTabs = [
   { value: "device-tree", label: "Device Tree", component: <DeviceTreePanel /> },
-  { value: "watches", label: "Watches", component: <WatchesPanel /> },
-  { value: "sh4-callstack", label: "SH4: Callstack", component: <Sh4CallstackPanel /> },
-  { value: "arm7-callstack", label: "ARM7: Callstack", component: <Arm7CallstackPanel /> },
+  { value: "watches", label: "Watches", component: <WatchesPanel showTitle={false} /> },
+  { value: "sh4-callstack", label: "SH4: Callstack", component: <Sh4CallstackPanel showTitle={false} /> },
+  { value: "arm7-callstack", label: "ARM7: Callstack", component: <Arm7CallstackPanel showTitle={false} /> },
 ];
 
 const connectionIcons = {
@@ -452,9 +452,9 @@ export const AppLayout = () => {
                 width: 340,
               }}
             >
-              <WatchesPanel />
-              <Sh4CallstackPanel />
-              <Arm7CallstackPanel />
+              <WatchesPanel showTitle={true} />
+              <Sh4CallstackPanel showTitle={true} />
+              <Arm7CallstackPanel showTitle={true} />
             </Box>
           )}
           {connectionState !== "connected" && (

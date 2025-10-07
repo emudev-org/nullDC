@@ -179,7 +179,7 @@ export const DeviceTreePanel = () => {
   );
 
   return (
-    <Panel title="Device Tree">
+    <Panel>
       {deviceTree.length === 0 ? (
         <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
           No device information available.
@@ -190,7 +190,7 @@ export const DeviceTreePanel = () => {
             <TextField
               size="small"
               fullWidth
-              placeholder="Search devices..."
+              placeholder="Search registers..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               InputProps={{

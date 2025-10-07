@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Panel } from "../layout/Panel";
-import { Box, Button, CircularProgress, Stack, TextField, Typography } from "@mui/material";
+import { Box, Button, CircularProgress, IconButton, InputAdornment, Stack, TextField, Tooltip, Typography } from "@mui/material";
+import RefreshIcon from "@mui/icons-material/Refresh";
 import type { MemorySlice } from "../../lib/debuggerSchema";
 import { useSessionStore } from "../../state/sessionStore";
 
@@ -55,6 +56,9 @@ const MemoryView = ({
   const wheelRemainder = useRef(0);
   const pendingScrollDelta = useRef(0);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const targetAddressRef = useRef<number | undefined>(undefined);
+  const targetTimestampRef = useRef<number | undefined>(undefined);
+  const lineRefsMap = useRef<Map<number, HTMLDivElement>>(new Map());
 
   const maxAddress = useMemo(() => 0xffffffff - Math.max(length - 1, 0), [length]);
 
@@ -94,9 +98,12 @@ const MemoryView = ({
   );
 
   useEffect(() => {
-    setAddressInput(formatHexAddress(address));
-    void fetchSlice(address);
-  }, [address, fetchSlice]);
+    const normalized = clampAddress(address, maxAddress, BYTES_PER_ROW);
+    // Display the address 10 rows down (the intended target), not the fetch start
+    const displayAddress = Math.min(0xffffffff - (BYTES_PER_ROW - 1), normalized + BYTES_PER_ROW * 10);
+    setAddressInput(formatHexAddress(displayAddress));
+    void fetchSlice(normalized);
+  }, [address, fetchSlice, maxAddress]);
 
   // Process pending scroll delta after loading completes
   useEffect(() => {
@@ -181,7 +188,31 @@ const MemoryView = ({
     if (Number.isNaN(parsed)) {
       return;
     }
-    setAddress(clampAddress(parsed, maxAddress, BYTES_PER_ROW));
+    // Align down to row boundary
+    const alignedAddress = clampAddress(parsed, 0xffffffff - (BYTES_PER_ROW - 1), BYTES_PER_ROW);
+
+    // Update the input field to show the aligned address
+    setAddressInput(formatHexAddress(alignedAddress));
+
+    // Start 10 rows before for context
+    const contextOffset = BYTES_PER_ROW * 10;
+    const targetAddress = Math.max(0, alignedAddress - contextOffset);
+    setAddress(clampAddress(targetAddress, maxAddress, BYTES_PER_ROW));
+
+    // Set target address (aligned) and timestamp for animation trigger
+    targetAddressRef.current = alignedAddress;
+    targetTimestampRef.current = Date.now();
+
+    // Update DOM when rows are available
+    setTimeout(() => {
+      const element = lineRefsMap.current.get(alignedAddress);
+      if (element) {
+        element.classList.remove("target-address");
+        // Force reflow to restart animation
+        void element.offsetWidth;
+        element.classList.add("target-address");
+      }
+    }, 0);
   }, [addressInput, maxAddress]);
 
   const handleRefresh = useCallback(() => {
@@ -190,9 +221,8 @@ const MemoryView = ({
 
   return (
     <Panel
-      title={title}
       action={
-        <Stack direction="row" spacing={1} alignItems="center">
+        <Stack direction="row" spacing={1} alignItems="center" sx={{ flex: 1 }}>
           <TextField
             size="small"
             value={addressInput}
@@ -203,15 +233,27 @@ const MemoryView = ({
                 handleAddressSubmit();
               }
             }}
-            sx={{ width: 140 }}
+            sx={{ flex: 1 }}
             disabled={connectionState !== "connected"}
+            slotProps={{
+              input: {
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <Button size="small" onClick={handleAddressSubmit} disabled={connectionState !== "connected"} sx={{ minWidth: "auto", px: 1 }}>
+                      Go
+                    </Button>
+                  </InputAdornment>
+                ),
+              },
+            }}
           />
-          <Button size="small" onClick={handleAddressSubmit} disabled={connectionState !== "connected"}>
-            Go
-          </Button>
-          <Button size="small" onClick={handleRefresh} disabled={loading || connectionState !== "connected"}>
-            Refresh
-          </Button>
+          <Tooltip title="Refresh">
+            <span>
+              <IconButton size="small" onClick={handleRefresh} disabled={loading || connectionState !== "connected"}>
+                <RefreshIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
         </Stack>
       }
     >
@@ -233,7 +275,6 @@ const MemoryView = ({
             fontSize: 13,
             p: 1.5,
             position: "relative",
-            cursor: "ns-resize",
           }}
         >
           {loading && (
@@ -249,11 +290,44 @@ const MemoryView = ({
             <Typography component="span" sx={{ width: 380, flexShrink: 0, mr: "4em" }}>Hex</Typography>
             <Typography component="span" sx={{ width: 130, flexShrink: 0 }}>ASCII</Typography>
           </Box>
-          <Stack spacing={0.5}>
+          <Stack
+            spacing={0.5}
+            sx={{
+              "& .target-address": {
+                border: "2px solid",
+                borderColor: "warning.main",
+                animation: "fadeOutTarget 2s forwards",
+              },
+              "@keyframes fadeOutTarget": {
+                "0%": {
+                  borderColor: "warning.main",
+                },
+                "100%": {
+                  borderColor: "transparent",
+                },
+              },
+            }}
+          >
             {rows.map((row) => (
               <Box
                 key={`${target}-${row.id}`}
-                sx={{ display: "flex", fontFamily: "monospace", fontSize: 13, alignItems: "baseline" }}>
+                ref={(el: HTMLDivElement | null) => {
+                  if (el) {
+                    lineRefsMap.current.set(row.address, el);
+                  } else {
+                    lineRefsMap.current.delete(row.address);
+                  }
+                }}
+                sx={{
+                  display: "flex",
+                  fontFamily: "monospace",
+                  fontSize: 13,
+                  alignItems: "baseline",
+                  border: "2px solid transparent",
+                  borderRadius: 1,
+                  px: 0.5,
+                  py: 0.25,
+                }}>
                 <Typography component="span" sx={{ width: 100, flexShrink: 0, mr: "1.5em" }}>{formatHexAddress(row.address)}</Typography>
                 <Typography component="span" sx={{ width: 380, flexShrink: 0, whiteSpace: "nowrap", letterSpacing: 0, mr: "4em" }}>{row.hex}</Typography>
                 <Typography component="span" sx={{ width: 130, flexShrink: 0, whiteSpace: "pre", letterSpacing: "0.05em" }}>{row.ascii}</Typography>

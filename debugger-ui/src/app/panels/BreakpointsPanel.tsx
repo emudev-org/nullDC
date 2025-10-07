@@ -193,7 +193,7 @@ const BreakpointsView = ({ title, filter, addMode, showCategoryControls = false 
   };
 
   return (
-    <Panel title={title}>
+    <Panel>
       <Box sx={{ p: 1.5, borderBottom: "1px solid", borderColor: "divider" }}>
         <Stack direction="row" spacing={1}>
           {addMode === "event" || addMode === "dsp" ? (

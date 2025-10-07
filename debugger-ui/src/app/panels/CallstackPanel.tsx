@@ -5,7 +5,7 @@ import RefreshIcon from "@mui/icons-material/Refresh";
 import { useSessionStore } from "../../state/sessionStore";
 import type { CallstackFrame } from "../../lib/debuggerSchema";
 
-const CallstackView = ({ title, target }: { title: string; target: "sh4" | "arm7" }) => {
+const CallstackView = ({ title, target, showTitle = false }: { title: string; target: "sh4" | "arm7"; showTitle?: boolean }) => {
   const client = useSessionStore((s) => s.client);
   const connectionState = useSessionStore((s) => s.connectionState);
   const [frames, setFrames] = useState<CallstackFrame[] | null>(null);
@@ -29,7 +29,7 @@ const CallstackView = ({ title, target }: { title: string; target: "sh4" | "arm7
 
   return (
     <Panel
-      title={title}
+      title={showTitle ? title : undefined}
       action={
         <Tooltip title="Refresh">
           <span>
@@ -84,7 +84,7 @@ const CallstackView = ({ title, target }: { title: string; target: "sh4" | "arm7
   );
 };
 
-export const Sh4CallstackPanel = () => <CallstackView title="SH4: Callstack" target="sh4" />;
-export const Arm7CallstackPanel = () => <CallstackView title="ARM7: Callstack" target="arm7" />;
+export const Sh4CallstackPanel = ({ showTitle = false }: { showTitle?: boolean }) => <CallstackView title="SH4: Callstack" target="sh4" showTitle={showTitle} />;
+export const Arm7CallstackPanel = ({ showTitle = false }: { showTitle?: boolean }) => <CallstackView title="ARM7: Callstack" target="arm7" showTitle={showTitle} />;
 
 
