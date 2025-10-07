@@ -1,10 +1,221 @@
 // SingleStepTests integration test
-use sh4_core::{Sh4Ctx, sh4_ipr_dispatcher};
+use sh4_core::{Sh4Ctx, sh4_ipr_dispatcher, MemHandlers};
 use sh4_core::sh4dec::{format_disas, SH4DecoderState};
 use sh4_core::backend_ipr::sh4_store_fpscr;
 
 mod test_reader;
 use test_reader::{load_test_file, Sh4State};
+
+// Memory operation expectation
+#[derive(Debug, Clone)]
+enum MemOp {
+    Read { size: u8, addr: u32, value: u64 },
+    Write { size: u8, addr: u32, value: u64 },
+}
+
+// Memory context for test execution
+struct TestMemory {
+    expectations: Vec<MemOp>,
+    expectation_index: std::cell::Cell<usize>,
+    default_opcode: u16,
+    error: std::cell::RefCell<Option<String>>,
+}
+
+impl TestMemory {
+    fn new(cycles: &[test_reader::Cycle], default_opcode: u16) -> Self {
+        let mut expectations = Vec::new();
+
+        for cycle in cycles {
+            // Add fetch as a 16-bit read
+            if let (Some(fetch_addr), Some(fetch_val)) = (cycle.fetch_addr, cycle.fetch_val) {
+                expectations.push(MemOp::Read {
+                    size: 16,
+                    addr: fetch_addr,
+                    value: fetch_val as u64,
+                });
+            }
+
+            // Add data read
+            if let (Some(read_addr), Some(read_val)) = (cycle.read_addr, cycle.read_val) {
+                expectations.push(MemOp::Read {
+                    size: 64, // Store full value, we'll mask based on actual read size
+                    addr: read_addr,
+                    value: read_val,
+                });
+            }
+
+            // Add write
+            if let (Some(write_addr), Some(write_val)) = (cycle.write_addr, cycle.write_val) {
+                expectations.push(MemOp::Write {
+                    size: 64, // Store full value, we'll mask based on actual write size
+                    addr: write_addr,
+                    value: write_val,
+                });
+            }
+        }
+
+        Self {
+            expectations,
+            expectation_index: std::cell::Cell::new(0),
+            default_opcode,
+            error: std::cell::RefCell::new(None),
+        }
+    }
+
+    fn set_error(&self, msg: String) {
+        *self.error.borrow_mut() = Some(msg);
+    }
+
+    fn handle_read(&self, size: u8, addr: u32) -> u64 {
+        if self.error.borrow().is_some() {
+            return 0; // Already have an error, just return default
+        }
+        let idx = self.expectation_index.get();
+
+        // Special case for 16-bit reads: allow default opcode if no match
+        if size == 16 {
+            if idx < self.expectations.len() {
+                if let MemOp::Read { size: exp_size, addr: exp_addr, value } = self.expectations[idx] {
+                    if exp_size == 16 && exp_addr == addr {
+                        self.expectation_index.set(idx + 1);
+                        return value;
+                    }
+                }
+            }
+            // Return default opcode for unmatched 16-bit reads (instruction fetches)
+            return self.default_opcode as u64;
+        }
+
+        // For non-16-bit reads, must match expectations
+        if idx >= self.expectations.len() {
+            self.set_error(format!("Unexpected read{} at 0x{:08X}: no more expectations", size, addr));
+            return 0;
+        }
+
+        match self.expectations[idx] {
+            MemOp::Read { size: _exp_size, addr: exp_addr, value } => {
+                if exp_addr != addr {
+                    self.set_error(format!("Read{} address mismatch: expected 0x{:08X}, got 0x{:08X}",
+                        size, exp_addr, addr));
+                    return 0;
+                }
+                self.expectation_index.set(idx + 1);
+                value
+            }
+            MemOp::Write { addr: exp_addr, .. } => {
+                self.set_error(format!("Expected write at 0x{:08X}, but got read{} at 0x{:08X}",
+                    exp_addr, size, addr));
+                0
+            }
+        }
+    }
+
+    fn handle_write(&self, size: u8, addr: u32, value: u64) {
+        if self.error.borrow().is_some() {
+            return; // Already have an error
+        }
+
+        let idx = self.expectation_index.get();
+
+        if idx >= self.expectations.len() {
+            self.set_error(format!("Unexpected write{} at 0x{:08X} = 0x{:X}: no more expectations",
+                size, addr, value));
+            return;
+        }
+
+        match self.expectations[idx] {
+            MemOp::Write { size: _exp_size, addr: exp_addr, value: exp_value } => {
+                if exp_addr != addr {
+                    self.set_error(format!("Write{} address mismatch: expected 0x{:08X}, got 0x{:08X}",
+                        size, exp_addr, addr));
+                    return;
+                }
+
+                // Mask both values to the actual write size
+                let mask = match size {
+                    8 => 0xFF,
+                    16 => 0xFFFF,
+                    32 => 0xFFFFFFFF,
+                    64 => 0xFFFFFFFFFFFFFFFF,
+                    _ => {
+                        self.set_error(format!("Invalid write size: {}", size));
+                        return;
+                    }
+                };
+                let expected = exp_value & mask;
+                let actual = value & mask;
+
+                if actual != expected {
+                    self.set_error(format!("Write{} value mismatch at 0x{:08X}: expected 0x{:X}, got 0x{:X}",
+                        size, addr, expected, actual));
+                    return;
+                }
+
+                self.expectation_index.set(idx + 1);
+            }
+            MemOp::Read { addr: exp_addr, .. } => {
+                self.set_error(format!("Expected read at 0x{:08X}, but got write{} at 0x{:08X}",
+                    exp_addr, size, addr));
+            }
+        }
+    }
+}
+
+extern "C" fn test_mem_read8(ctx: *mut u8, addr: u32) -> u8 {
+    unsafe {
+        let mem = &*(ctx as *mut TestMemory);
+        (mem.handle_read(8, addr) & 0xFF) as u8
+    }
+}
+
+extern "C" fn test_mem_read16(ctx: *mut u8, addr: u32) -> u16 {
+    unsafe {
+        let mem = &*(ctx as *mut TestMemory);
+        (mem.handle_read(16, addr) & 0xFFFF) as u16
+    }
+}
+
+extern "C" fn test_mem_read32(ctx: *mut u8, addr: u32) -> u32 {
+    unsafe {
+        let mem = &*(ctx as *mut TestMemory);
+        (mem.handle_read(32, addr) & 0xFFFFFFFF) as u32
+    }
+}
+
+extern "C" fn test_mem_read64(ctx: *mut u8, addr: u32) -> u64 {
+    unsafe {
+        let mem = &*(ctx as *mut TestMemory);
+        mem.handle_read(64, addr)
+    }
+}
+
+extern "C" fn test_mem_write8(ctx: *mut u8, addr: u32, value: u8) {
+    unsafe {
+        let mem = &*(ctx as *mut TestMemory);
+        mem.handle_write(8, addr, value as u64);
+    }
+}
+
+extern "C" fn test_mem_write16(ctx: *mut u8, addr: u32, value: u16) {
+    unsafe {
+        let mem = &*(ctx as *mut TestMemory);
+        mem.handle_write(16, addr, value as u64);
+    }
+}
+
+extern "C" fn test_mem_write32(ctx: *mut u8, addr: u32, value: u32) {
+    unsafe {
+        let mem = &*(ctx as *mut TestMemory);
+        mem.handle_write(32, addr, value as u64);
+    }
+}
+
+extern "C" fn test_mem_write64(ctx: *mut u8, addr: u32, value: u64) {
+    unsafe {
+        let mem = &*(ctx as *mut TestMemory);
+        mem.handle_write(64, addr, value);
+    }
+}
 
 // Macro to generate test functions for each test case
 // Takes the test file name (without .json.bin extension) as a string literal
@@ -277,57 +488,72 @@ fn run_test_file(test_path: &str) {
     for (test_idx, test) in tests.iter().enumerate() {
         // Create CPU context and memory for each test
         let mut ctx = Sh4Ctx::default();
-        let mut memory = vec![0u8; 64 * 1024 * 1024];
 
-        // Setup memory map
+        // Use opcodes[4] as the default/fallback opcode
+        let default_opcode = test.opcodes[4] as u16;
+        let mut test_memory = TestMemory::new(&test.cycles, default_opcode);
+
+        // Setup memory handlers
+        let handlers = MemHandlers {
+            read8: test_mem_read8,
+            read16: test_mem_read16,
+            read32: test_mem_read32,
+            read64: test_mem_read64,
+            write8: test_mem_write8,
+            write16: test_mem_write16,
+            write32: test_mem_write32,
+            write64: test_mem_write64,
+        };
+
         for i in 0..256 {
-            ctx.memmap[i] = memory.as_mut_ptr();
-            ctx.memmask[i] = (memory.len() - 1) as u32;
+            ctx.memhandlers[i] = handlers;
+            ctx.memcontexts[i] = &mut test_memory as *mut TestMemory as *mut u8;
+            ctx.memmask[i] = 0xFFFFFFFF;
+            ctx.memmap[i] = 0 as *mut u8; // Handler index 0
         }
 
         // Load initial state
         load_state_into_ctx(&mut ctx, &test.initial);
 
-        // Write instruction opcodes to memory
-        // Per README: opcodes[0..3] are at PC+0,PC+2,PC+4,PC+6
-        // opcodes[4] is the fallback for any fetch outside that range
-        let pc = test.initial.pc;
-        for (i, &opcode) in test.opcodes[0..4].iter().enumerate() {
-            let addr = pc.wrapping_add((i * 2) as u32);
-            let offset = (addr as usize) & (memory.len() - 1);
-            memory[offset] = (opcode & 0xFF) as u8;
-            memory[offset + 1] = ((opcode >> 8) & 0xFF) as u8;
-        }
-
-        // Write the fallback opcode to PR and any other addresses that might be jumped to
-        // This handles RTS, branches, etc.
-        let fallback_opcode = test.opcodes[4];
-        if test.initial.pr != 0 {
-            let pr_offset = (test.initial.pr as usize) & (memory.len() - 1);
-            memory[pr_offset] = (fallback_opcode & 0xFF) as u8;
-            memory[pr_offset + 1] = ((fallback_opcode >> 8) & 0xFF) as u8;
-        }
-
-        // Pre-populate memory with read data from cycles
-        for cycle in &test.cycles {
-            if let (Some(read_addr), Some(read_val)) = (cycle.read_addr, cycle.read_val) {
-                let offset = (read_addr as usize) & (memory.len() - 1);
-                // Write the value in little-endian format (up to 8 bytes)
-                for i in 0..8 {
-                    memory[offset + i] = ((read_val >> (i * 8)) & 0xFF) as u8;
-                }
-            }
-        }
-
         // Execute for the number of cycles in the test
         ctx.remaining_cycles = test.cycles.len() as i32;
-        unsafe {
-            sh4_ipr_dispatcher(&mut ctx);
-        }
 
-        // Compare final state
-        match compare_states(&ctx, &test.final_state) {
-            Ok(_) => passed += 1,
+        // Catch panics from memory validation and execution
+        let exec_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            unsafe {
+                sh4_ipr_dispatcher(&mut ctx);
+            }
+        }));
+
+        let result = match exec_result {
+            Ok(_) => {
+                // Check if there was a memory error
+                if let Some(err) = test_memory.error.borrow().clone() {
+                    Err(err)
+                } else {
+                    // Execution succeeded, now compare states
+                    match compare_states(&ctx, &test.final_state) {
+                        Ok(_) => Ok(()),
+                        Err(e) => Err(e),
+                    }
+                }
+            }
+            Err(e) => {
+                // Extract panic message
+                if let Some(s) = e.downcast_ref::<&str>() {
+                    Err(s.to_string())
+                } else if let Some(s) = e.downcast_ref::<String>() {
+                    Err(s.clone())
+                } else {
+                    Err("Unknown panic".to_string())
+                }
+            }
+        };
+
+        match result {
+            Ok(_) => {
+                passed += 1;
+            }
             Err(e) => {
                 println!("Test {} failed: {}", test_idx, e);
                 println!("  Opcodes: {:04X?}", test.opcodes);
