@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Panel } from "../layout/Panel";
 import { Box, Button, CircularProgress, IconButton, InputAdornment, Stack, TextField, Tooltip, Typography } from "@mui/material";
 import RefreshIcon from "@mui/icons-material/Refresh";
@@ -32,6 +33,12 @@ const MEMORY_SCROLL_BYTES = 96;
 const BYTES_PER_ROW = 16;
 const VISIBLE_ROWS = 60;
 
+const parseAddressInput = (input: string) => {
+  const normalized = input.trim();
+  const parsed = Number.parseInt(normalized.replace(/^0x/i, ""), 16);
+  return Number.isNaN(parsed) ? undefined : parsed;
+};
+
 const MemoryView = ({
   target,
   defaultAddress,
@@ -46,12 +53,26 @@ const MemoryView = ({
   encoding?: MemorySlice["encoding"];
   wordSize?: MemorySlice["wordSize"];
 }) => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const client = useSessionStore((state) => state.client);
   const initialized = useDebuggerDataStore((state) => state.initialized);
   const [slice, setSlice] = useState<MemorySlice | null>(null);
   const [loading, setLoading] = useState(false);
-  const [address, setAddress] = useState(defaultAddress);
-  const [addressInput, setAddressInput] = useState(formatHexAddress(defaultAddress));
+
+  // Initialize address from URL or default
+  const initialAddress = useMemo(() => {
+    const addressParam = searchParams.get("address");
+    if (addressParam) {
+      const parsed = parseAddressInput(addressParam);
+      if (parsed !== undefined) {
+        return parsed;
+      }
+    }
+    return defaultAddress;
+  }, [searchParams, defaultAddress]);
+
+  const [address, setAddress] = useState(initialAddress);
+  const [addressInput, setAddressInput] = useState(formatHexAddress(initialAddress));
   const requestIdRef = useRef(0);
   const wheelRemainder = useRef(0);
   const pendingScrollDelta = useRef(0);
@@ -141,9 +162,13 @@ const MemoryView = ({
 
   const adjustAddress = useCallback(
     (delta: number) => {
-      setAddress((prev) => clampAddress(prev + delta, maxAddress, BYTES_PER_ROW));
+      setAddress((prev) => {
+        const newAddr = clampAddress(prev + delta, maxAddress, BYTES_PER_ROW);
+        setSearchParams({ address: formatHexAddress(newAddr) });
+        return newAddr;
+      });
     },
-    [maxAddress],
+    [maxAddress, setSearchParams],
   );
 
   const handleWheel = useCallback(
@@ -186,9 +211,8 @@ const MemoryView = ({
   }, [handleWheel]);
 
   const handleAddressSubmit = useCallback(() => {
-    const normalized = addressInput.trim();
-    const parsed = Number.parseInt(normalized.replace(/^0x/i, ""), 16);
-    if (Number.isNaN(parsed)) {
+    const parsed = parseAddressInput(addressInput);
+    if (parsed === undefined) {
       return;
     }
     // Align down to row boundary
@@ -200,7 +224,10 @@ const MemoryView = ({
     // Start 10 rows before for context
     const contextOffset = BYTES_PER_ROW * 10;
     const targetAddress = Math.max(0, alignedAddress - contextOffset);
-    setAddress(clampAddress(targetAddress, maxAddress, BYTES_PER_ROW));
+    const clampedTarget = clampAddress(targetAddress, maxAddress, BYTES_PER_ROW);
+
+    setAddress(clampedTarget);
+    setSearchParams({ address: formatHexAddress(alignedAddress) });
 
     // Set target address (aligned) and timestamp for animation trigger
     targetAddressRef.current = alignedAddress;
@@ -216,7 +243,7 @@ const MemoryView = ({
         element.classList.add("target-address");
       }
     }, 0);
-  }, [addressInput, maxAddress]);
+  }, [addressInput, maxAddress, setSearchParams]);
 
   const handleRefresh = useCallback(() => {
     void fetchSlice(address);

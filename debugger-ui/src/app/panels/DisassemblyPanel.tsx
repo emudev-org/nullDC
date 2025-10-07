@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Box, Button, CircularProgress, IconButton, InputAdornment, Paper, Stack, TextField, Tooltip, Typography } from "@mui/material";
 import CircleIcon from "@mui/icons-material/Circle";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
@@ -72,6 +73,7 @@ const DisassemblyView = ({
   target: string;
   defaultAddress: number;
 }) => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const client = useSessionStore((state) => state.client);
   const initialized = useDebuggerDataStore((state) => state.initialized);
   const breakpoints = useDebuggerDataStore((state) => state.breakpoints);
@@ -81,8 +83,22 @@ const DisassemblyView = ({
   const toggleBreakpoint = useDebuggerDataStore((state) => state.toggleBreakpoint);
   const [lines, setLines] = useState<DisassemblyLine[]>([]);
   const [loading, setLoading] = useState(false);
-  const [address, setAddress] = useState(defaultAddress);
-  const [addressInput, setAddressInput] = useState(formatAddressInput(target, defaultAddress));
+
+  // Initialize address from URL or default
+  const initialAddress = useMemo(() => {
+    const paramName = target === "dsp" ? "step" : "address";
+    const addressParam = searchParams.get(paramName);
+    if (addressParam) {
+      const parsed = parseAddressInput(target, addressParam);
+      if (parsed !== undefined) {
+        return parsed;
+      }
+    }
+    return defaultAddress;
+  }, [searchParams, target, defaultAddress]);
+
+  const [address, setAddress] = useState(initialAddress);
+  const [addressInput, setAddressInput] = useState(formatAddressInput(target, initialAddress));
   const [error, setError] = useState<string | undefined>();
   const requestIdRef = useRef(0);
   const wheelRemainder = useRef(0);
@@ -238,9 +254,14 @@ const DisassemblyView = ({
 
   const adjustAddress = useCallback(
     (steps: number) => {
-      setAddress((prev) => normalizeAddress(prev + steps * instructionSize, maxAddress, instructionSize));
+      setAddress((prev) => {
+        const newAddr = normalizeAddress(prev + steps * instructionSize, maxAddress, instructionSize);
+        const paramName = target === "dsp" ? "step" : "address";
+        setSearchParams({ [paramName]: formatAddressInput(target, newAddr) });
+        return newAddr;
+      });
     },
-    [instructionSize, maxAddress],
+    [instructionSize, maxAddress, setSearchParams, target],
   );
 
   const handleWheel = useCallback(
@@ -290,7 +311,11 @@ const DisassemblyView = ({
     // Start 10 instructions before for context
     const contextOffset = instructionSize * 10;
     const targetAddress = Math.max(0, parsed - contextOffset);
-    setAddress(normalizeAddress(targetAddress, maxAddress, instructionSize));
+    const normalizedTarget = normalizeAddress(targetAddress, maxAddress, instructionSize);
+
+    setAddress(normalizedTarget);
+    const paramName = target === "dsp" ? "step" : "address";
+    setSearchParams({ [paramName]: formatAddressInput(target, parsed) });
 
     // Set target address and timestamp for animation trigger
     targetAddressRef.current = parsed;
@@ -306,7 +331,7 @@ const DisassemblyView = ({
         element.classList.add("target-address");
       }
     }, 0);
-  }, [addressInput, instructionSize, maxAddress, target]);
+  }, [addressInput, instructionSize, maxAddress, target, setSearchParams]);
 
   const handleRefresh = useCallback(() => {
     void fetchDisassembly(address);
