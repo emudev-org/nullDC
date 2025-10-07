@@ -222,17 +222,24 @@ jobs:
           pattern: build-*
           path: artifacts
 
-      - name: Organize artifacts and create build page
+      - name: Install 7-Zip
+        run: sudo apt-get update && sudo apt-get install -y p7zip-full
+
+      - name: Compress and organize artifacts
         run: |
           # Create builds directory structure
           mkdir -p dist/builds/${{ env.GIT_SHA_SHORT }}
 
-          # Copy and organize artifacts
+          # Compress and organize artifacts
           for dir in artifacts/build-*; do
             if [ -d "$dir" ]; then
               target=$(basename "$dir" | sed 's/build-//')
-              mkdir -p "dist/builds/${{ env.GIT_SHA_SHORT }}/$target"
-              cp -r "$dir"/* "dist/builds/${{ env.GIT_SHA_SHORT }}/$target/"
+              archive_name="nullDC-${{ env.GIT_DESCRIBE }}-${target}.7z"
+
+              # Create 7z archive with maximum LZMA2 compression
+              cd "$dir"
+              7z a -t7z -m0=lzma2 -mx=9 -mfb=64 -md=32m -ms=on "../../dist/builds/${{ env.GIT_SHA_SHORT }}/${archive_name}" .
+              cd ../..
             fi
           done
 
@@ -302,7 +309,12 @@ jobs:
           for dir in artifacts/build-*; do
             if [ -d "$dir" ]; then
               target=$(basename "$dir" | sed 's/build-//')
-              echo "<li><a href=\"/builds/${{ env.GIT_SHA_SHORT }}/$target/\">$target</a></li>" >> dist/builds.html
+              archive_name="nullDC-${{ env.GIT_DESCRIBE }}-${target}.7z"
+
+              # Get file size
+              size=$(du -h "dist/builds/${{ env.GIT_SHA_SHORT }}/${archive_name}" | cut -f1)
+
+              echo "<li><a href=\"/builds/${{ env.GIT_SHA_SHORT }}/${archive_name}\">${target}</a> <span style=\"color: #888\">(${size})</span></li>" >> dist/builds.html
             fi
           done
 
