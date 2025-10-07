@@ -418,10 +418,7 @@ const DisassemblyView = ({
       return;
     }
     try {
-      await (client as any).rpc.call("control.step", {
-        target,
-        granularity: "instruction",
-      });
+      await client.step(target, "instruction");
       // State will be updated via notification from server
     } catch (error) {
       console.error("Failed to step", error);
@@ -433,11 +430,7 @@ const DisassemblyView = ({
       return;
     }
     try {
-      await (client as any).rpc.call("control.step", {
-        target,
-        granularity: "instruction",
-        modifiers: ["into"],
-      });
+      await client.step(target, "instruction", ["into"]);
       // State will be updated via notification from server
     } catch (error) {
       console.error("Failed to step in", error);
@@ -449,11 +442,7 @@ const DisassemblyView = ({
       return;
     }
     try {
-      await (client as any).rpc.call("control.step", {
-        target,
-        granularity: "instruction",
-        modifiers: ["out"],
-      });
+      await client.step(target, "instruction", ["out"]);
       // State will be updated via notification from server
     } catch (error) {
       console.error("Failed to step out", error);

@@ -316,14 +316,6 @@ const buildDeviceTree = (): DeviceNodeDescriptor[] => [
   },
 ];
 
-const baseRegisters: RegisterValue[] = [
-  { name: "PC", value: "0x8C0000A0", width: 32 },
-  { name: "R0", value: "0x00000000", width: 32 },
-  { name: "R1", value: "0x00000001", width: 32 },
-  { name: "R2", value: "0x8C001000", width: 32 },
-  { name: "PR", value: "0x8C0000A2", width: 32 },
-];
-
 const sh4Instructions = [
   { mnemonic: "mov.l", operands: (r1: number, r2: number, _r3: number, _val: number, _offset: number) => `@r${r1}+, r${r2}`, bytes: 2 },
   { mnemonic: "mov", operands: (r1: number, r2: number, _r3: number, _val: number, _offset: number) => `r${r1}, r${r2}`, bytes: 2 },
@@ -698,18 +690,6 @@ const dispatchMethod = async (
     default:
       throw new Error(`Unhandled JSON-RPC method: ${String(method)}`);
   }
-};
-
-const mutateRegisters = (registers: RegisterValue[]): RegisterValue[] =>
-  registers.map((reg) => ({
-    ...reg,
-    value: reg.name === "PC" ? advancePc(reg.value) : reg.value,
-  }));
-
-const advancePc = (value: string): string => {
-  const current = Number.parseInt(value, 16);
-  const next = current + 2;
-  return `0x${next.toString(16).toUpperCase().padStart(8, "0")}`;
 };
 
 const sha256Byte = (input: string): number => {

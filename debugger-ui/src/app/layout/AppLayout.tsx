@@ -271,10 +271,7 @@ export const AppLayout = () => {
       return;
     }
     try {
-      await (client as any).rpc.call("control.runUntil", {
-        target: "sh4",
-        type: "interrupt",
-      });
+      await client.runUntil("sh4", "interrupt");
       // State will be updated via notification from server
     } catch (error) {
       console.error("Failed to run", error);
@@ -286,9 +283,7 @@ export const AppLayout = () => {
       return;
     }
     try {
-      await (client as any).rpc.call("control.pause", {
-        target: "sh4",
-      });
+      await client.pause("sh4");
       // State will be updated via notification from server
     } catch (error) {
       console.error("Failed to pause", error);
@@ -301,10 +296,7 @@ export const AppLayout = () => {
     }
     try {
       // Run until breakpoint - using sh4 as default target
-      await (client as any).rpc.call("control.runUntil", {
-        target: "sh4",
-        type: "interrupt",
-      });
+      await client.runUntil("sh4", "interrupt");
       // State will be updated via notification from server
     } catch (error) {
       console.error("Failed to run to breakpoint", error);
