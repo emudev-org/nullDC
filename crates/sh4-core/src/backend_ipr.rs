@@ -245,7 +245,7 @@ fn set_host_daz(enable: bool) {
     }
 
     #[cfg(target_arch = "riscv64")]
-    unsafe {
+    {
         // On RISC-V, use FCSR (Floating-Point Control and Status Register)
         // Note: RISC-V doesn't have a hardware flush-to-zero bit in the standard ISA
         // Some implementations may have vendor-specific extensions, but we can't
