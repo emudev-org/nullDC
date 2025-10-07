@@ -33,7 +33,6 @@ const BYTES_PER_ROW = 16;
 const VISIBLE_ROWS = 60;
 
 const MemoryView = ({
-  title,
   target,
   defaultAddress,
   length,
