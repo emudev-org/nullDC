@@ -64,6 +64,7 @@ const registerValues = new Map<string, string>([
   // AICA
   ["dc.aica.aica_ctrl", "0x00000002"],
   ["dc.aica.aica_status", "0x00000001"],
+  ["dc.aica.arm7.pc", "0x00200010"],
   ["dc.aica.channels.ch0_vol", "0x7F"],
   ["dc.aica.channels.ch1_vol", "0x6A"],
   ["dc.aica.dsp.step", "0x020"],
@@ -220,6 +221,15 @@ const buildDeviceTree = (): DeviceNodeDescriptor[] => [
           "dc.aica.timer",
         ],
         children: [
+          {
+            path: "dc.aica.arm7",
+            label: "ARM7",
+            kind: "processor",
+            description: "ARM7TDMI sound CPU",
+            registers: [
+              { name: "PC", value: getRegisterValue("dc.aica.arm7", "PC"), width: 32 },
+            ],
+          },
           {
             path: "dc.aica.channels",
             label: "Channels",
@@ -770,6 +780,20 @@ const broadcastTick = () => {
   if (prValue && prValue.startsWith("0x")) {
     const pr = Number.parseInt(prValue, 16);
     setRegisterValue("dc.sh4.cpu", "PR", `0x${(pr + 2).toString(16).toUpperCase().padStart(8, "0")}`);
+  }
+
+  // Mutate ARM7 PC value
+  const arm7PcValue = registerValues.get("dc.aica.arm7.pc");
+  if (arm7PcValue && arm7PcValue.startsWith("0x")) {
+    const arm7Pc = Number.parseInt(arm7PcValue, 16);
+    setRegisterValue("dc.aica.arm7", "PC", `0x${(arm7Pc + 4).toString(16).toUpperCase().padStart(8, "0")}`);
+  }
+
+  // Mutate DSP step value (wrap around at 128)
+  const dspStepValue = registerValues.get("dc.aica.dsp.step");
+  if (dspStepValue && dspStepValue.startsWith("0x")) {
+    const step = Number.parseInt(dspStepValue, 16);
+    setRegisterValue("dc.aica.dsp", "STEP", `0x${((step + 1) % 128).toString(16).toUpperCase().padStart(3, "0")}`);
   }
 
   // Mutate some AICA values

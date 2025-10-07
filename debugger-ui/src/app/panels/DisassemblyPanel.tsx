@@ -70,6 +70,7 @@ const DisassemblyView = ({
   const client = useSessionStore((state) => state.client);
   const connectionState = useSessionStore((state) => state.connectionState);
   const breakpoints = useDebuggerDataStore((state) => state.breakpoints);
+  const registersByPath = useDebuggerDataStore((state) => state.registersByPath);
   const addBreakpoint = useDebuggerDataStore((state) => state.addBreakpoint);
   const removeBreakpoint = useDebuggerDataStore((state) => state.removeBreakpoint);
   const toggleBreakpoint = useDebuggerDataStore((state) => state.toggleBreakpoint);
@@ -82,9 +83,47 @@ const DisassemblyView = ({
   const wheelRemainder = useRef(0);
   const pendingScrollSteps = useRef(0);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const currentPcRef = useRef<number | undefined>(undefined);
+  const lineRefsMap = useRef<Map<number, HTMLDivElement>>(new Map());
 
   const instructionSize = useMemo(() => instructionSizeForTarget(target), [target]);
   const maxAddress = useMemo(() => maxAddressForTarget(target), [target]);
+
+  // Get current PC/step value for this target and update DOM directly
+  useEffect(() => {
+    const cpuPath = target === "dsp" ? "dc.aica.dsp" : target === "sh4" ? "dc.sh4.cpu" : "dc.aica.arm7";
+    const counterName = target === "dsp" ? "STEP" : "PC";
+    const registers = registersByPath[cpuPath];
+    const pcReg = registers?.find((r) => r.name === counterName);
+
+    let newPc: number | undefined;
+    if (pcReg?.value) {
+      const parsed = Number.parseInt(pcReg.value.replace(/^0x/i, ""), 16);
+      newPc = Number.isNaN(parsed) ? undefined : parsed;
+    }
+
+    // Update DOM directly without triggering re-render
+    const oldPc = currentPcRef.current;
+    if (oldPc !== newPc) {
+      // Remove current styling from old PC
+      if (oldPc !== undefined) {
+        const oldElement = lineRefsMap.current.get(oldPc);
+        if (oldElement) {
+          oldElement.classList.remove("current-instruction");
+        }
+      }
+
+      // Add current styling to new PC
+      if (newPc !== undefined) {
+        const newElement = lineRefsMap.current.get(newPc);
+        if (newElement) {
+          newElement.classList.add("current-instruction");
+        }
+      }
+
+      currentPcRef.current = newPc;
+    }
+  }, [registersByPath, target]);
 
   // Map addresses to breakpoints
   const breakpointsByAddress = useMemo(() => {
@@ -312,7 +351,17 @@ const DisassemblyView = ({
               No disassembly returned.
             </Typography>
           ) : (
-            <Stack spacing={0.25}>
+            <Stack
+              spacing={0.25}
+              sx={{
+                "& .current-instruction": {
+                  color: "primary.main",
+                  fontWeight: 600,
+                  border: "2px solid",
+                  borderColor: "success.main",
+                },
+              }}
+            >
               {lines.map((line) => {
                 const commentText = line.comment ? `; ${line.comment}` : "";
                 const mnemonicSegment = line.operands ? `${line.mnemonic} ${line.operands}` : line.mnemonic;
@@ -323,15 +372,26 @@ const DisassemblyView = ({
                 return (
                   <Box
                     key={`${line.address}-${hasBreakpoint}-${breakpointEnabled}`}
+                    ref={(el) => {
+                      if (el) {
+                        lineRefsMap.current.set(line.address, el);
+                        // Apply current styling if this line is the current PC
+                        if (currentPcRef.current === line.address) {
+                          el.classList.add("current-instruction");
+                        }
+                      } else {
+                        lineRefsMap.current.delete(line.address);
+                      }
+                    }}
                     sx={{
                       display: "grid",
                       gridTemplateColumns: target === "dsp" ? "24px 80px 120px 1fr" : "24px 140px 140px 1fr",
                       gap: 1,
                       alignItems: "center",
-                      color: line.isCurrent ? "primary.main" : "inherit",
-                      fontWeight: line.isCurrent ? 600 : 400,
                       px: 0.5,
                       py: 0.25,
+                      border: "2px solid transparent",
+                      borderRadius: 1,
                       "&:hover .breakpoint-gutter": {
                         opacity: 1,
                       },
