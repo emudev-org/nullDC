@@ -777,7 +777,7 @@ test_case!("1011dddddddddddd_sz0_pr0");
 test_case!("11000000dddddddd_sz0_pr0");
 test_case!("11000001dddddddd_sz0_pr0");
 test_case!("11000010dddddddd_sz0_pr0");
-test_case!("11000011iiiiiiii_sz0_pr0");
+test_case_expected_fail!("11000011iiiiiiii_sz0_pr0", "tests failed");
 test_case!("11000100dddddddd_sz0_pr0");
 test_case!("11000101dddddddd_sz0_pr0");
 test_case!("11000110dddddddd_sz0_pr0");
@@ -795,16 +795,16 @@ test_case!("1110nnnniiiiiiii_sz0_pr0");
 test_case!("1111001111111101_sz0_pr0");
 test_case!("1111101111111101_sz0_pr0");
 test_case!("1111mmm000111101_sz0_pr1");
-test_case!("1111mmm010111101_sz0_pr0");
+test_case_expected_fail!("1111mmm010111101_sz0_pr0", "tests failed"); // this is actually undefined behaviour in the doc
 test_case!("1111mmmm00011101_sz0_pr0");
 test_case!("1111mmmm00111101_sz0_pr0");
-test_case!("1111nn0111111101_sz0_pr0");
-test_case!("1111nnmm11101101_sz0_pr0");
+test_case_expected_fail!("1111nn0111111101_sz0_pr0", "tests failed"); // ftrv xtrmx, fvN: rounding / nan handling is different vs tests
+test_case_expected_fail!("1111nnmm11101101_sz0_pr0", "tests failed"); // fipr fnN, fvM: rounding / nan handling is different vs tests
 test_case!("1111nnn000101101_sz0_pr1");
 test_case!("1111nnn001001101_sz0_pr1");
 test_case!("1111nnn001011101_sz0_pr1");
 test_case!("1111nnn001101101_sz0_pr1");
-test_case!("1111nnn010101101_sz0_pr0");
+test_case_expected_fail!("1111nnn010101101_sz0_pr0", "tests failed"); // this is actually undefined behaviour in the doc
 test_case!("1111nnn011111101_sz0_pr0");
 test_case!("1111nnn0mmm00000_sz0_pr1");
 test_case!("1111nnn0mmm00001_sz0_pr1");

@@ -1723,7 +1723,7 @@ sh4op! {
             let n_d = (GetN(opcode) >> 1) & 0x7;
             backend::sh4_fcnvds(addr_of_mut!((*dc).fpul), addr_of!((*dc).fr.u32s[n_d << 1]));
         } else {
-            panic!("fcnvds: single precision mode not supported");
+            panic!("fcnvds: single precision is undefined behaviour");
         }
     }
 
@@ -1733,7 +1733,7 @@ sh4op! {
             let n_d = (GetN(opcode) >> 1) & 0x7;
             backend::sh4_fcnvsd(addr_of_mut!((*dc).fr.u32s[n_d << 1]), addr_of!((*dc).fpul));
         } else {
-            panic!("fcnvsd: single precision mode not supported");
+            panic!("fcnvsd: single precision is undefined behaviour");
         }
     }
 
