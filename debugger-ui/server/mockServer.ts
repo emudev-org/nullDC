@@ -142,7 +142,7 @@ const buildDeviceTree = (): DeviceNodeDescriptor[] => [
   {
     path: "dc",
     label: "Dreamcast",
-    kind: "bus",
+    kind: "our beloved console",
     description: "Sega Dreamcast system bus",
     registers: [
       { name: "SYSCLK", value: getRegisterValue("dc", "SYSCLK"), width: 0 },

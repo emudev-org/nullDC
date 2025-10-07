@@ -1,19 +1,9 @@
 ﻿import type { RpcSchema } from "./jsonRpc";
 
-export type DeviceKind =
-  | "bus"
-  | "processor"
-  | "coprocessor"
-  | "peripheral"
-  | "memory"
-  | "channel"
-  | "pipeline"
-  | "debugger";
-
 export interface DeviceNodeDescriptor {
   path: string;
   label: string;
-  kind: DeviceKind;
+  kind: string;
   description?: string;
   registers?: RegisterValue[];
   events?: string[];
