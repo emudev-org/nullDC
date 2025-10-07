@@ -209,6 +209,7 @@ jobs:
         run: |
           echo "GIT_DESCRIBE=$(git describe --tags --always --dirty)" >> "$GITHUB_ENV"
           echo "GIT_SHA_SHORT=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
+          echo "BUILD_DATE=$(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> "$GITHUB_ENV"
 
       - name: Download built site
         uses: actions/download-artifact@v4
@@ -245,25 +246,34 @@ jobs:
 
           # Create HTML page with build links
           mkdir -p dist/builds
-          BUILD_DATE=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
           cat > dist/builds/index.html <<EOF
           <!DOCTYPE html>
           <html>
           <head>
             <meta charset="utf-8">
             <title>nullDC - Build Artifacts</title>
+            <style>
+              body {
+                margin: 0;
+                padding: 0;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                align-items: center;
+                min-height: 100vh;
+              }
+            </style>
           </head>
           <body>
-            <h1>nullDC - Build Artifacts</h1>
-            <a href="/" class="back-link">← Back to Home</a>
-            <h2>Most Recent Build</h1>
-            <div class="build-info">
-              <p><strong>Version:</strong> ${{ env.GIT_DESCRIBE }}</p>
-              <p><strong>Commit:</strong> ${{ github.sha }}</p>
-              <p><strong>Build Date:</strong> \${BUILD_DATE}</p>
-            </div>
-            <h3>Download Artifacts</h2>
-            <ul class="artifact-list">
+            <div>
+              <p align="center"><a href="/">← Back to Home</a></p>
+              <h1 align="center">nullDC - Build Artifacts</h1>
+              <h2 align="center">Most Recent Build</h2>
+              <p align="center"><strong>Version:</strong> ${{ env.GIT_DESCRIBE }}</p>
+              <p align="center"><strong>Commit:</strong> ${{ github.sha }}</p>
+              <p align="center"><strong>Build Date:</strong> ${{ env.BUILD_DATE }}</p>
+              <h3 align="center">Download Artifacts</h3>
+              <ul>
           EOF
 
           # Add links for each artifact
@@ -280,7 +290,8 @@ jobs:
           done
 
           cat >> dist/builds/index.html <<'EOF'
-            </ul>
+              </ul>
+            </div>
           </body>
           </html>
           EOF
