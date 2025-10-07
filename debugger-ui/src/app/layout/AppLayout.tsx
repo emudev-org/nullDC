@@ -96,6 +96,13 @@ const connectionIcons = {
   connected: <CloudDoneIcon fontSize="small" />,
 };
 
+type Notification = {
+  id: string;
+  type: "error" | "warning";
+  message: string;
+  timestamp: number;
+};
+
 export const AppLayout = () => {
   const connect = useSessionStore((state) => state.connect);
   const disconnect = useSessionStore((state) => state.disconnect);
@@ -119,6 +126,7 @@ export const AppLayout = () => {
   const { open: aboutOpen, show: showAbout, hide: hideAbout } = useAboutModal();
   const { mode, toggleMode } = useThemeMode();
   const isDarkMode = mode === "dark";
+  const [notifications, setNotifications] = useState<Notification[]>([]);
 
   const workspaceTabs = useMemo(() => {
     return isNarrow ? [...mainTabs, ...sidePanelTabs] : mainTabs;
@@ -172,6 +180,45 @@ export const AppLayout = () => {
       resetData();
     }
   }, [connectionState, resetData]);
+
+  // Add error messages to notification stack
+  useEffect(() => {
+    if (errorMessage) {
+      const notification: Notification = {
+        id: `error-${Date.now()}`,
+        type: "error",
+        message: errorMessage,
+        timestamp: Date.now(),
+      };
+      setNotifications((prev) => [...prev, notification]);
+
+      // Auto-remove after 5 seconds
+      setTimeout(() => {
+        setNotifications((prev) => prev.filter((n) => n.id !== notification.id));
+      }, 5000);
+
+      // Clear the error from the store
+      clearError();
+    }
+  }, [errorMessage, clearError]);
+
+  // Add breakpoint hits to notification stack
+  useEffect(() => {
+    if (breakpointHit) {
+      const notification: Notification = {
+        id: `breakpoint-${Date.now()}`,
+        type: "warning",
+        message: `Breakpoint hit: ${breakpointHit.breakpoint.location}`,
+        timestamp: Date.now(),
+      };
+      setNotifications((prev) => [...prev, notification]);
+
+      // Auto-remove after 5 seconds
+      setTimeout(() => {
+        setNotifications((prev) => prev.filter((n) => n.id !== notification.id));
+      }, 5000);
+    }
+  }, [breakpointHit]);
 
   useEffect(() => {
     const container = tabsContainerRef.current;
@@ -509,26 +556,30 @@ export const AppLayout = () => {
         <Typography variant="caption">nullDC Debugger UI prototype</Typography>
       </Box>
       <AboutDialog open={aboutOpen} onClose={hideAbout} />
-      <Snackbar
-        open={!!breakpointHit}
-        anchorOrigin={{ vertical: "top", horizontal: "center" }}
-        sx={{ mt: 8 }}
+      <Box
+        sx={{
+          position: "fixed",
+          bottom: 16,
+          right: 16,
+          zIndex: 9999,
+          display: "flex",
+          flexDirection: "column-reverse",
+          gap: 1,
+          pointerEvents: "none",
+        }}
       >
-        <Alert severity="warning" variant="filled" sx={{ width: "100%" }}>
-          Breakpoint hit: {breakpointHit?.breakpoint.location}
-        </Alert>
-      </Snackbar>
-      <Snackbar
-        open={!!errorMessage}
-        autoHideDuration={5000}
-        onClose={clearError}
-        anchorOrigin={{ vertical: "top", horizontal: "center" }}
-        sx={{ mt: 10 }}
-      >
-        <Alert severity="error" variant="filled" onClose={clearError} sx={{ width: "100%" }}>
-          {errorMessage}
-        </Alert>
-      </Snackbar>
+        {notifications.map((notification) => (
+          <Alert
+            key={notification.id}
+            severity={notification.type}
+            variant="filled"
+            onClose={() => setNotifications((prev) => prev.filter((n) => n.id !== notification.id))}
+            sx={{ pointerEvents: "auto" }}
+          >
+            {notification.message}
+          </Alert>
+        ))}
+      </Box>
     </Box>
   );
 };
