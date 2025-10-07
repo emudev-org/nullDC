@@ -173,7 +173,34 @@ fn set_host_rounding_mode(sh4_rm: u32) {
         std::arch::asm!("msr fpcr, {}", in(reg) fpcr, options(nomem, nostack));
     }
 
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    #[cfg(target_arch = "riscv64")]
+    unsafe {
+        // On RISC-V, use FCSR (Floating-Point Control and Status Register)
+        let mut fcsr: u64;
+        std::arch::asm!("frcsr {}", out(reg) fcsr, options(nomem, nostack));
+
+        // Clear rounding mode bits (5-7)
+        fcsr &= !(0x7 << 5);
+
+        // RISC-V FCSR rounding modes (bits 5-7):
+        // 000 = Round to nearest (ties to even)
+        // 001 = Round toward zero
+        // 010 = Round toward -∞
+        // 011 = Round toward +∞
+        // 100 = Round to nearest (ties to max magnitude)
+        //
+        // SH4 FPSCR.RM: 00 = nearest, 01 = zero
+        let riscv_rm = match sh4_rm {
+            0 => 0,  // Round to nearest
+            1 => 1,  // Round to zero
+            _ => 0,  // Reserved modes default to round to nearest
+        };
+        fcsr |= riscv_rm << 5;
+
+        std::arch::asm!("fscsr {}", in(reg) fcsr, options(nomem, nostack));
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "riscv64")))]
     {
         // On other architectures (including WASM), we can't set rounding mode
         // The emulator will use the default host rounding mode (round to nearest)
@@ -217,7 +244,16 @@ fn set_host_daz(enable: bool) {
         std::arch::asm!("msr fpcr, {}", in(reg) fpcr, options(nomem, nostack));
     }
 
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    #[cfg(target_arch = "riscv64")]
+    unsafe {
+        // On RISC-V, use FCSR (Floating-Point Control and Status Register)
+        // Note: RISC-V doesn't have a hardware flush-to-zero bit in the standard ISA
+        // Some implementations may have vendor-specific extensions, but we can't
+        // rely on them. Denormal handling will use the default behavior.
+        let _ = enable;
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "riscv64")))]
     {
         // On other architectures, we can't set DAZ/FZ
         // The emulator will need software emulation for denormals
