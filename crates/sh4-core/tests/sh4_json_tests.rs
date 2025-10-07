@@ -1,7 +1,6 @@
 // SingleStepTests integration test
 use sh4_core::{Sh4Ctx, sh4_ipr_dispatcher, MemHandlers};
 use sh4_core::sh4dec::{format_disas, SH4DecoderState};
-use sh4_core::backend_ipr::sh4_store_fpscr;
 
 mod test_reader;
 use test_reader::{load_test_file, Sh4State};
@@ -251,7 +250,7 @@ fn load_state_into_ctx(ctx: &mut Sh4Ctx, state: &Sh4State) {
 
         // Initialize SR with inverted RB bit to force bank switch detection
         ctx.sr.0 = (state.sr & !1) ^ (1 << 29); // SR without T bit, RB inverted
-        ctx.sr_T = 0;
+        ctx.sr_t = 0;
 
         // Set fpscr with DN bit inverted to force DAZ sync
         // Only invert bit 18 (DN) to avoid triggering bank switches (FR bit)
@@ -259,8 +258,8 @@ fn load_state_into_ctx(ctx: &mut Sh4Ctx, state: &Sh4State) {
 
         // Now use the special store functions to set the correct values
         // This will trigger bank switches if needed
-        use sh4_core::backend_ipr::{sh4_store32, sh4_store_sr_rest, sh4_store_fpscr};
-        ctx.sr_T = state.sr & 1;
+        use sh4_core::backend_ipr::{sh4_store_sr_rest, sh4_store_fpscr};
+        ctx.sr_t = state.sr & 1;
         sh4_store_sr_rest(&mut ctx.sr.0, &state.sr, &mut ctx.r[0], &mut ctx.r_bank[0]);
         sh4_store_fpscr(&mut ctx.fpscr.0, &state.fpscr, &mut ctx.fr.u32s[0], &mut ctx.xf.u32s[0]);
 
@@ -384,8 +383,8 @@ fn compare_states(ctx: &Sh4Ctx, expected: &Sh4State, initial: &Sh4State) -> Resu
         errors.push(format!("GBR mismatch: got 0x{:08X}, expected 0x{:08X}", ctx.gbr, expected.gbr));
     }
 
-    // Compare SR - reconstruct from sr.0 and sr_T
-    let ctx_sr = ctx.sr.0 | ctx.sr_T;
+    // Compare SR - reconstruct from sr.0 and sr_t
+    let ctx_sr = ctx.sr.0 | ctx.sr_t;
     if ctx_sr != expected.sr {
         errors.push(format!("SR mismatch: got 0x{:08X}, expected 0x{:08X}", ctx_sr, expected.sr));
     }
@@ -533,9 +532,7 @@ fn run_test_file(test_path: &str) {
 
         // Catch panics from memory validation and execution
         let exec_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            unsafe {
-                sh4_ipr_dispatcher(&mut ctx);
-            }
+            sh4_ipr_dispatcher(&mut ctx);
         }));
 
         let result = match exec_result {

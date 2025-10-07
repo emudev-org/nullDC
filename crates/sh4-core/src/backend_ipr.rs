@@ -12,7 +12,7 @@ union DoubleReg {
 }
 
 #[inline(always)]
-pub fn GetDoubleReg(ptr: *const u32) -> f64 {
+pub fn get_double_reg(ptr: *const u32) -> f64 {
     unsafe {
         let mut t = DoubleReg { dbl: 0.0 };
         // ptr points to fr[(n<<1)], which is the high 32 bits
@@ -25,7 +25,7 @@ pub fn GetDoubleReg(ptr: *const u32) -> f64 {
 }
 
 #[inline(always)]
-pub fn SetDoubleReg(ptr: *mut u32, val: f64) {
+pub fn set_double_reg(ptr: *mut u32, val: f64) {
     unsafe {
         let t = DoubleReg { dbl: val };
         // ptr points to fr[(n<<1)], which should get the high 32 bits
@@ -65,7 +65,6 @@ pub fn sh4_store_sr_rest(dst: *mut u32, src: *const u32, r: *mut u32, r_bank: *m
         const SR_MASK: u32 = 0x700083F2;
 
         let mut new_val = *src & SR_MASK;
-        let new_t = *src & 1;
         let old_val = *dst;
 
         let old_rb = (old_val >> 29) & 1;
@@ -174,7 +173,34 @@ fn set_host_rounding_mode(sh4_rm: u32) {
         std::arch::asm!("msr fpcr, {}", in(reg) fpcr, options(nomem, nostack));
     }
 
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    #[cfg(target_arch = "riscv64")]
+    unsafe {
+        // On RISC-V, use FCSR (Floating-Point Control and Status Register)
+        let mut fcsr: u64;
+        std::arch::asm!("frcsr {}", out(reg) fcsr, options(nomem, nostack));
+
+        // Clear rounding mode bits (5-7)
+        fcsr &= !(0x7 << 5);
+
+        // RISC-V FCSR rounding modes (bits 5-7):
+        // 000 = Round to nearest (ties to even)
+        // 001 = Round toward zero
+        // 010 = Round toward -∞
+        // 011 = Round toward +∞
+        // 100 = Round to nearest (ties to max magnitude)
+        //
+        // SH4 FPSCR.RM: 00 = nearest, 01 = zero
+        let riscv_rm = match sh4_rm {
+            0 => 0,  // Round to nearest
+            1 => 1,  // Round to zero
+            _ => 0,  // Reserved modes default to round to nearest
+        };
+        fcsr |= riscv_rm << 5;
+
+        std::arch::asm!("fscsr {}", in(reg) fcsr, options(nomem, nostack));
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "riscv64")))]
     {
         // On other architectures (including WASM), we can't set rounding mode
         // The emulator will use the default host rounding mode (round to nearest)
@@ -218,7 +244,16 @@ fn set_host_daz(enable: bool) {
         std::arch::asm!("msr fpcr, {}", in(reg) fpcr, options(nomem, nostack));
     }
 
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    #[cfg(target_arch = "riscv64")]
+    {
+        // On RISC-V, use FCSR (Floating-Point Control and Status Register)
+        // Note: RISC-V doesn't have a hardware flush-to-zero bit in the standard ISA
+        // Some implementations may have vendor-specific extensions, but we can't
+        // rely on them. Denormal handling will use the default behavior.
+        let _ = enable;
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "riscv64")))]
     {
         // On other architectures, we can't set DAZ/FZ
         // The emulator will need software emulation for denormals
@@ -302,17 +337,17 @@ pub fn sh4_extub(dst: *mut u32, src: *const u32) {
 }
 
 #[inline(always)]
-pub fn sh4_dt(sr_T: *mut u32, dst: *mut u32) {
+pub fn sh4_dt(sr_t: *mut u32, dst: *mut u32) {
     unsafe {
         *dst = (*dst).wrapping_sub(1);
-        *sr_T = if *dst == 0 { 1 } else { 0 };
+        *sr_t = if *dst == 0 { 1 } else { 0 };
     }
 }
 
 #[inline(always)]
-pub fn sh4_shlr(sr_T: *mut u32, dst: *mut u32, src_n: *const u32) {
+pub fn sh4_shlr(sr_t: *mut u32, dst: *mut u32, src_n: *const u32) {
     unsafe {
-        *sr_T = *src_n & 1; 
+        *sr_t = *src_n & 1; 
         *dst = *src_n >> 1;
     }
 }
@@ -432,38 +467,30 @@ pub fn sh4_fdiv(dst: *mut f32, src_n: *const f32, src_m: *const f32) {
 // Double precision versions
 #[inline(always)]
 pub fn sh4_fadd_d(dst: *mut u32, src_n: *const u32, src_m: *const u32) {
-    unsafe {
-        let n = GetDoubleReg(src_n);
-        let m = GetDoubleReg(src_m);
-        SetDoubleReg(dst, n + m);
-    }
+    let n = get_double_reg(src_n);
+    let m = get_double_reg(src_m);
+    set_double_reg(dst, n + m);
 }
 
 #[inline(always)]
 pub fn sh4_fsub_d(dst: *mut u32, src_n: *const u32, src_m: *const u32) {
-    unsafe {
-        let n = GetDoubleReg(src_n);
-        let m = GetDoubleReg(src_m);
-        SetDoubleReg(dst, n - m);
-    }
+    let n = get_double_reg(src_n);
+    let m = get_double_reg(src_m);
+    set_double_reg(dst, n - m);
 }
 
 #[inline(always)]
 pub fn sh4_fmul_d(dst: *mut u32, src_n: *const u32, src_m: *const u32) {
-    unsafe {
-        let n = GetDoubleReg(src_n);
-        let m = GetDoubleReg(src_m);
-        SetDoubleReg(dst, n * m);
-    }
+    let n = get_double_reg(src_n);
+    let m = get_double_reg(src_m);
+    set_double_reg(dst, n * m);
 }
 
 #[inline(always)]
 pub fn sh4_fdiv_d(dst: *mut u32, src_n: *const u32, src_m: *const u32) {
-    unsafe {
-        let n = GetDoubleReg(src_n);
-        let m = GetDoubleReg(src_m);
-        SetDoubleReg(dst, n / m);
-    }
+    let n = get_double_reg(src_n);
+    let m = get_double_reg(src_m);
+    set_double_reg(dst, n / m);
 }
 
 #[inline(always)]
@@ -507,41 +534,41 @@ pub fn sh4_ftrc(dst: *mut u32, src: *const f32) {
 }
 
 #[inline(always)]
-pub fn sh4_fcmp_eq(sr_T: *mut u32, src_n: *const f32, src_m: *const f32) {
+pub fn sh4_fcmp_eq(sr_t: *mut u32, src_n: *const f32, src_m: *const f32) {
     unsafe {
-        *sr_T = if *src_m == *src_n { 1 } else { 0 };
+        *sr_t = if *src_m == *src_n { 1 } else { 0 };
     }
 }
 
 #[inline(always)]
-pub fn sh4_fcmp_gt(sr_T: *mut u32, src_n: *const f32, src_m: *const f32) {
+pub fn sh4_fcmp_gt(sr_t: *mut u32, src_n: *const f32, src_m: *const f32) {
     unsafe {
-        *sr_T = if *src_n > *src_m { 1 } else { 0 };
+        *sr_t = if *src_n > *src_m { 1 } else { 0 };
     }
 }
 
 #[inline(always)]
-pub fn sh4_fcmp_eq_d(sr_T: *mut u32, src_n: *const u32, src_m: *const u32) {
+pub fn sh4_fcmp_eq_d(sr_t: *mut u32, src_n: *const u32, src_m: *const u32) {
     unsafe {
-        let n = GetDoubleReg(src_n);
-        let m = GetDoubleReg(src_m);
-        *sr_T = if m == n { 1 } else { 0 };
+        let n = get_double_reg(src_n);
+        let m = get_double_reg(src_m);
+        *sr_t = if m == n { 1 } else { 0 };
     }
 }
 
 #[inline(always)]
-pub fn sh4_fcmp_gt_d(sr_T: *mut u32, src_n: *const u32, src_m: *const u32) {
+pub fn sh4_fcmp_gt_d(sr_t: *mut u32, src_n: *const u32, src_m: *const u32) {
     unsafe {
-        let n = GetDoubleReg(src_n);
-        let m = GetDoubleReg(src_m);
-        *sr_T = if n > m { 1 } else { 0 };
+        let n = get_double_reg(src_n);
+        let m = get_double_reg(src_m);
+        *sr_t = if n > m { 1 } else { 0 };
     }
 }
 
 #[inline(always)]
 pub fn sh4_fcnvds(dst: *mut u32, src: *const u32) {
     unsafe {
-        let d = GetDoubleReg(src);
+        let d = get_double_reg(src);
         let f = d as f32;
         *dst = f.to_bits();
     }
@@ -551,14 +578,14 @@ pub fn sh4_fcnvds(dst: *mut u32, src: *const u32) {
 pub fn sh4_fcnvsd(dst: *mut u32, src: *const u32) {
     unsafe {
         let f = f32::from_bits(*src);
-        SetDoubleReg(dst, f as f64);
+        set_double_reg(dst, f as f64);
     }
 }
 
 #[inline(always)]
-pub fn sh4_branch_cond(ctx: *mut Sh4Ctx, T: *const u32, condition: u32, next: u32, target: u32) {
+pub fn sh4_branch_cond(ctx: *mut Sh4Ctx, t: *const u32, condition: u32, next: u32, target: u32) {
     unsafe {
-        if *T == condition {
+        if *t == condition {
             (*ctx).pc1 = target;
             (*ctx).pc2 = target.wrapping_add(2);
         } else {
@@ -571,9 +598,9 @@ pub fn sh4_branch_cond(ctx: *mut Sh4Ctx, T: *const u32, condition: u32, next: u3
 }
 
 #[inline(always)]
-pub fn sh4_branch_cond_delay(ctx: *mut Sh4Ctx, T: *const u32, condition: u32, next: u32, target: u32) {
+pub fn sh4_branch_cond_delay(ctx: *mut Sh4Ctx, t: *const u32, condition: u32, next: u32, target: u32) {
     unsafe {
-        if *T == condition {
+        if *t == condition {
             (*ctx).pc2 = target;
         } else {
             // this is calcualted by the pipeline logic in the main loop, no need to do it here
@@ -648,18 +675,14 @@ pub fn sh4_fsqrt(dst: *mut f32, src: *const f32) {
 
 #[inline(always)]
 pub fn sh4_fsqrt_d(dst: *mut u32, src: *const u32) {
-    unsafe {
-        let val = GetDoubleReg(src);
-        SetDoubleReg(dst, val.sqrt());
-    }
+    let val = get_double_reg(src);
+    set_double_reg(dst, val.sqrt());
 }
 
 #[inline(always)]
 pub fn sh4_float_d(dst: *mut u32, src: *const u32) {
-    unsafe {
-        let val = *src as i32 as f64;
-        SetDoubleReg(dst, val);
-    }
+    let val = unsafe { *src } as i32 as f64;
+    set_double_reg(dst, val);
 }
 
 #[inline(always)]
@@ -669,7 +692,7 @@ pub fn sh4_ftrc_d(dst: *mut u32, src: *const u32) {
         // - Values >= 2^31 saturate to 0x7FFFFFFF (INT_MAX)
         // - Values < -2^31 saturate to 0x80000000 (INT_MIN)
         // - NaN converts to 0
-        let val = GetDoubleReg(src);
+        let val = get_double_reg(src);
         let result = if val.is_nan() {
             0
         } else if val >= 2147483648.0 {
@@ -794,11 +817,11 @@ pub fn sh4_shld(dst: *mut u32, src_n: *const u32, src_m: *const u32) {
 }
 
 #[inline(always)]
-pub fn sh4_tas(sr_T: *mut u32, ctx: *mut Sh4Ctx, addr: *const u32) {
+pub fn sh4_tas(sr_t: *mut u32, ctx: *mut Sh4Ctx, addr: *const u32) {
     unsafe {
         let mut val: u8 = 0;
         let _ = read_mem::<u8>(ctx, *addr, &mut val);
-        *sr_T = if val == 0 { 1 } else { 0 };
+        *sr_t = if val == 0 { 1 } else { 0 };
         val |= 0x80;
         let _ = write_mem::<u8>(ctx, *addr, val);
     }
@@ -856,96 +879,96 @@ pub fn sh4_xtrct(dst: *mut u32, src_n: *const u32, src_m: *const u32) {
 
 
 #[inline(always)]
-pub fn sh4_cmp_eq(sr_T: *mut u32, src_n: *const u32, src_m: *const u32) {
+pub fn sh4_cmp_eq(sr_t: *mut u32, src_n: *const u32, src_m: *const u32) {
     unsafe {
-        *sr_T = if *src_n == *src_m { 1 } else { 0 };
+        *sr_t = if *src_n == *src_m { 1 } else { 0 };
     }
 }
 
 #[inline(always)]
-pub fn sh4_cmp_hs(sr_T: *mut u32, src_n: *const u32, src_m: *const u32) {
+pub fn sh4_cmp_hs(sr_t: *mut u32, src_n: *const u32, src_m: *const u32) {
     unsafe {
-        *sr_T = if *src_n >= *src_m { 1 } else { 0 };
+        *sr_t = if *src_n >= *src_m { 1 } else { 0 };
     }
 }
 
 #[inline(always)]
-pub fn sh4_cmp_ge(sr_T: *mut u32, src_n: *const u32, src_m: *const u32) {
+pub fn sh4_cmp_ge(sr_t: *mut u32, src_n: *const u32, src_m: *const u32) {
     unsafe {
-        *sr_T = if (*src_n as i32) >= (*src_m as i32) { 1 } else { 0 };
+        *sr_t = if (*src_n as i32) >= (*src_m as i32) { 1 } else { 0 };
     }
 }
 
 #[inline(always)]
-pub fn sh4_cmp_hi(sr_T: *mut u32, src_n: *const u32, src_m: *const u32) {
+pub fn sh4_cmp_hi(sr_t: *mut u32, src_n: *const u32, src_m: *const u32) {
     unsafe {
-        *sr_T = if *src_n > *src_m { 1 } else { 0 };
+        *sr_t = if *src_n > *src_m { 1 } else { 0 };
     }
 }
 
 #[inline(always)]
-pub fn sh4_cmp_gt(sr_T: *mut u32, src_n: *const u32, src_m: *const u32) {
+pub fn sh4_cmp_gt(sr_t: *mut u32, src_n: *const u32, src_m: *const u32) {
     unsafe {
-        *sr_T = if (*src_n as i32) > (*src_m as i32) { 1 } else { 0 };
+        *sr_t = if (*src_n as i32) > (*src_m as i32) { 1 } else { 0 };
     }
 }
 
 #[inline(always)]
-pub fn sh4_cmp_pz(sr_T: *mut u32, src: *const u32) {
+pub fn sh4_cmp_pz(sr_t: *mut u32, src: *const u32) {
     unsafe {
-        *sr_T = if (*src as i32) >= 0 { 1 } else { 0 };
+        *sr_t = if (*src as i32) >= 0 { 1 } else { 0 };
     }
 }
 
 #[inline(always)]
-pub fn sh4_cmp_pl(sr_T: *mut u32, src: *const u32) {
+pub fn sh4_cmp_pl(sr_t: *mut u32, src: *const u32) {
     unsafe {
-        *sr_T = if (*src as i32) > 0 { 1 } else { 0 };
+        *sr_t = if (*src as i32) > 0 { 1 } else { 0 };
     }
 }
 
 #[inline(always)]
-pub fn sh4_tst(sr_T: *mut u32, src_n: *const u32, src_m: *const u32) {
+pub fn sh4_tst(sr_t: *mut u32, src_n: *const u32, src_m: *const u32) {
     unsafe {
-        *sr_T = if (*src_n & *src_m) == 0 { 1 } else { 0 };
+        *sr_t = if (*src_n & *src_m) == 0 { 1 } else { 0 };
     }
 }
 
 #[inline(always)]
-pub fn sh4_shll(sr_T: *mut u32, dst: *mut u32, src_n: *const u32) {
+pub fn sh4_shll(sr_t: *mut u32, dst: *mut u32, src_n: *const u32) {
     unsafe {
-        *sr_T = *src_n >> 31;
+        *sr_t = *src_n >> 31;
         *dst = *src_n << 1;
     }
 }
 
 #[inline(always)]
-pub fn sh4_shal(sr_T: *mut u32, dst: *mut u32, src_n: *const u32) {
+pub fn sh4_shal(sr_t: *mut u32, dst: *mut u32, src_n: *const u32) {
     unsafe {
-        *sr_T = *src_n >> 31;
+        *sr_t = *src_n >> 31;
         *dst = ((*src_n as i32) << 1) as u32;
     }
 }
 
 #[inline(always)]
-pub fn sh4_shar(sr_T: *mut u32, dst: *mut u32, src_n: *const u32) {
+pub fn sh4_shar(sr_t: *mut u32, dst: *mut u32, src_n: *const u32) {
     unsafe {
-        *sr_T = *src_n & 1;
+        *sr_t = *src_n & 1;
         *dst = ((*src_n as i32) >> 1) as u32;
     }
 }
 
 #[inline(always)]
-pub fn sh4_cmp_eq_imm(sr_T: *mut u32, src: *const u32, imm: u32) {
+pub fn sh4_cmp_eq_imm(sr_t: *mut u32, src: *const u32, imm: u32) {
     unsafe {
-        *sr_T = if *src == imm { 1 } else { 0 };
+        *sr_t = if *src == imm { 1 } else { 0 };
     }
 }
 
 #[inline(always)]
-pub fn sh4_tst_imm(sr_T: *mut u32, src: *const u32, imm: u32) {
+pub fn sh4_tst_imm(sr_t: *mut u32, src: *const u32, imm: u32) {
     unsafe {
-        *sr_T = if (*src & imm) == 0 { 1 } else { 0 };
+        *sr_t = if (*src & imm) == 0 { 1 } else { 0 };
     }
 }
 
@@ -971,112 +994,112 @@ pub fn sh4_or_imm(dst: *mut u32, src: *const u32, imm: u32) {
 }
 
 #[inline(always)]
-pub fn sh4_rotcl(sr_T: *mut u32, dst: *mut u32, src_n: *const u32) {
+pub fn sh4_rotcl(sr_t: *mut u32, dst: *mut u32, src_n: *const u32) {
     unsafe {
-        let t = *sr_T;
-        *sr_T = *src_n >> 31;
+        let t = *sr_t;
+        *sr_t = *src_n >> 31;
         *dst = (*src_n << 1) | t;
     }
 }
 
 #[inline(always)]
-pub fn sh4_rotl(sr_T: *mut u32, dst: *mut u32, src_n: *const u32) {
+pub fn sh4_rotl(sr_t: *mut u32, dst: *mut u32, src_n: *const u32) {
     unsafe {
-        *sr_T = *src_n >> 31;
-        *dst = (*src_n << 1) | *sr_T;
+        *sr_t = *src_n >> 31;
+        *dst = (*src_n << 1) | *sr_t;
     }
 }
 
 #[inline(always)]
-pub fn sh4_rotcr(sr_T: *mut u32, dst: *mut u32, src_n: *const u32) {
+pub fn sh4_rotcr(sr_t: *mut u32, dst: *mut u32, src_n: *const u32) {
     unsafe {
         let t = *src_n & 1;
-        *dst = (*src_n >> 1) | ((*sr_T) << 31);
-        *sr_T = t;
+        *dst = (*src_n >> 1) | ((*sr_t) << 31);
+        *sr_t = t;
     }
 }
 
 #[inline(always)]
-pub fn sh4_rotr(sr_T: *mut u32, dst: *mut u32, src_n: *const u32) {
+pub fn sh4_rotr(sr_t: *mut u32, dst: *mut u32, src_n: *const u32) {
     unsafe {
-        *sr_T = *src_n & 1;
-        *dst = (*src_n >> 1) | ((*sr_T) << 31);
+        *sr_t = *src_n & 1;
+        *dst = (*src_n >> 1) | ((*sr_t) << 31);
     }
 }
 
 #[inline(always)]
-pub fn sh4_movt(dst: *mut u32, sr_T: *const u32) {
+pub fn sh4_movt(dst: *mut u32, sr_t: *const u32) {
     unsafe {
-        *dst = *sr_T;
+        *dst = *sr_t;
     }
 }
 
 #[inline(always)]
-pub fn sh4_clrt(sr_T: *mut u32) {
+pub fn sh4_clrt(sr_t: *mut u32) {
     unsafe {
-        *sr_T = 0;
+        *sr_t = 0;
     }
 }
 
 #[inline(always)]
-pub fn sh4_sett(sr_T: *mut u32) {
+pub fn sh4_sett(sr_t: *mut u32) {
     unsafe {
-        *sr_T = 1;
+        *sr_t = 1;
     }
 }
 
 #[inline(always)]
-pub fn sh4_negc(sr_T: *mut u32, dst: *mut u32, src: *const u32) {
+pub fn sh4_negc(sr_t: *mut u32, dst: *mut u32, src: *const u32) {
     unsafe {
         let tmp = 0u32.wrapping_sub(*src);
-        *dst = tmp.wrapping_sub(*sr_T);
-        *sr_T = if tmp > 0 { 1 } else { 0 };
+        *dst = tmp.wrapping_sub(*sr_t);
+        *sr_t = if tmp > 0 { 1 } else { 0 };
         if tmp < *dst {
-            *sr_T = 1;
+            *sr_t = 1;
         }
     }
 }
 
 #[inline(always)]
-pub fn sh4_addc(sr_T: *mut u32, dst: *mut u32, src_n: *const u32, src_m: *const u32) {
+pub fn sh4_addc(sr_t: *mut u32, dst: *mut u32, src_n: *const u32, src_m: *const u32) {
     unsafe {
         let tmp1 = (*src_n).wrapping_add(*src_m);
         let tmp0 = *src_n;
-        *dst = tmp1.wrapping_add(*sr_T);
-        *sr_T = if tmp0 > tmp1 { 1 } else { 0 };
+        *dst = tmp1.wrapping_add(*sr_t);
+        *sr_t = if tmp0 > tmp1 { 1 } else { 0 };
         if tmp1 > *dst {
-            *sr_T = 1;
+            *sr_t = 1;
         }
     }
 }
 
 #[inline(always)]
-pub fn sh4_addv(sr_T: *mut u32, dst: *mut u32, src_n: *const u32, src_m: *const u32) {
+pub fn sh4_addv(sr_t: *mut u32, dst: *mut u32, src_n: *const u32, src_m: *const u32) {
     unsafe {
         let br = (*src_n as i32 as i64).wrapping_add(*src_m as i32 as i64);
-        *sr_T = if br >= 0x80000000 || br < -0x80000000i64 { 1 } else { 0 };
+        *sr_t = if br >= 0x80000000 || br < -0x80000000i64 { 1 } else { 0 };
         *dst = (*src_n).wrapping_add(*src_m);
     }
 }
 
 #[inline(always)]
-pub fn sh4_subc(sr_T: *mut u32, dst: *mut u32, src_n: *const u32, src_m: *const u32) {
+pub fn sh4_subc(sr_t: *mut u32, dst: *mut u32, src_n: *const u32, src_m: *const u32) {
     unsafe {
         let tmp1 = (*src_n).wrapping_sub(*src_m);
         let tmp0 = *src_n;
-        *dst = tmp1.wrapping_sub(*sr_T);
-        *sr_T = if tmp0 < tmp1 { 1 } else { 0 };
+        *dst = tmp1.wrapping_sub(*sr_t);
+        *sr_t = if tmp0 < tmp1 { 1 } else { 0 };
         if tmp1 < *dst {
-            *sr_T = 1;
+            *sr_t = 1;
         }
     }
 }
 
 #[inline(always)]
-pub fn sh4_subv(sr_T: *mut u32, dst: *mut u32, src_n: *const u32, src_m: *const u32) {
+pub fn sh4_subv(sr_t: *mut u32, dst: *mut u32, src_n: *const u32, src_m: *const u32) {
     unsafe {
         let br = (*src_n as i32 as i64).wrapping_sub(*src_m as i32 as i64);
-        *sr_T = if br >= 0x80000000 || br < -0x80000000i64 { 1 } else { 0 };
+        *sr_t = if br >= 0x80000000 || br < -0x80000000i64 { 1 } else { 0 };
         *dst = (*src_n).wrapping_sub(*src_m);
     }
 }
@@ -1096,27 +1119,27 @@ pub fn sh4_mulsw(dst: *mut u32, src_n: *const u32, src_m: *const u32) {
 }
 
 #[inline(always)]
-pub fn sh4_div0u(sr: *mut super::SrStatus, sr_T: *mut u32) {
+pub fn sh4_div0u(sr: *mut super::SrStatus, sr_t: *mut u32) {
     unsafe {
-        (*sr).set_M(false);
-        (*sr).set_Q(false);
-        *sr_T = 0;
+        (*sr).set_m(false);
+        (*sr).set_q(false);
+        *sr_t = 0;
     }
 }
 
 #[inline(always)]
-pub fn sh4_div0s(sr: *mut super::SrStatus, sr_T: *mut u32, src_n: *const u32, src_m: *const u32) {
+pub fn sh4_div0s(sr: *mut super::SrStatus, sr_t: *mut u32, src_n: *const u32, src_m: *const u32) {
     unsafe {
         let q = (*src_n >> 31) != 0;
         let m = (*src_m >> 31) != 0;
-        (*sr).set_Q(q);
-        (*sr).set_M(m);
-        *sr_T = if m ^ q { 1 } else { 0 };
+        (*sr).set_q(q);
+        (*sr).set_m(m);
+        *sr_t = if m ^ q { 1 } else { 0 };
     }
 }
 
 #[inline(always)]
-pub fn sh4_cmp_str(sr_T: *mut u32, src_n: *const u32, src_m: *const u32) {
+pub fn sh4_cmp_str(sr_t: *mut u32, src_n: *const u32, src_m: *const u32) {
     unsafe {
         // CMP/STR checks if ANY byte pair is equal
         // XOR the values - equal bytes become 0
@@ -1126,7 +1149,7 @@ pub fn sh4_cmp_str(sr_T: *mut u32, src_n: *const u32, src_m: *const u32) {
         let lh = (temp & 0x0000FF00) == 0;
         let ll = (temp & 0x000000FF) == 0;
         // T=1 if any byte is equal (any bit is true)
-        *sr_T = if hh || hl || lh || ll { 1 } else { 0 };
+        *sr_t = if hh || hl || lh || ll { 1 } else { 0 };
     }
 }
 
@@ -1145,11 +1168,11 @@ pub fn sh4_dmuls(dst: *mut u64, src_n: *const u32, src_m: *const u32) {
 }
 
 #[inline(always)]
-pub fn sh4_div1(sr: *mut super::SrStatus, sr_T: *mut u32, dst: *mut u32, src_n: *const u32, src_m: *const u32) {
+pub fn sh4_div1(sr: *mut super::SrStatus, sr_t: *mut u32, dst: *mut u32, src_n: *const u32, src_m: *const u32) {
     unsafe {
-        let old_q = (*sr).Q() as u32;
-        let sr_m = (*sr).M() as u32;
-        let old_t = *sr_T;
+        let old_q = (*sr).q() as u32;
+        let sr_m = (*sr).m() as u32;
+        let old_t = *sr_t;
         let rn_val = *src_n;
 
         let mut q = (rn_val >> 31) & 1;
@@ -1190,8 +1213,8 @@ pub fn sh4_div1(sr: *mut super::SrStatus, sr_T: *mut u32, dst: *mut u32, src_n: 
         let new_t = if q == sr_m { 1 } else { 0 };
 
         *dst = rn;
-        (*sr).set_Q(q != 0);
-        *sr_T = new_t;
+        (*sr).set_q(q != 0);
+        *sr_t = new_t;
     }
 }
 
@@ -1266,12 +1289,12 @@ pub fn sh4_write_mem64_indexed(ctx: *mut Sh4Ctx, base: *const u32, index: *const
 
 // Read-modify-write operations for memory with GBR+R0 addressing
 #[inline(always)]
-pub fn sh4_tst_mem(sr_T: *mut u32, ctx: *mut Sh4Ctx, base: *const u32, index: *const u32, imm: u32) {
+pub fn sh4_tst_mem(sr_t: *mut u32, ctx: *mut Sh4Ctx, base: *const u32, index: *const u32, imm: u32) {
     unsafe {
         let addr = (*base).wrapping_add(*index);
         let mut temp: u8 = 0;
         let _ = read_mem::<u8>(ctx, addr, &mut temp);
-        *sr_T = if (temp as u32 & imm) == 0 { 1 } else { 0 };
+        *sr_t = if (temp as u32 & imm) == 0 { 1 } else { 0 };
     }
 }
 

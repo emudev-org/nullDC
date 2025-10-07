@@ -53,12 +53,18 @@ jobs:
             publish: true
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+          - os: ubuntu-latest
+            target: riscv64gc-unknown-linux-gnu
           - os: macos-latest
             target: x86_64-apple-darwin
           - os: macos-latest
             target: aarch64-apple-darwin
           - os: windows-latest
             target: x86_64-pc-windows-msvc
+          - os: windows-latest
+            target: aarch64-pc-windows-msvc
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -90,9 +96,9 @@ jobs:
           key: ${{ matrix.target }}
           cache-on-failure: true
           cache-all-crates: true
-      # This is needed on windows because rust cache doesn't cache target dir
-      - name: Cache target dir
-        if: runner.os == 'Windows'
+      # This is needed on windows, macOS x86_64 and cross compiles because rust cache doesn't cache target dir correctly there
+      - name: "Cache target dir"
+        if: runner.os == 'Windows' || matrix.target == 'x86_64-apple-darwin' || matrix.target == 'aarch64-unknown-linux-gnu' || matrix.target == 'riscv64gc-unknown-linux-gnu'
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/target
@@ -100,6 +106,21 @@ jobs:
             hashFiles('**/Cargo.lock') }}
 
       # Native targets
+      - name: "Native: Install cross-compilation tools"
+        if: matrix.target == 'aarch64-unknown-linux-gnu' || matrix.target == 'riscv64gc-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          if [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
+            sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+            echo "[target.aarch64-unknown-linux-gnu]" >> ~/.cargo/config.toml
+            echo "linker = \"aarch64-linux-gnu-gcc\"" >> ~/.cargo/config.toml
+          fi
+          if [ "${{ matrix.target }}" = "riscv64gc-unknown-linux-gnu" ]; then
+            sudo apt-get install -y gcc-riscv64-linux-gnu g++-riscv64-linux-gnu
+            echo "[target.riscv64gc-unknown-linux-gnu]" >> ~/.cargo/config.toml
+            echo "linker = \"riscv64-linux-gnu-gcc\"" >> ~/.cargo/config.toml
+          fi
+
       - name: "Native: Download debugger-ui"
         if: matrix.target != 'wasm32-unknown-unknown'
         uses: actions/download-artifact@v4
@@ -107,7 +128,7 @@ jobs:
           name: debugger-ui-dist-native
           path: debugger-ui/dist
       - name: "Native: Run SH4 tests"
-        if: matrix.target != 'wasm32-unknown-unknown'
+        if: matrix.target != 'wasm32-unknown-unknown' && matrix.target != 'aarch64-unknown-linux-gnu' && matrix.target != 'riscv64gc-unknown-linux-gnu' && matrix.target != 'aarch64-pc-windows-msvc'
         run: cargo test --package sh4-core --target ${{ matrix.target }}
       - name: "Native: Build release"
         if: matrix.target != 'wasm32-unknown-unknown'
@@ -117,7 +138,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: build-${{ matrix.target }}
-          path: target/${{ matrix.target }}/release
+          path: |
+            target/${{ matrix.target }}/release/nullDC.exe
+            target/${{ matrix.target }}/release/nullDC.pdb
+            target/${{ matrix.target }}/release/nullDC
+            target/${{ matrix.target }}/release/nullDC.dSYM/**
 
       # WASM targets
       - name: "WASM: Read tool versions"
@@ -138,6 +163,13 @@ jobs:
           crate: trunk
           version: ${{ steps.toolvers.outputs.trunk_version }}
 
+      - name: "WASM: Install wasm-opt"
+        if: matrix.target == 'wasm32-unknown-unknown'
+        uses: baptiste0928/cargo-install@v3
+        with:
+          crate: wasm-opt
+          version: ${{ steps.toolvers.outputs.wasm_opt_version }}
+          
       - name: "WASM: Download debugger-ui"
         if: matrix.target == 'wasm32-unknown-unknown'
         uses: actions/download-artifact@v4
@@ -149,6 +181,12 @@ jobs:
         if: matrix.target == 'wasm32-unknown-unknown'
         run: |
           trunk build
+
+
+      - name: "WASM: Optimize with wasm-opt"
+        if: matrix.target == 'wasm32-unknown-unknown'
+        run: |
+          wasm-opt --enable-bulk-memory --enable-reference-types --enable-simd -O4 -o dist/*.wasm dist/*.wasm
       - name: "WASM: Upload artifacts"
         if: matrix.target == 'wasm32-unknown-unknown'
         uses: actions/upload-artifact@v4
@@ -166,11 +204,95 @@ jobs:
       - name: Ensure tags are present
         run: git fetch --force --tags --prune
 
+      - name: Export version info
+        shell: bash
+        run: |
+          echo "GIT_DESCRIBE=$(git describe --tags --always --dirty)" >> "$GITHUB_ENV"
+          echo "GIT_SHA_SHORT=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
+          echo "BUILD_DATE=$(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> "$GITHUB_ENV"
+
       - name: Download built site
         uses: actions/download-artifact@v4
         with:
           name: site-dist-${{ github.sha }}
           path: dist
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: build-*
+          path: artifacts
+
+      - name: Install 7-Zip
+        run: sudo apt-get update && sudo apt-get install -y p7zip-full
+
+      - name: Compress and organize artifacts
+        run: |
+          # Create builds directory structure
+          mkdir -p dist/builds/${{ env.GIT_SHA_SHORT }}
+
+          # Compress and organize artifacts
+          for dir in artifacts/build-*; do
+            if [ -d "$dir" ]; then
+              target=$(basename "$dir" | sed 's/build-//')
+              archive_name="nullDC-${{ env.GIT_DESCRIBE }}-${target}.7z"
+
+              # Create 7z archive with maximum LZMA2 compression
+              cd "$dir"
+              7z a -t7z -m0=lzma2 -mx=9 -mfb=64 -md=32m -ms=on "../../dist/builds/${{ env.GIT_SHA_SHORT }}/${archive_name}" .
+              cd ../..
+            fi
+          done
+
+          # Create HTML page with build links
+          mkdir -p dist/builds
+          cat > dist/builds/index.html <<EOF
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="utf-8">
+            <title>nullDC - Build Artifacts</title>
+            <style>
+              body {
+                margin: 0;
+                padding: 0;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+              }
+            </style>
+          </head>
+          <body>
+            <div>
+              <p align="center"><a href="/">← Back to Home</a></p>
+              <h1 align="center">nullDC - Build Artifacts</h1>
+              <h2 align="center">Most Recent Build</h2>
+              <p align="center"><strong>Version:</strong> ${{ env.GIT_DESCRIBE }}</p>
+              <p align="center"><strong>Commit:</strong> ${{ github.sha }}</p>
+              <p align="center"><strong>Build Date:</strong> ${{ env.BUILD_DATE }}</p>
+              <h3 align="center">Download Artifacts</h3>
+              <ul>
+          EOF
+
+          # Add links for each artifact
+          for dir in artifacts/build-*; do
+            if [ -d "$dir" ]; then
+              target=$(basename "$dir" | sed 's/build-//')
+              archive_name="nullDC-${{ env.GIT_DESCRIBE }}-${target}.7z"
+
+              # Get file size
+              size=$(du -h "dist/builds/${{ env.GIT_SHA_SHORT }}/${archive_name}" | cut -f1)
+
+              echo "<li><a href=\"${{ env.GIT_SHA_SHORT }}/${archive_name}\">${target}</a> <span style=\"color: #888\">(${size})</span></li>" >> dist/builds/index.html
+            fi
+          done
+
+          cat >> dist/builds/index.html <<'EOF'
+              </ul>
+            </div>
+          </body>
+          </html>
+          EOF
 
       - name: Install Wrangler
         run: npm install -g wrangler

@@ -26,7 +26,6 @@ pub struct Sh4State {
 
 #[derive(Debug, Clone)]
 pub struct Cycle {
-    pub actions: u32,
     pub fetch_addr: Option<u32>,
     pub fetch_val: Option<u32>,
     pub write_addr: Option<u32>,
@@ -139,7 +138,6 @@ fn load_cycles(buf: &[u8], ptr: usize) -> (usize, Vec<Cycle>) {
         let read_val = read_u64_le(buf, offset); offset += 8;
 
         let cycle = Cycle {
-            actions,
             fetch_addr: if actions & 4 != 0 { Some(fetch_addr) } else { None },
             fetch_val: if actions & 4 != 0 { Some(fetch_val) } else { None },
             write_addr: if actions & 2 != 0 { Some(write_addr) } else { None },
@@ -180,7 +178,7 @@ fn decode_test(buf: &[u8], ptr: usize) -> (usize, Test) {
     let (sz, cycles) = load_cycles(buf, offset);
     offset += sz;
 
-    let (sz, opcodes) = load_opcodes(buf, offset);
+    let (_sz, opcodes) = load_opcodes(buf, offset);
 
     let test = Test {
         initial,

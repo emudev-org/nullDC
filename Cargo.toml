@@ -19,6 +19,11 @@ crate-type = ["rlib", "cdylib"]
 [profile.release]
 lto = "thin"
 opt-level = 3
+strip = false
+debug = true
+
+[profile.release.package."*"]
+debug = false
 strip = true
 
 [dependencies]
