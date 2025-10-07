@@ -531,9 +531,7 @@ sh4op! {
     (disas = "stc SR,<REG_N>")
     i0000_nnnn_0000_0010(dc, state, opcode) {
         let n = GetN(opcode);
-        // Compose SR: start with sr.0 (which has T_h=0)
         backend::sh4_store32(addr_of_mut!((*dc).r[n]), addr_of!((*dc).sr.0));
-        // OR in the T bit from sr_T
         backend::sh4_or(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), addr_of!((*dc).sr_T));
     }
 
@@ -970,7 +968,9 @@ sh4op! {
     (disas = "stc.l SR,@-<REG_N>")
     i0100_nnnn_0000_0011(dc, state, opcode) {
         let n = GetN(opcode);
-        backend::sh4_write_mem32_disp(dc, addr_of!((*dc).r[n]), (-4i32) as u32, addr_of!((*dc).sr.0));
+        // Combine sr.0 (without T bit) and sr_T (T bit) into full SR value
+        backend::sh4_or(addr_of_mut!((*dc).temp[0]), addr_of!((*dc).sr.0), addr_of!((*dc).sr_T));
+        backend::sh4_write_mem32_disp(dc, addr_of!((*dc).r[n]), (-4i32) as u32, addr_of!((*dc).temp[0]));
         backend::sh4_addi(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), (-4i32) as u32);
     }
 
