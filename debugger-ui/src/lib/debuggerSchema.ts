@@ -161,9 +161,17 @@ export type DebuggerRpcSchema = RpcSchema & {
     params: { target: string; type: "interrupt" | "exception" | "primitive" | "tile" | "vertex" | "list" | "sample"; value?: string };
     result: { target: string; state: "running" | "halted"; reason?: string };
   };
+  "control.pause": {
+    params: { target?: string };
+    result: { target: string; state: "running" | "halted" };
+  };
   "breakpoints.add": {
     params: { location: string; kind?: BreakpointDescriptor["kind"]; enabled?: boolean };
     result: { breakpoint: BreakpointDescriptor; all: BreakpointDescriptor[] };
+  };
+  "breakpoints.setCategoryStates": {
+    params: { categories: Record<string, { muted: boolean; soloed: boolean }> };
+    result: { acknowledged: boolean };
   };
   "breakpoints.remove": {
     params: { id: string };

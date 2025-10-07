@@ -105,7 +105,6 @@ export const AppLayout = () => {
   const endpoint = useSessionStore((state) => state.endpoint);
   const client = useSessionStore((state) => state.client);
   const executionState = useSessionStore((state) => state.executionState);
-  const setExecutionState = useSessionStore((state) => state.setExecutionState);
   const initializeData = useDebuggerDataStore((state) => state.initialize);
   const resetData = useDebuggerDataStore((state) => state.reset);
   const breakpointHit = useDebuggerDataStore((state) => state.breakpointHit);

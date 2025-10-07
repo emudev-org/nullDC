@@ -40,6 +40,55 @@ const serverWatches = new Set<string>();
 const serverBreakpoints = new Map<string, BreakpointDescriptor>();
 let isRunning = true; // Execution state
 
+type BreakpointCategory = "events" | "sh4" | "arm7" | "dsp";
+
+interface CategoryState {
+  muted: boolean;
+  soloed: boolean;
+}
+
+const categoryStates = new Map<BreakpointCategory, CategoryState>([
+  ["events", { muted: false, soloed: false }],
+  ["sh4", { muted: false, soloed: false }],
+  ["arm7", { muted: false, soloed: false }],
+  ["dsp", { muted: false, soloed: false }],
+]);
+
+const categorizeBreakpoint = (bp: BreakpointDescriptor): BreakpointCategory => {
+  // All event breakpoints go to "events" category
+  if (bp.kind === "event") {
+    return "events";
+  }
+
+  // Code breakpoints are categorized by processor
+  const lower = bp.location.toLowerCase();
+  if (lower.includes("sh4")) return "sh4";
+  if (lower.includes("arm7")) return "arm7";
+  if (lower.includes("aica") || lower.includes("dsp")) return "dsp";
+
+  // Default to events if we can't determine
+  return "events";
+};
+
+const isBreakpointActive = (bp: BreakpointDescriptor): boolean => {
+  const category = categorizeBreakpoint(bp);
+  const state = categoryStates.get(category);
+  if (!state) return true;
+
+  // If muted, it's inactive
+  if (state.muted) return false;
+
+  // Check if any category is soloed
+  const anyCategorySoloed = Array.from(categoryStates.values()).some((s) => s.soloed);
+
+  // If any category is soloed, only soloed categories are active
+  if (anyCategorySoloed) {
+    return state.soloed;
+  }
+
+  return true;
+};
+
 // Shared register values storage
 const registerValues = new Map<string, string>([
   // SH4 Core
@@ -710,6 +759,16 @@ const dispatchMethod = async (
     }
     case "breakpoints.list":
       return { breakpoints: Array.from(serverBreakpoints.values()) };
+    case "breakpoints.setCategoryStates": {
+      const categories = params.categories as Record<string, { muted: boolean; soloed: boolean }>;
+      for (const [category, state] of Object.entries(categories)) {
+        const categoryKey = category as BreakpointCategory;
+        if (categoryStates.has(categoryKey)) {
+          categoryStates.set(categoryKey, { muted: state.muted, soloed: state.soloed });
+        }
+      }
+      return { acknowledged: true };
+    }
     case "audio.requestWaveform":
       return buildWaveform(String(params.channelId ?? "0"), Number(params.window) || 256);
     case "logs.fetchFrameLog":
@@ -809,7 +868,7 @@ const collectRegistersFromTree = (tree: DeviceNodeDescriptor[]): Array<{ path: s
 const checkBreakpoint = (path: string, registerName: string, value: number): BreakpointDescriptor | undefined => {
   const location = `${path}.${registerName.toLowerCase()} == 0x${value.toString(16).toUpperCase()}`;
   for (const bp of serverBreakpoints.values()) {
-    if (bp.location === location && bp.enabled && bp.kind === "code") {
+    if (bp.location === location && bp.enabled && bp.kind === "code" && isBreakpointActive(bp)) {
       return bp;
     }
   }

@@ -1,17 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Box, Button, CircularProgress, IconButton, Paper, Stack, TextField, Tooltip, Typography } from "@mui/material";
-import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
-import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
 import CircleIcon from "@mui/icons-material/Circle";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
+import RadioButtonCheckedIcon from "@mui/icons-material/RadioButtonChecked";
 import MyLocationIcon from "@mui/icons-material/MyLocation";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import ArrowDownwardRoundedIcon from "@mui/icons-material/ArrowDownwardRounded";
 import ArrowUpwardRoundedIcon from "@mui/icons-material/ArrowUpwardRounded";
 import SubdirectoryArrowRightIcon from "@mui/icons-material/SubdirectoryArrowRight";
+import VolumeOffIcon from "@mui/icons-material/VolumeOff";
+import VolumeUpIcon from "@mui/icons-material/VolumeUp";
 import type { DisassemblyLine } from "../../lib/debuggerSchema";
 import { useSessionStore } from "../../state/sessionStore";
 import { useDebuggerDataStore } from "../../state/debuggerDataStore";
+import { categoryStates, type BreakpointCategory } from "../../state/breakpointCategoryState";
 
 const WHEEL_PIXEL_THRESHOLD = 60;
 const INSTRUCTIONS_PER_TICK = 6;
@@ -87,9 +89,54 @@ const DisassemblyView = ({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const currentPcRef = useRef<number | undefined>(undefined);
   const lineRefsMap = useRef<Map<number, HTMLDivElement>>(new Map());
+  const [categoryStateVersion, setCategoryStateVersion] = useState(0);
 
   const instructionSize = useMemo(() => instructionSizeForTarget(target), [target]);
   const maxAddress = useMemo(() => maxAddressForTarget(target), [target]);
+
+  // Get category for this disassembly view
+  const category: BreakpointCategory = target === "sh4" ? "sh4" : target === "arm7" ? "arm7" : "dsp";
+  const categoryState = categoryStates.get(category);
+
+  // Sync category states to server whenever they change
+  useEffect(() => {
+    if (!client) return;
+
+    const categories: Record<string, { muted: boolean; soloed: boolean }> = {};
+    for (const [key, value] of categoryStates.entries()) {
+      categories[key] = { muted: value.muted, soloed: value.soloed };
+    }
+
+    void client.setCategoryStates(categories);
+  }, [client, categoryStateVersion]);
+
+  const handleMuteToggle = useCallback(() => {
+    const state = categoryStates.get(category);
+    if (state) {
+      state.muted = !state.muted;
+      if (state.muted) {
+        state.soloed = false; // Can't be both muted and soloed
+      }
+      setCategoryStateVersion((v) => v + 1);
+    }
+  }, [category]);
+
+  const handleSoloToggle = useCallback(() => {
+    const state = categoryStates.get(category);
+    if (state) {
+      state.soloed = !state.soloed;
+      if (state.soloed) {
+        state.muted = false; // Can't be both muted and soloed
+        // Unsolo all other categories
+        for (const [cat, s] of categoryStates.entries()) {
+          if (cat !== category) {
+            s.soloed = false;
+          }
+        }
+      }
+      setCategoryStateVersion((v) => v + 1);
+    }
+  }, [category]);
 
   // Get current PC/step value for this target and update DOM directly
   useEffect(() => {
@@ -248,14 +295,6 @@ const DisassemblyView = ({
     setAddress(normalizeAddress(targetAddress, maxAddress, instructionSize));
   }, [addressInput, instructionSize, maxAddress, target]);
 
-  const handlePageUp = useCallback(() => {
-    adjustAddress(-FETCH_LINE_COUNT);
-  }, [adjustAddress]);
-
-  const handlePageDown = useCallback(() => {
-    adjustAddress(FETCH_LINE_COUNT);
-  }, [adjustAddress]);
-
   const handleBreakpointClick = useCallback(
     async (lineAddress: number) => {
       const existing = breakpointsByAddress.get(lineAddress);
@@ -406,6 +445,16 @@ const DisassemblyView = ({
           )}
         </Stack>
         <Stack direction="row" spacing={1} alignItems="center" sx={{ flex: 1, justifyContent: "flex-end" }}>
+          <Tooltip title={categoryState?.muted ? "Unmute category" : "Mute category"}>
+            <IconButton size="small" onClick={handleMuteToggle} color={categoryState?.muted ? "warning" : "default"}>
+              {categoryState?.muted ? <VolumeOffIcon fontSize="small" /> : <VolumeUpIcon fontSize="small" />}
+            </IconButton>
+          </Tooltip>
+          <Tooltip title={categoryState?.soloed ? "Unsolo category" : "Solo category"}>
+            <IconButton size="small" onClick={handleSoloToggle} color={categoryState?.soloed ? "primary" : "default"}>
+              {categoryState?.soloed ? <RadioButtonCheckedIcon fontSize="small" /> : <RadioButtonUncheckedIcon fontSize="small" />}
+            </IconButton>
+          </Tooltip>
           <Tooltip title={target === "dsp" ? "Go to current STEP" : "Go to current PC"}>
             <span>
               <IconButton
@@ -430,15 +479,9 @@ const DisassemblyView = ({
             sx={{ width: 160 }}
             disabled={connectionState !== "connected"}
           />
-          <Button size="small" onClick={handleAddressSubmit} disabled={connectionState !== "connected"}>
+          <Button size="small" onClick={handleAddressSubmit} disabled={connectionState !== "connected"} sx={{ minWidth: "auto", px: 1.5 }}>
             Go
           </Button>
-          <IconButton size="small" onClick={handlePageUp} disabled={connectionState !== "connected"}>
-            <ArrowUpwardIcon fontSize="small" />
-          </IconButton>
-          <IconButton size="small" onClick={handlePageDown} disabled={connectionState !== "connected"}>
-            <ArrowDownwardIcon fontSize="small" />
-          </IconButton>
         </Stack>
       </Box>
       <Box sx={{ flex: 1, overflow: "auto" }}>
@@ -505,7 +548,7 @@ const DisassemblyView = ({
                 return (
                   <Box
                     key={`${line.address}-${hasBreakpoint}-${breakpointEnabled}`}
-                    ref={(el) => {
+                    ref={(el: HTMLDivElement | null) => {
                       if (el) {
                         lineRefsMap.current.set(line.address, el);
                         // Apply current styling if this line is the current PC

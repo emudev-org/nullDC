@@ -122,6 +122,10 @@ export class DebuggerClient {
     return this.rpc.call("breakpoints.list", {});
   }
 
+  async setCategoryStates(categories: Record<string, { muted: boolean; soloed: boolean }>) {
+    return this.rpc.call("breakpoints.setCategoryStates", { categories });
+  }
+
   async fetchMemorySlice(params: {
     target: string;
     address: number;

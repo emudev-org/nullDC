@@ -1,26 +1,104 @@
 import { Panel } from "../layout/Panel";
-import { Autocomplete, Box, Button, Chip, IconButton, List, ListItem, ListItemText, Stack, Switch, TextField, Tooltip, Typography } from "@mui/material";
+import {
+  Autocomplete,
+  Box,
+  Button,
+  Chip,
+  IconButton,
+  List,
+  ListItem,
+  ListItemText,
+  Stack,
+  Switch,
+  TextField,
+  Tooltip,
+  Typography,
+} from "@mui/material";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import AddIcon from "@mui/icons-material/Add";
+import VolumeOffIcon from "@mui/icons-material/VolumeOff";
+import VolumeUpIcon from "@mui/icons-material/VolumeUp";
+import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
+import RadioButtonCheckedIcon from "@mui/icons-material/RadioButtonChecked";
 import { useDebuggerDataStore } from "../../state/debuggerDataStore";
-import { useCallback, useState } from "react";
+import { useSessionStore } from "../../state/sessionStore";
+import { categoryStates, type BreakpointCategory } from "../../state/breakpointCategoryState";
+import { useCallback, useState, useEffect } from "react";
 import type { BreakpointDescriptor } from "../../lib/debuggerSchema";
+
+const categorizeBreakpoint = (bp: BreakpointDescriptor): BreakpointCategory => {
+  // All event breakpoints go to "events" category
+  if (bp.kind === "event") {
+    return "events";
+  }
+
+  // Code breakpoints are categorized by processor
+  const lower = bp.location.toLowerCase();
+  if (lower.includes("sh4")) return "sh4";
+  if (lower.includes("arm7")) return "arm7";
+  if (lower.includes("aica") || lower.includes("dsp")) return "dsp";
+
+  // Default to events if we can't determine
+  return "events";
+};
 
 interface BreakpointsViewProps {
   title: string;
   filter?: (location: string) => boolean;
-  addMode: "pc-sh4" | "pc-arm7" | "event";
+  addMode: "pc-sh4" | "pc-arm7" | "event" | "dsp";
+  showCategoryControls?: boolean;
 }
 
-const BreakpointsView = ({ title, filter, addMode }: BreakpointsViewProps) => {
+const CategoryControls = ({
+  onMuteToggle,
+  onSoloToggle,
+  muted,
+  soloed,
+}: {
+  onMuteToggle: () => void;
+  onSoloToggle: () => void;
+  muted: boolean;
+  soloed: boolean;
+}) => {
+  return (
+    <Stack direction="row" spacing={0.5} alignItems="center">
+      <Tooltip title={muted ? "Unmute category" : "Mute category"}>
+        <IconButton size="small" onClick={onMuteToggle} color={muted ? "warning" : "default"}>
+          {muted ? <VolumeOffIcon fontSize="small" /> : <VolumeUpIcon fontSize="small" />}
+        </IconButton>
+      </Tooltip>
+      <Tooltip title={soloed ? "Unsolo category" : "Solo category"}>
+        <IconButton size="small" onClick={onSoloToggle} color={soloed ? "primary" : "default"}>
+          {soloed ? <RadioButtonCheckedIcon fontSize="small" /> : <RadioButtonUncheckedIcon fontSize="small" />}
+        </IconButton>
+      </Tooltip>
+    </Stack>
+  );
+};
+
+const BreakpointsView = ({ title, filter, addMode, showCategoryControls = false }: BreakpointsViewProps) => {
   const breakpoints = useDebuggerDataStore((state) => state.breakpoints);
   const availableEvents = useDebuggerDataStore((state) => state.availableEvents);
   const removeBreakpoint = useDebuggerDataStore((state) => state.removeBreakpoint);
   const addBreakpoint = useDebuggerDataStore((state) => state.addBreakpoint);
   const toggleBreakpoint = useDebuggerDataStore((state) => state.toggleBreakpoint);
+  const client = useSessionStore((state) => state.client);
   const [newBreakpoint, setNewBreakpoint] = useState("");
+  const [categoryStateVersion, setCategoryStateVersion] = useState(0);
 
   const filteredBreakpoints = filter ? breakpoints.filter((bp) => filter(bp.location)) : breakpoints;
+
+  // Sync category states to server whenever they change
+  useEffect(() => {
+    if (!client || !showCategoryControls) return;
+
+    const categories: Record<string, { muted: boolean; soloed: boolean }> = {};
+    for (const [key, value] of categoryStates.entries()) {
+      categories[key] = { muted: value.muted, soloed: value.soloed };
+    }
+
+    void client.setCategoryStates(categories);
+  }, [client, categoryStateVersion, showCategoryControls]);
 
   const handleRemove = useCallback(
     async (id: string) => {
@@ -36,6 +114,34 @@ const BreakpointsView = ({ title, filter, addMode }: BreakpointsViewProps) => {
     [toggleBreakpoint],
   );
 
+  const handleMuteToggle = useCallback((category: BreakpointCategory) => {
+    const state = categoryStates.get(category);
+    if (state) {
+      state.muted = !state.muted;
+      if (state.muted) {
+        state.soloed = false; // Can't be both muted and soloed
+      }
+      setCategoryStateVersion((v) => v + 1);
+    }
+  }, []);
+
+  const handleSoloToggle = useCallback((category: BreakpointCategory) => {
+    const state = categoryStates.get(category);
+    if (state) {
+      state.soloed = !state.soloed;
+      if (state.soloed) {
+        state.muted = false; // Can't be both muted and soloed
+        // Unsolo all other categories
+        for (const [cat, s] of categoryStates.entries()) {
+          if (cat !== category) {
+            s.soloed = false;
+          }
+        }
+      }
+      setCategoryStateVersion((v) => v + 1);
+    }
+  }, []);
+
   const handleAdd = useCallback(async () => {
     const trimmed = newBreakpoint.trim();
     if (!trimmed) {
@@ -45,7 +151,7 @@ const BreakpointsView = ({ title, filter, addMode }: BreakpointsViewProps) => {
     let location: string;
     let kind: BreakpointDescriptor["kind"];
 
-    if (addMode === "event") {
+    if (addMode === "event" || addMode === "dsp") {
       location = trimmed;
       kind = "event";
     } else {
@@ -55,7 +161,7 @@ const BreakpointsView = ({ title, filter, addMode }: BreakpointsViewProps) => {
       if (Number.isNaN(parsed)) {
         return;
       }
-      const target = addMode === "pc-sh4" ? "dc.sh4.cpu" : "dc.arm7.cpu";
+      const target = addMode === "pc-sh4" ? "dc.sh4.cpu" : addMode === "pc-arm7" ? "dc.aica.arm7" : "dc.sh4.cpu";
       location = `${target}.pc == 0x${parsed.toString(16).toUpperCase().padStart(8, "0")}`;
       kind = "code";
     }
@@ -65,15 +171,40 @@ const BreakpointsView = ({ title, filter, addMode }: BreakpointsViewProps) => {
   }, [newBreakpoint, addBreakpoint, addMode]);
 
   const placeholder =
-    addMode === "event"
+    addMode === "event" || addMode === "dsp"
       ? "Event name (e.g., dc.aica.channel[0].step)"
       : `Address (e.g., 0x8C0000A0)`;
+
+  // Group breakpoints by category for the all-categories view
+  const categorizedBreakpoints: Partial<Record<BreakpointCategory, BreakpointDescriptor[]>> = showCategoryControls
+    ? filteredBreakpoints.reduce(
+        (acc, bp) => {
+          const category = categorizeBreakpoint(bp);
+          if (!acc[category]) {
+            acc[category] = [];
+          }
+          acc[category].push(bp);
+          return acc;
+        },
+        {} as Record<BreakpointCategory, BreakpointDescriptor[]>,
+      )
+    : {};
+
+  // Check if any category is soloed
+  const anyCategorySoloed = Array.from(categoryStates.values()).some((s) => s.soloed);
+
+  const categoryLabels: Record<BreakpointCategory, string> = {
+    events: "Events",
+    sh4: "SH4",
+    arm7: "ARM7",
+    dsp: "DSP",
+  };
 
   return (
     <Panel title={title}>
       <Box sx={{ p: 1.5, borderBottom: "1px solid", borderColor: "divider" }}>
         <Stack direction="row" spacing={1}>
-          {addMode === "event" ? (
+          {addMode === "event" || addMode === "dsp" ? (
             <Autocomplete
               size="small"
               fullWidth
@@ -123,58 +254,149 @@ const BreakpointsView = ({ title, filter, addMode }: BreakpointsViewProps) => {
           </Button>
         </Stack>
       </Box>
-      {filteredBreakpoints.length === 0 ? (
-        <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
-          No breakpoints defined.
-        </Typography>
+
+      {showCategoryControls ? (
+        // Show grouped view with category controls
+        <Box sx={{ overflowY: "auto", flex: 1 }}>
+          {(["sh4", "arm7", "dsp", "events"] as BreakpointCategory[]).map((category) => {
+            const categoryBps: BreakpointDescriptor[] = categorizedBreakpoints[category] || [];
+            if (categoryBps.length === 0) return null;
+
+            const state = categoryStates.get(category);
+            const isActive = state && !state.muted && (!anyCategorySoloed || state.soloed);
+
+            return (
+              <Box key={category}>
+                <Box
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    px: 1.5,
+                    py: 1,
+                    bgcolor: "action.hover",
+                    borderBottom: "1px solid",
+                    borderColor: "divider",
+                  }}
+                >
+                  <Typography variant="subtitle2" sx={{ fontWeight: 600, opacity: isActive ? 1 : 0.5 }}>
+                    {categoryLabels[category]}
+                  </Typography>
+                  <CategoryControls
+                    onMuteToggle={() => handleMuteToggle(category)}
+                    onSoloToggle={() => handleSoloToggle(category)}
+                    muted={state?.muted ?? false}
+                    soloed={state?.soloed ?? false}
+                  />
+                </Box>
+                <List dense disablePadding>
+                  {categoryBps.map((bp: BreakpointDescriptor) => (
+                    <ListItem
+                      key={bp.id}
+                      sx={{ opacity: isActive ? 1 : 0.4 }}
+                      secondaryAction={
+                        <Tooltip title="Remove breakpoint">
+                          <IconButton
+                            edge="end"
+                            size="small"
+                            onClick={() => {
+                              void handleRemove(bp.id);
+                            }}
+                          >
+                            <DeleteOutlineIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      }
+                    >
+                      <ListItemText
+                        primary={
+                          <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
+                            {bp.location}
+                          </Typography>
+                        }
+                        secondary={
+                          <Typography variant="caption" color="text.secondary" sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+                            <Chip label={bp.kind} size="small" color="primary" variant="outlined" />
+                            <Switch
+                              size="small"
+                              checked={bp.enabled}
+                              onChange={(e) => {
+                                void handleToggle(bp.id, e.target.checked);
+                              }}
+                            />
+                            <span>Hits: {bp.hitCount}</span>
+                          </Typography>
+                        }
+                      />
+                    </ListItem>
+                  ))}
+                </List>
+              </Box>
+            );
+          })}
+          {filteredBreakpoints.length === 0 && (
+            <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
+              No breakpoints defined.
+            </Typography>
+          )}
+        </Box>
       ) : (
-        <List dense disablePadding sx={{ overflowY: "auto", flex: 1 }}>
-          {filteredBreakpoints.map((bp) => (
-            <ListItem
-              key={bp.id}
-              secondaryAction={
-                <Tooltip title="Remove breakpoint">
-                  <IconButton
-                    edge="end"
-                    size="small"
-                    onClick={() => {
-                      void handleRemove(bp.id);
-                    }}
-                  >
-                    <DeleteOutlineIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-              }
-            >
-              <ListItemText
-                primary={
-                  <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
-                    {bp.location}
-                  </Typography>
-                }
-                secondary={
-                  <Typography variant="caption" color="text.secondary" sx={{ display: "flex", gap: 1, alignItems: "center" }}>
-                    <Chip label={bp.kind} size="small" color="primary" variant="outlined" />
-                    <Switch
-                      size="small"
-                      checked={bp.enabled}
-                      onChange={(e) => {
-                        void handleToggle(bp.id, e.target.checked);
-                      }}
-                    />
-                    <span>Hits: {bp.hitCount}</span>
-                  </Typography>
-                }
-              />
-            </ListItem>
-          ))}
-        </List>
+        // Regular single-category view
+        <>
+          {filteredBreakpoints.length === 0 ? (
+            <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
+              No breakpoints defined.
+            </Typography>
+          ) : (
+            <List dense disablePadding sx={{ overflowY: "auto", flex: 1 }}>
+              {filteredBreakpoints.map((bp) => (
+                <ListItem
+                  key={bp.id}
+                  secondaryAction={
+                    <Tooltip title="Remove breakpoint">
+                      <IconButton
+                        edge="end"
+                        size="small"
+                        onClick={() => {
+                          void handleRemove(bp.id);
+                        }}
+                      >
+                        <DeleteOutlineIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  }
+                >
+                  <ListItemText
+                    primary={
+                      <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
+                        {bp.location}
+                      </Typography>
+                    }
+                    secondary={
+                      <Typography variant="caption" color="text.secondary" sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+                        <Chip label={bp.kind} size="small" color="primary" variant="outlined" />
+                        <Switch
+                          size="small"
+                          checked={bp.enabled}
+                          onChange={(e) => {
+                            void handleToggle(bp.id, e.target.checked);
+                          }}
+                        />
+                        <span>Hits: {bp.hitCount}</span>
+                      </Typography>
+                    }
+                  />
+                </ListItem>
+              ))}
+            </List>
+          )}
+        </>
       )}
     </Panel>
   );
 };
 
-export const EventsBreakpointsPanel = () => <BreakpointsView title="Events: Breakpoints" addMode="event" />;
+export const EventsBreakpointsPanel = () => <BreakpointsView title="Events: Breakpoints" addMode="event" showCategoryControls={true} />;
 
 export const Sh4BreakpointsPanel = () => (
   <BreakpointsView title="SH4: Breakpoints" filter={(loc) => loc.toLowerCase().includes("sh4")} addMode="pc-sh4" />
@@ -191,6 +413,6 @@ export const DspBreakpointsPanel = () => (
       const lower = loc.toLowerCase();
       return lower.includes("aica") || lower.includes("dsp");
     }}
-    addMode="event"
+    addMode="dsp"
   />
 );
