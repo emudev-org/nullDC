@@ -94,9 +94,9 @@ jobs:
           key: ${{ matrix.target }}
           cache-on-failure: true
           cache-all-crates: true
-      # This is needed on windows because rust cache doesn't cache target dir
-      - name: Cache target dir
-        if: runner.os == 'Windows'
+      # This is needed on windows, macOS x86_64 and cross compiles because rust cache doesn't cache target dir correctly there
+      - name: "Cache target dir"
+        if: runner.os == 'Windows' || matrix.target == 'x86_64-apple-darwin' || matrix.target == 'aarch64-unknown-linux-gnu' || matrix.target == 'riscv64gc-unknown-linux-gnu'
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/target
