@@ -18,7 +18,7 @@ import { WatchesPanel } from "../panels/WatchesPanel";
 import { EventLogPanel } from "../panels/EventLogPanel";
 import { Sh4DisassemblyPanel, Arm7DisassemblyPanel, DspDisassemblyPanel } from "../panels/DisassemblyPanel";
 import { Sh4MemoryPanel, Arm7MemoryPanel } from "../panels/MemoryPanel";
-import { Sh4CallstackPanel, Arm7CallstackPanel } from "../panels/CallstackPanel";
+import CallstackPanel from "../panels/CallstackPanel";
 import { AudioPanel } from "../panels/AudioPanel";
 import { TaInspectorPanel } from "../panels/TaInspectorPanel";
 import { CoreInspectorPanel } from "../panels/CoreInspectorPanel";
@@ -85,8 +85,8 @@ const mainTabs = [
 const sidePanelTabs = [
   { value: "device-tree", label: "Device Tree", component: <DeviceTreePanel /> },
   { value: "watches", label: "Watches", component: <WatchesPanel showTitle={false} /> },
-  { value: "sh4-callstack", label: "SH4: Callstack", component: <Sh4CallstackPanel showTitle={false} /> },
-  { value: "arm7-callstack", label: "ARM7: Callstack", component: <Arm7CallstackPanel showTitle={false} /> },
+  { value: "sh4-callstack", label: "SH4: Callstack", component: <CallstackPanel target="sh4" showTitle={false} /> },
+  { value: "arm7-callstack", label: "ARM7: Callstack", component: <CallstackPanel target="arm7" showTitle={false} /> },
 ];
 
 const connectionIcons = {
@@ -494,8 +494,8 @@ export const AppLayout = () => {
               }}
             >
               <WatchesPanel showTitle={true} />
-              <Sh4CallstackPanel showTitle={true} />
-              <Arm7CallstackPanel showTitle={true} />
+              <CallstackPanel target="sh4" showTitle={true} />
+              <CallstackPanel target="arm7" showTitle={true} />
             </Box>
           )}
         </Box>

@@ -6,11 +6,18 @@ import { useSessionStore } from "../../state/sessionStore";
 import { useDebuggerDataStore } from "../../state/debuggerDataStore";
 import type { CallstackFrame } from "../../lib/debuggerSchema";
 
-const CallstackView = ({ title, target, showTitle = false }: { title: string; target: "sh4" | "arm7"; showTitle?: boolean }) => {
+interface CallstackPanelProps {
+  target: "sh4" | "arm7";
+  showTitle?: boolean;
+}
+
+const CallstackPanel = ({ target, showTitle = false }: CallstackPanelProps) => {
   const client = useSessionStore((s) => s.client);
   const initialized = useDebuggerDataStore((s) => s.initialized);
   const [frames, setFrames] = useState<CallstackFrame[] | null>(null);
   const [loading, setLoading] = useState(false);
+
+  const title = target === "sh4" ? "SH4: Callstack" : "ARM7: Callstack";
 
   const refresh = async () => {
     if (!client) return;
@@ -91,7 +98,6 @@ const CallstackView = ({ title, target, showTitle = false }: { title: string; ta
   );
 };
 
-export const Sh4CallstackPanel = ({ showTitle = false }: { showTitle?: boolean }) => <CallstackView title="SH4: Callstack" target="sh4" showTitle={showTitle} />;
-export const Arm7CallstackPanel = ({ showTitle = false }: { showTitle?: boolean }) => <CallstackView title="ARM7: Callstack" target="arm7" showTitle={showTitle} />;
+export default CallstackPanel;
 
 
