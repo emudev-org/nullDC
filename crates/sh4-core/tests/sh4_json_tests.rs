@@ -333,20 +333,22 @@ fn compare_floats(mine: f32, theirs: f32) -> bool {
     false
 }
 
-fn compare_states(ctx: &Sh4Ctx, expected: &Sh4State) -> Result<(), String> {
+fn compare_states(ctx: &Sh4Ctx, expected: &Sh4State, initial: &Sh4State) -> Result<(), String> {
     let mut errors = Vec::new();
 
     // Compare general registers R0-R15
     for i in 0..16 {
         if ctx.r[i] != expected.r[i] {
-            errors.push(format!("R{} mismatch: got 0x{:08X}, expected 0x{:08X}", i, ctx.r[i], expected.r[i]));
+            errors.push(format!("R{} mismatch: got 0x{:08X}, expected 0x{:08X} (initial: 0x{:08X})",
+                i, ctx.r[i], expected.r[i], initial.r[i]));
         }
     }
 
     // Compare banked registers R_0-R_7
     for i in 0..8 {
         if ctx.r_bank[i] != expected.r_bank[i] {
-            errors.push(format!("R_{}bank mismatch: got 0x{:08X}, expected 0x{:08X}", i, ctx.r_bank[i], expected.r_bank[i]));
+            errors.push(format!("R_{}bank mismatch: got 0x{:08X}, expected 0x{:08X} (initial: 0x{:08X})",
+                i, ctx.r_bank[i], expected.r_bank[i], initial.r_bank[i]));
         }
     }
 
@@ -543,7 +545,7 @@ fn run_test_file(test_path: &str) {
                     Err(err)
                 } else {
                     // Execution succeeded, now compare states
-                    match compare_states(&ctx, &test.final_state) {
+                    match compare_states(&ctx, &test.final_state, &test.initial) {
                         Ok(_) => Ok(()),
                         Err(e) => Err(e),
                     }
