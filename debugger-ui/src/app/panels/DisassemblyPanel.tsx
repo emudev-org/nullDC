@@ -604,11 +604,17 @@ const DisassemblyView = ({
                   fontWeight: 600,
                   border: "2px solid",
                   borderColor: "success.main",
+                  "&:hover": {
+                    borderColor: "success.main !important",
+                  },
                 },
                 "& .target-address": {
                   border: "2px solid",
                   borderColor: "warning.main",
                   animation: "fadeOutTarget 2s forwards",
+                  "&:hover": {
+                    borderColor: "inherit !important",
+                  },
                 },
                 "@keyframes fadeOutTarget": {
                   "0%": {
@@ -649,7 +655,11 @@ const DisassemblyView = ({
                       px: 0.5,
                       py: 0,
                       border: "2px solid transparent",
+                      borderBottom: "1px solid transparent",
                       borderRadius: 1,
+                      "&:hover": {
+                        borderBottomColor: "primary.main",
+                      },
                       "&:hover .breakpoint-gutter": {
                         opacity: 1,
                       },

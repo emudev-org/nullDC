@@ -355,6 +355,9 @@ const MemoryView = ({
                 border: "2px solid",
                 borderColor: "warning.main",
                 animation: "fadeOutTarget 2s forwards",
+                "&:hover": {
+                  borderColor: "inherit !important",
+                },
               },
               "@keyframes fadeOutTarget": {
                 "0%": {
@@ -382,9 +385,13 @@ const MemoryView = ({
                   fontSize: 13,
                   alignItems: "baseline",
                   border: "2px solid transparent",
+                  borderBottom: "1px solid transparent",
                   borderRadius: 1,
                   px: 0.5,
                   py: 0.25,
+                  "&:hover": {
+                    borderBottomColor: "primary.main",
+                  },
                 }}>
                 <Typography component="span" sx={{ width: 100, flexShrink: 0, mr: "1.5em" }}>{formatHexAddress(row.address)}</Typography>
                 <Typography component="span" sx={{ width: 380, flexShrink: 0, whiteSpace: "nowrap", letterSpacing: 0, mr: "4em" }}>{row.hex}</Typography>
