@@ -95,8 +95,16 @@ export class DebuggerClient {
     return this.rpc.call("control.pause", { target });
   }
 
-  async step(target: string, granularity: "instruction" | "block" | "event", modifiers?: string[]) {
-    return this.rpc.call("control.step", { target, granularity, modifiers });
+  async step(target: string) {
+    return this.rpc.call("control.step", { target });
+  }
+
+  async stepOver(target: string) {
+    return this.rpc.call("control.stepOver", { target });
+  }
+
+  async stepOut(target: string) {
+    return this.rpc.call("control.stepOut", { target });
   }
 
   async runUntil(target: string, type: "interrupt" | "exception" | "primitive" | "tile" | "vertex" | "list" | "sample", value?: string) {

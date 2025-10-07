@@ -414,45 +414,52 @@ const DisassemblyView = ({
   }, [instructionSize]);
 
   const handleStep = useCallback(async () => {
-    if (!client) {
+    if (!client || executionState !== "paused") {
       return;
     }
     try {
-      await client.step(target, "instruction");
+      // For DSP: this is "Step", for ARM7/SH4: this is "Step Over"
+      const isDsp = target === "dsp";
+      if (isDsp) {
+        await client.step(target);
+      } else {
+        await client.stepOver(target);
+      }
       // State will be updated via notification from server
     } catch (error) {
       console.error("Failed to step", error);
     }
-  }, [client, target]);
+  }, [client, target, executionState]);
 
   const handleStepIn = useCallback(async () => {
-    if (!client) {
+    if (!client || executionState !== "paused") {
       return;
     }
     try {
-      await client.step(target, "instruction", ["into"]);
+      await client.step(target);
       // State will be updated via notification from server
     } catch (error) {
       console.error("Failed to step in", error);
     }
-  }, [client, target]);
+  }, [client, target, executionState]);
 
   const handleStepOut = useCallback(async () => {
-    if (!client) {
+    if (!client || executionState !== "paused") {
       return;
     }
     try {
-      await client.step(target, "instruction", ["out"]);
+      await client.stepOut(target);
       // State will be updated via notification from server
     } catch (error) {
       console.error("Failed to step out", error);
     }
-  }, [client, target]);
+  }, [client, target, executionState]);
 
   const showStepInOut = target === "sh4" || target === "arm7";
   const isDsp = target === "dsp";
-  const stepLabel = isDsp ? "STEP" : "Step Over";
+  const stepLabel = isDsp ? "Step" : "Step Over";
   const StepIcon = isDsp ? ArrowForwardIcon : SubdirectoryArrowRightIcon;
+  const stepDisabled = executionState !== "paused";
 
   return (
     <Paper
@@ -477,30 +484,39 @@ const DisassemblyView = ({
       >
         <Stack direction="row" spacing={0.5} alignItems="center">
           <Tooltip title={stepLabel}>
-            <IconButton
-              size="small"
-              onClick={handleStep}
-            >
-              <StepIcon fontSize="small" />
-            </IconButton>
+            <span>
+              <IconButton
+                size="small"
+                onClick={handleStep}
+                disabled={stepDisabled}
+              >
+                <StepIcon fontSize="small" />
+              </IconButton>
+            </span>
           </Tooltip>
           {showStepInOut && (
             <>
               <Tooltip title="Step In">
-                <IconButton
-                  size="small"
-                  onClick={handleStepIn}
-                >
-                  <ArrowDownwardRoundedIcon fontSize="small" />
-                </IconButton>
+                <span>
+                  <IconButton
+                    size="small"
+                    onClick={handleStepIn}
+                    disabled={stepDisabled}
+                  >
+                    <ArrowDownwardRoundedIcon fontSize="small" />
+                  </IconButton>
+                </span>
               </Tooltip>
               <Tooltip title="Step Out">
-                <IconButton
-                  size="small"
-                  onClick={handleStepOut}
-                >
-                  <ArrowUpwardRoundedIcon fontSize="small" />
-                </IconButton>
+                <span>
+                  <IconButton
+                    size="small"
+                    onClick={handleStepOut}
+                    disabled={stepDisabled}
+                  >
+                    <ArrowUpwardRoundedIcon fontSize="small" />
+                  </IconButton>
+                </span>
               </Tooltip>
             </>
           )}

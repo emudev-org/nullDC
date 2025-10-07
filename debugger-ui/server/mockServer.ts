@@ -548,6 +548,42 @@ const respondError = (socket: WebSocket, id: JsonRpcError["id"], error: unknown)
   socket.send(JSON.stringify(payload));
 };
 
+const incrementProgramCounter = (target: string) => {
+  const targetLower = target.toLowerCase();
+
+  if (targetLower.includes("sh4")) {
+    // Increment SH4 PC with wraparound (8 instructions * 2 bytes each = 16 bytes)
+    const pcValue = registerValues.get("dc.sh4.cpu.pc");
+    if (pcValue && pcValue.startsWith("0x")) {
+      const pc = Number.parseInt(pcValue, 16);
+      const baseAddress = 0x8C0000A0;
+      const offset = pc - baseAddress;
+      const newOffset = (offset + 2) % (8 * 2);
+      const newPc = baseAddress + newOffset;
+      setRegisterValue("dc.sh4.cpu", "PC", `0x${newPc.toString(16).toUpperCase().padStart(8, "0")}`);
+    }
+  } else if (targetLower.includes("arm7")) {
+    // Increment ARM7 PC with wraparound (8 instructions * 4 bytes each = 32 bytes)
+    const arm7PcValue = registerValues.get("dc.aica.arm7.pc");
+    if (arm7PcValue && arm7PcValue.startsWith("0x")) {
+      const arm7Pc = Number.parseInt(arm7PcValue, 16);
+      const baseAddress = 0x00200010;
+      const offset = arm7Pc - baseAddress;
+      const newOffset = (offset + 4) % (8 * 4);
+      const newPc = baseAddress + newOffset;
+      setRegisterValue("dc.aica.arm7", "PC", `0x${newPc.toString(16).toUpperCase().padStart(8, "0")}`);
+    }
+  } else if (targetLower.includes("dsp")) {
+    // Increment DSP step counter with wraparound (0..7)
+    const dspStepValue = registerValues.get("dc.aica.dsp.step");
+    if (dspStepValue && dspStepValue.startsWith("0x")) {
+      const step = Number.parseInt(dspStepValue, 16);
+      const newStep = (step + 1) % 8;
+      setRegisterValue("dc.aica.dsp", "STEP", `0x${newStep.toString(16).toUpperCase().padStart(3, "0")}`);
+    }
+  }
+};
+
 const dispatchMethod = async (
   method: keyof DebuggerRpcSchema,
   params: Record<string, unknown>,
@@ -623,11 +659,30 @@ const dispatchMethod = async (
       // Broadcast tick after state change
       setTimeout(() => broadcastTick(), 0);
       return {} as RpcError;
-    case "control.step":
+    case "control.step": {
       isRunning = false;
+      const stepTarget = (params.target as string) ?? "sh4";
+      incrementProgramCounter(stepTarget);
       // Broadcast tick after state change
       setTimeout(() => broadcastTick(), 0);
       return {} as RpcError;
+    }
+    case "control.stepOver": {
+      isRunning = false;
+      const stepOverTarget = (params.target as string) ?? "sh4";
+      incrementProgramCounter(stepOverTarget);
+      // Broadcast tick after state change
+      setTimeout(() => broadcastTick(), 0);
+      return {} as RpcError;
+    }
+    case "control.stepOut": {
+      isRunning = false;
+      const stepOutTarget = (params.target as string) ?? "sh4";
+      incrementProgramCounter(stepOutTarget);
+      // Broadcast tick after state change
+      setTimeout(() => broadcastTick(), 0);
+      return {} as RpcError;
+    }
     case "control.runUntil":
       isRunning = true;
       // Broadcast tick after state change

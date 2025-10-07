@@ -146,7 +146,15 @@ export type DebuggerRpcSchema = RpcSchema & {
     result: RpcError;
   };
   "control.step": {
-    params: { target: string; granularity: "instruction" | "block" | "event"; modifiers?: string[] };
+    params: { target: string };
+    result: RpcError;
+  };
+  "control.stepOver": {
+    params: { target: string };
+    result: RpcError;
+  };
+  "control.stepOut": {
+    params: { target: string };
     result: RpcError;
   };
   "control.runUntil": {
