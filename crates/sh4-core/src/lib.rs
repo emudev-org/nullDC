@@ -77,6 +77,59 @@ bitfield! {
     // bits 22-31 reserved (pad)
 }
 
+extern "C" fn dummy_read8(_ctx: *mut u8, addr: u32) -> u8 {
+    panic!("Unhandled read8 at address: 0x{:08X}", addr)
+}
+extern "C" fn dummy_read16(_ctx: *mut u8, addr: u32) -> u16 {
+    panic!("Unhandled read16 at address: 0x{:08X}", addr)
+}
+extern "C" fn dummy_read32(_ctx: *mut u8, addr: u32) -> u32 {
+    panic!("Unhandled read32 at address: 0x{:08X}", addr)
+}
+extern "C" fn dummy_read64(_ctx: *mut u8, addr: u32) -> u64 {
+    panic!("Unhandled read64 at address: 0x{:08X}", addr)
+}
+extern "C" fn dummy_write8(_ctx: *mut u8, addr: u32, value: u8) {
+    panic!("Unhandled write8 at address: 0x{:08X}, value: 0x{:02X}", addr, value)
+}
+extern "C" fn dummy_write16(_ctx: *mut u8, addr: u32, value: u16) {
+    panic!("Unhandled write16 at address: 0x{:08X}, value: 0x{:04X}", addr, value)
+}
+extern "C" fn dummy_write32(_ctx: *mut u8, addr: u32, value: u32) {
+    panic!("Unhandled write32 at address: 0x{:08X}, value: 0x{:08X}", addr, value)
+}
+extern "C" fn dummy_write64(_ctx: *mut u8, addr: u32, value: u64) {
+    panic!("Unhandled write64 at address: 0x{:08X}, value: 0x{:016X}", addr, value)
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct MemHandlers {
+    pub read8: extern "C" fn(ctx: *mut u8, addr: u32) -> u8,
+    pub read16: extern "C" fn(ctx: *mut u8, addr: u32) -> u16,
+    pub read32: extern "C" fn(ctx: *mut u8, addr: u32) -> u32,
+    pub read64: extern "C" fn(ctx: *mut u8, addr: u32) -> u64,
+    pub write8: extern "C" fn(ctx: *mut u8, addr: u32, value: u8),
+    pub write16: extern "C" fn(ctx: *mut u8, addr: u32, value: u16),
+    pub write32: extern "C" fn(ctx: *mut u8, addr: u32, value: u32),
+    pub write64: extern "C" fn(ctx: *mut u8, addr: u32, value: u64),
+}
+
+impl Default for MemHandlers {
+    fn default() -> Self {
+        Self {
+            read8: dummy_read8,
+            read16: dummy_read16,
+            read32: dummy_read32,
+            read64: dummy_read64,
+            write8: dummy_write8,
+            write16: dummy_write16,
+            write32: dummy_write32,
+            write64: dummy_write64,
+        }
+    }
+}
+
 #[repr(C)]
 pub struct Sh4Ctx {
     pub r: [u32; 16],
@@ -114,6 +167,8 @@ pub struct Sh4Ctx {
     // Memory map (moved from Dreamcast)
     pub memmap: [*mut u8; 256],
     pub memmask: [u32; 256],
+    pub memhandlers: [MemHandlers; 256],
+    pub memcontexts: [*mut u8; 256],
 
     // Decoder state (for fns/recompiler)
     pub dec_branch: u32,
@@ -165,6 +220,8 @@ impl Default for Sh4Ctx {
 
             memmap: [ptr::null_mut(); 256],
             memmask: [0; 256],
+            memhandlers: [MemHandlers::default(); 256],
+            memcontexts: [ptr::null_mut(); 256],
 
             ptrs: vec![ptr::null(); 0],
 
