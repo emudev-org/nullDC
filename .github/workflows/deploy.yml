@@ -153,6 +153,13 @@ jobs:
         if: matrix.target == 'wasm32-unknown-unknown'
         run: |
           trunk build
+
+      - name: "WASM: Install binaryen (wasm-opt)"
+        if: matrix.target == 'wasm32-unknown-unknown'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y binaryen
+
       - name: "WASM: Optimize with wasm-opt"
         if: matrix.target == 'wasm32-unknown-unknown'
         run: |
