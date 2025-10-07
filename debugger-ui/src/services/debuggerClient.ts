@@ -1,14 +1,11 @@
 ﻿import type { JsonRpcNotification } from "../lib/jsonRpc";
 import type {
   BreakpointDescriptor,
+  CallstackFrame,
   DebuggerNotification,
   DebuggerRpcSchema,
-  FrameLogEntry,
   MemorySlice,
-  RegisterValue,
-  ThreadInfo,
   WaveformChunk,
-  CallstackFrame,
 } from "../lib/debuggerSchema";
 import { JsonRpcClient } from "./jsonRpcClient";
 import type { JsonRpcClientOptions } from "./jsonRpcClient";
@@ -56,52 +53,24 @@ export class DebuggerClient {
     });
   }
 
-  async describe(include?: ("devices" | "breakpoints" | "threads")[]) {
-    return this.rpc.call("debugger.describe", { include });
-  }
-
-  async fetchEmulatorInfo() {
-    const result = await this.rpc.call("debugger.describe", { include: [] });
-    return (result as { emulator?: { name?: string; version?: string; build?: string } }).emulator;
-  }
-
-  async fetchRegisters(path: string) {
-    return this.rpc.call("state.getRegisters", { path });
-  }
-
-  async fetchDeviceTree() {
-    const { devices } = await this.rpc.call("debugger.describe", { include: ["devices"] });
-    return devices;
+  async describe() {
+    return this.rpc.call("debugger.describe", {});
   }
 
   async fetchCallstack(target: "sh4" | "arm7", maxFrames = 32): Promise<{ target: string; frames: CallstackFrame[] }> {
     return this.rpc.call("state.getCallstack", { target, maxFrames });
   }
 
-  async subscribe(topics: string[]) {
-    if (!topics.length) {
-      return { acknowledged: [] as string[] };
-    }
-    return this.rpc.call("debugger.subscribe", { topics });
-  }
-
-  async unsubscribe(topics: string[]) {
-    if (!topics.length) {
-      return { acknowledged: [] as string[] };
-    }
-    return this.rpc.call("debugger.unsubscribe", { topics });
-  }
-
   async watch(expressions: string[]) {
     if (!expressions.length) {
-      return { accepted: [] as string[], all: [] as string[] };
+      return {};
     }
     return this.rpc.call("state.watch", { expressions });
   }
 
   async unwatch(expressions: string[]) {
     if (!expressions.length) {
-      return { accepted: [] as string[], all: [] as string[] };
+      return {};
     }
     return this.rpc.call("state.unwatch", { expressions });
   }
@@ -118,12 +87,20 @@ export class DebuggerClient {
     return this.rpc.call("breakpoints.toggle", { id, enabled });
   }
 
-  async listBreakpoints() {
-    return this.rpc.call("breakpoints.list", {});
-  }
-
   async setCategoryStates(categories: Record<string, { muted: boolean; soloed: boolean }>) {
     return this.rpc.call("breakpoints.setCategoryStates", { categories });
+  }
+
+  async pause(target?: string) {
+    return this.rpc.call("control.pause", { target });
+  }
+
+  async step(target: string, granularity: "instruction" | "block" | "event", modifiers?: string[]) {
+    return this.rpc.call("control.step", { target, granularity, modifiers });
+  }
+
+  async runUntil(target: string, type: "interrupt" | "exception" | "primitive" | "tile" | "vertex" | "list" | "sample", value?: string) {
+    return this.rpc.call("control.runUntil", { target, type, value });
   }
 
   async fetchMemorySlice(params: {
@@ -140,10 +117,6 @@ export class DebuggerClient {
     return this.rpc.call("state.getDisassembly", params);
   }
 
-  async fetchFrameLog(frame: number, limit?: number) {
-    return this.rpc.call("logs.fetchFrameLog", { frame, limit });
-  }
-
   async sendNotification(method: keyof DebuggerRpcSchema, params: unknown) {
     this.rpc.notify(method, params as never);
   }
@@ -157,40 +130,15 @@ export class DebuggerClient {
 const mapNotification = (notification: JsonRpcNotification): DebuggerNotification | undefined => {
   const { method, params } = notification;
   switch (method) {
-    case "event.state.registers":
+    case "event.tick":
       return {
-        topic: "state.registers",
-        payload: params as { path: string; registers: RegisterValue[] },
-      };
-    case "event.state.watch":
-      return {
-        topic: "state.watch",
-        payload: params as { expression: string; value: unknown },
-      };
-    case "event.state.breakpoint":
-      return {
-        topic: "state.breakpoint",
-        payload: params as BreakpointDescriptor,
-      };
-    case "event.state.thread":
-      return {
-        topic: "state.thread",
-        payload: params as ThreadInfo,
-      };
-    case "event.state.execution":
-      return {
-        topic: "state.execution",
-        payload: params as { state: "running" | "paused"; breakpoint?: BreakpointDescriptor },
+        topic: "tick",
+        payload: params as import("../lib/debuggerSchema").DebuggerTick,
       };
     case "event.stream.waveform":
       return {
         topic: "stream.waveform",
         payload: params as WaveformChunk,
-      };
-    case "event.stream.frameLog":
-      return {
-        topic: "stream.frameLog",
-        payload: params as FrameLogEntry,
       };
     default:
       return undefined;

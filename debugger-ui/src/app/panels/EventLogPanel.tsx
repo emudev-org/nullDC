@@ -22,8 +22,8 @@ export const EventLogPanel = () => {
         </Typography>
       ) : (
         <List dense disablePadding sx={{ maxHeight: "100%" }}>
-          {rendered.map((entry, idx) => (
-            <ListItem key={`${entry.timestamp}-${idx}`} sx={{ alignItems: "flex-start" }}>
+          {rendered.map((entry) => (
+            <ListItem key={entry.eventId} sx={{ alignItems: "flex-start" }}>
               <ListItemText
                 primary={
                   <Typography variant="caption" color="text.secondary">

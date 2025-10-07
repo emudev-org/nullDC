@@ -84,13 +84,12 @@ const BreakpointsView = ({ title, filter, addMode, showCategoryControls = false 
   const toggleBreakpoint = useDebuggerDataStore((state) => state.toggleBreakpoint);
   const client = useSessionStore((state) => state.client);
   const [newBreakpoint, setNewBreakpoint] = useState("");
-  const [categoryStateVersion, setCategoryStateVersion] = useState(0);
 
   const filteredBreakpoints = filter ? breakpoints.filter((bp) => filter(bp.location)) : breakpoints;
 
   // Set the client for the shared category state module
   useEffect(() => {
-    setClient(client);
+    setClient(client ?? null);
   }, [client]);
 
   const handleRemove = useCallback(
@@ -114,7 +113,6 @@ const BreakpointsView = ({ title, filter, addMode, showCategoryControls = false 
       if (state.muted) {
         state.soloed = false; // Can't be both muted and soloed
       }
-      setCategoryStateVersion((v) => v + 1);
       syncCategoryStatesToServer();
     }
   }, []);
@@ -132,7 +130,6 @@ const BreakpointsView = ({ title, filter, addMode, showCategoryControls = false 
           }
         }
       }
-      setCategoryStateVersion((v) => v + 1);
       syncCategoryStatesToServer();
     }
   }, []);

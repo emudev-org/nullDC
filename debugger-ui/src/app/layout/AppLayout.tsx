@@ -108,6 +108,8 @@ export const AppLayout = () => {
   const initializeData = useDebuggerDataStore((state) => state.initialize);
   const resetData = useDebuggerDataStore((state) => state.reset);
   const breakpointHit = useDebuggerDataStore((state) => state.breakpointHit);
+  const errorMessage = useDebuggerDataStore((state) => state.errorMessage);
+  const clearError = useDebuggerDataStore((state) => state.clearError);
   const navigate = useNavigate();
   const { tab } = useParams();
   const [leftPanelOpen, setLeftPanelOpen] = useState(() => loadLayoutPrefs().leftPanelOpen);
@@ -514,6 +516,17 @@ export const AppLayout = () => {
       >
         <Alert severity="warning" variant="filled" sx={{ width: "100%" }}>
           Breakpoint hit: {breakpointHit?.breakpoint.location}
+        </Alert>
+      </Snackbar>
+      <Snackbar
+        open={!!errorMessage}
+        autoHideDuration={5000}
+        onClose={clearError}
+        anchorOrigin={{ vertical: "top", horizontal: "center" }}
+        sx={{ mt: 10 }}
+      >
+        <Alert severity="error" variant="filled" onClose={clearError} sx={{ width: "100%" }}>
+          {errorMessage}
         </Alert>
       </Snackbar>
     </Box>

@@ -16,11 +16,14 @@ import type {
   BreakpointDescriptor,
   DebuggerNotification,
   DebuggerRpcSchema,
+  DebuggerShape,
+  DebuggerTick,
   DeviceNodeDescriptor,
   DisassemblyLine,
   FrameLogEntry,
   MemorySlice,
   RegisterValue,
+  RpcError,
   ThreadInfo,
   WaveformChunk,
 } from "../src/lib/debuggerSchema";
@@ -32,13 +35,14 @@ const IS_PRODUCTION = process.env.NODE_ENV === "production";
 interface ClientContext {
   socket: WebSocket;
   sessionId: string;
-  topics: Set<string>;
   watches: Set<string>;
 }
 
 const serverWatches = new Set<string>();
 const serverBreakpoints = new Map<string, BreakpointDescriptor>();
 let isRunning = true; // Execution state
+let nextEventId = 1n; // Event ID counter (BigInt for 64-bit)
+let tickId = 0; // Tick counter
 
 type BreakpointCategory = "events" | "sh4" | "arm7" | "dsp";
 
@@ -490,7 +494,7 @@ const sampleThreads: ThreadInfo[] = [
 
 const FRAME_LOG_LIMIT = 256;
 
-const frameEventGenerators: Array<() => Omit<FrameLogEntry, "timestamp">> = [
+const frameEventGenerators: Array<() => Omit<FrameLogEntry, "timestamp" | "eventId">> = [
   () => ({ subsystem: "ta", severity: "info", message: `TA/END_LIST tile ${Math.floor(Math.random() * 32)}` }),
   () => ({ subsystem: "core", severity: "info", message: "CORE/START_RENDER" }),
   () => ({ subsystem: "core", severity: "trace", message: `CORE/QUEUE_SUBMISSION ${Math.floor(Math.random() * 4)}` }),
@@ -504,6 +508,7 @@ const createFrameEvent = (): FrameLogEntry => {
   const generator = frameEventGenerators[Math.floor(Math.random() * frameEventGenerators.length)];
   const event = generator();
   return {
+    eventId: (nextEventId++).toString(),
     timestamp: Date.now(),
     ...event,
   };
@@ -514,38 +519,13 @@ const frameLogEntries: FrameLogEntry[] = Array.from({ length: 6 }, () => createF
 const clients = new Set<ClientContext>();
 
 const sendNotification = (client: ClientContext, notification: DebuggerNotification) => {
-  const method = mapTopicToMethod(notification.topic);
-  if (!method) {
-    return;
-  }
-
+  const method = notification.topic === "tick" ? "event.tick" : `event.${notification.topic}`;
   const payload = JSON.stringify({
     jsonrpc: JSON_RPC_VERSION,
     method,
     params: notification.payload,
   });
   client.socket.send(payload);
-};
-
-const mapTopicToMethod = (topic: DebuggerNotification["topic"]): string | undefined => {
-  switch (topic) {
-    case "state.registers":
-      return "event.state.registers";
-    case "state.watch":
-      return "event.state.watch";
-    case "state.breakpoint":
-      return "event.state.breakpoint";
-    case "state.thread":
-      return "event.state.thread";
-    case "state.execution":
-      return "event.state.execution";
-    case "stream.waveform":
-      return "event.stream.waveform";
-    case "stream.frameLog":
-      return "event.stream.frameLog";
-    default:
-      return undefined;
-  }
 };
 
 const handleRequest = async (client: ClientContext, message: JsonRpcRequest) => {
@@ -590,32 +570,9 @@ const dispatchMethod = async (
     case "debugger.describe":
       return {
         emulator: { name: "nullDC", version: "dev", build: "native" as const },
-        devices: buildDeviceTree(),
-        breakpoints: Array.from(serverBreakpoints.values()),
-        threads: sampleThreads,
-      };
-    case "debugger.subscribe": {
-      const topics = new Set<string>((params.topics as string[]) ?? []);
-      topics.forEach((topic) => client.topics.add(topic));
-      return { acknowledged: Array.from(topics) };
-    }
-    case "debugger.unsubscribe": {
-      const topics = (params.topics as string[]) ?? [];
-      topics.forEach((topic) => client.topics.delete(topic));
-      return { acknowledged: topics };
-    }
-    case "state.getRegisters":
-      return { path: params.path, registers: mutateRegisters(baseRegisters) };
-    case "state.getCache":
-      return {
-        path: params.path,
-        cache: params.cache,
-        entries: Array.from({ length: 16 }).map((_, index) => ({
-          index,
-          tag: `0x${(0x8000 + index).toString(16)}`,
-          valid: Math.random() > 0.2,
-        })),
-      };
+        deviceTree: buildDeviceTree(),
+        capabilities: ["watches", "step", "breakpoints", "frame-log", "waveforms"],
+      } as DebuggerShape;
     case "state.getMemorySlice": {
       const target = typeof params.target === "string" ? params.target : "sh4";
       const addressValue = Number(params.address);
@@ -655,7 +612,9 @@ const dispatchMethod = async (
         client.watches.add(expr);
         serverWatches.add(expr);
       });
-      return { accepted: expressions, all: Array.from(serverWatches) };
+      // Broadcast tick after adding watches
+      setTimeout(() => broadcastTick(), 0);
+      return {} as RpcError;
     }
     case "state.unwatch": {
       const expressions = (params.expressions as string[]) ?? [];
@@ -663,47 +622,25 @@ const dispatchMethod = async (
         client.watches.delete(expr);
         serverWatches.delete(expr);
       });
-      return { accepted: expressions, all: Array.from(serverWatches) };
+      // Broadcast tick after removing watches
+      setTimeout(() => broadcastTick(), 0);
+      return {} as RpcError;
     }
     case "control.pause":
       isRunning = false;
-
-      for (const c of clients) {
-        if (c.topics.has("state.execution")) {
-          sendNotification(c, {
-            topic: "state.execution" as never,
-            payload: { state: "paused" } as never,
-          });
-        }
-      }
-
-      return { target: params.target ?? "sh4", state: "halted" as const };
+      // Broadcast tick after state change
+      setTimeout(() => broadcastTick(), 0);
+      return {} as RpcError;
     case "control.step":
       isRunning = false;
-
-      for (const c of clients) {
-        if (c.topics.has("state.execution")) {
-          sendNotification(c, {
-            topic: "state.execution" as never,
-            payload: { state: "paused" } as never,
-          });
-        }
-      }
-
-      return { target: params.target, state: "halted" as const };
+      // Broadcast tick after state change
+      setTimeout(() => broadcastTick(), 0);
+      return {} as RpcError;
     case "control.runUntil":
       isRunning = true;
-
-      for (const c of clients) {
-        if (c.topics.has("state.execution")) {
-          sendNotification(c, {
-            topic: "state.execution" as never,
-            payload: { state: "running" } as never,
-          });
-        }
-      }
-
-      return { target: params.target, state: "running" as const };
+      // Broadcast tick after state change
+      setTimeout(() => broadcastTick(), 0);
+      return {} as RpcError;
     case "breakpoints.add": {
       const location = params.location as string;
       const kind = (params.kind as BreakpointDescriptor["kind"]) ?? "code";
@@ -717,48 +654,33 @@ const dispatchMethod = async (
         hitCount: 0,
       };
       serverBreakpoints.set(id, breakpoint);
-
-      // Broadcast to all clients
-      for (const client of clients) {
-        if (client.topics.has("state.breakpoint")) {
-          sendNotification(client, {
-            topic: "state.breakpoint",
-            payload: breakpoint,
-          });
-        }
-      }
-
-      return { breakpoint, all: Array.from(serverBreakpoints.values()) };
+      // Broadcast tick after mutation
+      setTimeout(() => broadcastTick(), 0);
+      return {} as RpcError;
     }
     case "breakpoints.remove": {
       const id = params.id as string;
       const removed = serverBreakpoints.delete(id);
-      return { removed, all: Array.from(serverBreakpoints.values()) };
+      if (!removed) {
+        return { error: { code: -32000, message: `Breakpoint ${id} not found` } } as RpcError;
+      }
+      // Broadcast tick after mutation
+      setTimeout(() => broadcastTick(), 0);
+      return {} as RpcError;
     }
     case "breakpoints.toggle": {
       const id = params.id as string;
       const enabled = params.enabled as boolean;
       const breakpoint = serverBreakpoints.get(id);
       if (!breakpoint) {
-        throw new Error(`Breakpoint ${id} not found`);
+        return { error: { code: -32000, message: `Breakpoint ${id} not found` } } as RpcError;
       }
       const updated = { ...breakpoint, enabled };
       serverBreakpoints.set(id, updated);
-
-      // Broadcast to all clients
-      for (const client of clients) {
-        if (client.topics.has("state.breakpoint")) {
-          sendNotification(client, {
-            topic: "state.breakpoint",
-            payload: updated,
-          });
-        }
-      }
-
-      return { breakpoint: updated, all: Array.from(serverBreakpoints.values()) };
+      // Broadcast tick after mutation
+      setTimeout(() => broadcastTick(), 0);
+      return {} as RpcError;
     }
-    case "breakpoints.list":
-      return { breakpoints: Array.from(serverBreakpoints.values()) };
     case "breakpoints.setCategoryStates": {
       const categories = params.categories as Record<string, { muted: boolean; soloed: boolean }>;
       for (const [category, state] of Object.entries(categories)) {
@@ -767,12 +689,12 @@ const dispatchMethod = async (
           categoryStates.set(categoryKey, { muted: state.muted, soloed: state.soloed });
         }
       }
-      return { acknowledged: true };
+      // Broadcast tick after mutation
+      setTimeout(() => broadcastTick(), 0);
+      return {} as RpcError;
     }
     case "audio.requestWaveform":
       return buildWaveform(String(params.channelId ?? "0"), Number(params.window) || 256);
-    case "logs.fetchFrameLog":
-      return { frame: params.frame ?? 0, entries: frameLogEntries };
     default:
       throw new Error(`Unhandled JSON-RPC method: ${String(method)}`);
   }
@@ -876,6 +798,8 @@ const checkBreakpoint = (path: string, registerName: string, value: number): Bre
 };
 
 const broadcastTick = () => {
+  let hitBreakpointId: string | undefined;
+
   // Only mutate registers and generate events when running
   if (isRunning) {
     // Mutate some register values to simulate execution
@@ -894,10 +818,12 @@ const broadcastTick = () => {
       if (hitBp) {
         isRunning = false;
         hitBp.hitCount++;
+        hitBreakpointId = hitBp.id;
         const message = `SH4 breakpoint hit at 0x${newPc.toString(16).toUpperCase()}`;
 
         // Add to frame log
         const logEntry: FrameLogEntry = {
+          eventId: (nextEventId++).toString(),
           timestamp: Date.now(),
           subsystem: "sh4",
           severity: "info",
@@ -907,28 +833,6 @@ const broadcastTick = () => {
         frameLogEntries.push(logEntry);
         if (frameLogEntries.length > FRAME_LOG_LIMIT) {
           frameLogEntries.splice(0, frameLogEntries.length - FRAME_LOG_LIMIT);
-        }
-
-        // Broadcast breakpoint hit and state change to clients
-        for (const client of clients) {
-          if (client.topics.has("state.breakpoint")) {
-            sendNotification(client, {
-              topic: "state.breakpoint",
-              payload: hitBp,
-            });
-          }
-          if (client.topics.has("state.execution")) {
-            sendNotification(client, {
-              topic: "state.execution" as never,
-              payload: { state: "paused", breakpoint: hitBp } as never,
-            });
-          }
-          if (client.topics.has("stream.frameLog")) {
-            sendNotification(client, {
-              topic: "stream.frameLog",
-              payload: logEntry,
-            });
-          }
         }
       }
     }
@@ -951,13 +855,15 @@ const broadcastTick = () => {
 
       // Check if we hit a breakpoint
       const hitBp = checkBreakpoint("dc.aica.arm7", "PC", newPc);
-      if (hitBp) {
+      if (hitBp && !hitBreakpointId) {
         isRunning = false;
         hitBp.hitCount++;
+        hitBreakpointId = hitBp.id;
         const message = `ARM7 breakpoint hit at 0x${newPc.toString(16).toUpperCase()}`;
 
         // Add to frame log
         const logEntry: FrameLogEntry = {
+          eventId: (nextEventId++).toString(),
           timestamp: Date.now(),
           subsystem: "aica",
           severity: "info",
@@ -967,28 +873,6 @@ const broadcastTick = () => {
         frameLogEntries.push(logEntry);
         if (frameLogEntries.length > FRAME_LOG_LIMIT) {
           frameLogEntries.splice(0, frameLogEntries.length - FRAME_LOG_LIMIT);
-        }
-
-        // Broadcast breakpoint hit and state change to clients
-        for (const client of clients) {
-          if (client.topics.has("state.breakpoint")) {
-            sendNotification(client, {
-              topic: "state.breakpoint",
-              payload: hitBp,
-            });
-          }
-          if (client.topics.has("state.execution")) {
-            sendNotification(client, {
-              topic: "state.execution" as never,
-              payload: { state: "paused", breakpoint: hitBp } as never,
-            });
-          }
-          if (client.topics.has("stream.frameLog")) {
-            sendNotification(client, {
-              topic: "stream.frameLog",
-              payload: logEntry,
-            });
-          }
         }
       }
     }
@@ -1002,13 +886,15 @@ const broadcastTick = () => {
 
       // Check if we hit a breakpoint
       const hitBp = checkBreakpoint("dc.aica.dsp", "STEP", newStep);
-      if (hitBp) {
+      if (hitBp && !hitBreakpointId) {
         isRunning = false;
         hitBp.hitCount++;
+        hitBreakpointId = hitBp.id;
         const message = `DSP breakpoint hit at step ${newStep}`;
 
         // Add to frame log
         const logEntry: FrameLogEntry = {
+          eventId: (nextEventId++).toString(),
           timestamp: Date.now(),
           subsystem: "dsp",
           severity: "info",
@@ -1018,28 +904,6 @@ const broadcastTick = () => {
         frameLogEntries.push(logEntry);
         if (frameLogEntries.length > FRAME_LOG_LIMIT) {
           frameLogEntries.splice(0, frameLogEntries.length - FRAME_LOG_LIMIT);
-        }
-
-        // Broadcast breakpoint hit and state change to clients
-        for (const client of clients) {
-          if (client.topics.has("state.breakpoint")) {
-            sendNotification(client, {
-              topic: "state.breakpoint",
-              payload: hitBp,
-            });
-          }
-          if (client.topics.has("state.execution")) {
-            sendNotification(client, {
-              topic: "state.execution" as never,
-              payload: { state: "paused", breakpoint: hitBp } as never,
-            });
-          }
-          if (client.topics.has("stream.frameLog")) {
-            sendNotification(client, {
-              topic: "stream.frameLog",
-              payload: logEntry,
-            });
-          }
         }
       }
     }
@@ -1057,50 +921,56 @@ const broadcastTick = () => {
     if (frameLogEntries.length > FRAME_LOG_LIMIT) {
       frameLogEntries.splice(0, frameLogEntries.length - FRAME_LOG_LIMIT);
     }
-
-    // Broadcast frame log event to subscribed clients
-    for (const client of clients) {
-      if (client.topics.has("stream.frameLog")) {
-        sendNotification(client, {
-          topic: "stream.frameLog",
-          payload: event,
-        });
-      }
-    }
   }
 
-  // Always broadcast current state (registers, watches, waveform) regardless of execution state
-  // This allows inspecting memory and setting breakpoints while paused
+  // Build complete tick with all state
   const deviceTree = buildDeviceTree();
   const allRegisters = collectRegistersFromTree(deviceTree);
 
+  // Convert registers array to Record<string, RegisterValue[]>
+  const registersById: Record<string, RegisterValue[]> = {};
+  for (const { path, registers } of allRegisters) {
+    registersById[path] = registers;
+  }
+
+  // Convert breakpoints map to Record<string, BreakpointDescriptor>
+  const breakpointsById: Record<string, BreakpointDescriptor> = {};
+  for (const [id, bp] of serverBreakpoints.entries()) {
+    breakpointsById[id] = bp;
+  }
+
+  // Build watches object
+  const watches: Record<string, unknown> = {};
+  for (const expression of serverWatches) {
+    watches[expression] = registerValues.get(expression) ?? "0x00000000";
+  }
+
+  const tick: DebuggerTick = {
+    tickId: tickId++,
+    timestamp: Date.now(),
+    executionState: {
+      state: isRunning ? "running" : "paused",
+      breakpointId: hitBreakpointId,
+    },
+    registers: registersById,
+    breakpoints: breakpointsById,
+    eventLog: frameLogEntries.slice(),
+    watches: serverWatches.size > 0 ? watches : undefined,
+    threads: sampleThreads,
+  };
+
+  // Broadcast tick to all clients
   for (const client of clients) {
-    if (client.topics.has("state.registers")) {
-      // Send register updates for all paths in device tree
-      for (const { path, registers } of allRegisters) {
-        sendNotification(client, {
-          topic: "state.registers",
-          payload: { path, registers },
-        });
-      }
-    }
+    sendNotification(client, {
+      topic: "tick",
+      payload: tick,
+    });
 
-    if (client.topics.has("stream.waveform")) {
-      sendNotification(client, {
-        topic: "stream.waveform",
-        payload: buildWaveform("0", 128),
-      });
-    }
-
-    if (serverWatches.size > 0) {
-      for (const expression of serverWatches) {
-        const value = registerValues.get(expression) ?? "0x00000000";
-        sendNotification(client, {
-          topic: "state.watch",
-          payload: { expression, value },
-        });
-      }
-    }
+    // Still send waveform separately as it's not part of tick
+    sendNotification(client, {
+      topic: "stream.waveform",
+      payload: buildWaveform("0", 128),
+    });
   }
 };
 
@@ -1155,11 +1025,13 @@ const start = async () => {
     const context: ClientContext = {
       socket,
       sessionId: randomUUID(),
-      topics: new Set(),
       watches: new Set(),
     };
 
     clients.add(context);
+
+    // Send initial tick on connection
+    setTimeout(() => broadcastTick(), 100);
 
     socket.on("message", (data) => {
       let message: JsonRpcMessage;
