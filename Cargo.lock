@@ -2594,6 +2594,8 @@ dependencies = [
  "bitfield",
  "paste",
  "seq-macro",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
