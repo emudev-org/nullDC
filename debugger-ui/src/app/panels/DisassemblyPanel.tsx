@@ -736,14 +736,50 @@ const DisassemblyView = ({
   );
 };
 
-export const Sh4DisassemblyPanel = () => (
-  <DisassemblyView target="sh4" defaultAddress={0x8c0000a0} />
-);
+export const Sh4DisassemblyPanel = () => {
+  const registersByPath = useDebuggerDataStore((state) => state.registersByPath);
+  const registers = registersByPath["dc.sh4.cpu"];
+  const pcReg = registers?.find((r) => r.name === "PC");
 
-export const Arm7DisassemblyPanel = () => (
-  <DisassemblyView target="arm7" defaultAddress={0x00200000} />
-);
+  let defaultAddress = 0x8c0000a0;
+  if (pcReg?.value) {
+    const pc = Number.parseInt(pcReg.value.replace(/^0x/i, ""), 16);
+    if (!Number.isNaN(pc)) {
+      defaultAddress = Math.max(0, pc - 2 * 10); // 10 instructions before
+    }
+  }
 
-export const DspDisassemblyPanel = () => (
-  <DisassemblyView target="dsp" defaultAddress={0x00000000} />
-);
+  return <DisassemblyView target="sh4" defaultAddress={defaultAddress} />;
+};
+
+export const Arm7DisassemblyPanel = () => {
+  const registersByPath = useDebuggerDataStore((state) => state.registersByPath);
+  const registers = registersByPath["dc.aica.arm7"];
+  const pcReg = registers?.find((r) => r.name === "PC");
+
+  let defaultAddress = 0x00200000;
+  if (pcReg?.value) {
+    const pc = Number.parseInt(pcReg.value.replace(/^0x/i, ""), 16);
+    if (!Number.isNaN(pc)) {
+      defaultAddress = Math.max(0, pc - 4 * 10); // 10 instructions before
+    }
+  }
+
+  return <DisassemblyView target="arm7" defaultAddress={defaultAddress} />;
+};
+
+export const DspDisassemblyPanel = () => {
+  const registersByPath = useDebuggerDataStore((state) => state.registersByPath);
+  const registers = registersByPath["dc.aica.dsp"];
+  const stepReg = registers?.find((r) => r.name === "STEP");
+
+  let defaultAddress = 0x00000000;
+  if (stepReg?.value) {
+    const step = Number.parseInt(stepReg.value.replace(/^0x/i, ""), 16);
+    if (!Number.isNaN(step)) {
+      defaultAddress = Math.max(0, step - 10); // 10 steps before
+    }
+  }
+
+  return <DisassemblyView target="dsp" defaultAddress={defaultAddress} />;
+};
