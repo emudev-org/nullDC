@@ -349,7 +349,7 @@ const MemoryView = ({
             <Typography component="span" sx={{ width: 130, flexShrink: 0 }}>ASCII</Typography>
           </Box>
           <Stack
-            spacing={0.5}
+            spacing={0}
             sx={{
               "& .target-address": {
                 border: "2px solid",
@@ -388,7 +388,7 @@ const MemoryView = ({
                   borderBottom: "1px solid transparent",
                   borderRadius: 1,
                   px: 0.5,
-                  py: 0.25,
+                  py: 0,
                   "&:hover": {
                     borderBottomColor: "primary.main",
                   },
