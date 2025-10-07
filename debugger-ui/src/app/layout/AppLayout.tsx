@@ -30,6 +30,7 @@ import { AboutDialog } from "./AboutDialog";
 import { useAboutModal } from "./useAboutModal";
 import { TopNav } from "./TopNav";
 import { useThemeMode } from "../../theme/ThemeModeProvider";
+import { DEBUGGER_VERSION } from "./aboutVersion";
 
 const LAYOUT_STORAGE_KEY = "nulldc-debugger-layout";
 
@@ -523,7 +524,7 @@ export const AppLayout = () => {
         <Divider orientation="vertical" flexItem />
         <Typography variant="caption">Endpoint: {endpoint ?? "-"}</Typography>
         <Box sx={{ flexGrow: 1 }} />
-        <Typography variant="caption">nullDC Debugger UI prototype</Typography>
+        <Typography variant="caption">{DEBUGGER_VERSION}</Typography>
       </Box>
       <AboutDialog open={aboutOpen} onClose={hideAbout} />
       <Box
