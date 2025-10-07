@@ -19,7 +19,7 @@ crate-type = ["rlib", "cdylib"]
 [profile.release]
 lto = "thin"
 opt-level = 3
-debug = true
+strip = true
 
 [dependencies]
 sh4-core = { path = "crates/sh4-core" }
