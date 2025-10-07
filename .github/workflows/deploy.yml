@@ -63,6 +63,8 @@ jobs:
             target: aarch64-apple-darwin
           - os: windows-latest
             target: x86_64-pc-windows-msvc
+          - os: windows-latest
+            target: aarch64-pc-windows-msvc
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -126,7 +128,7 @@ jobs:
           name: debugger-ui-dist-native
           path: debugger-ui/dist
       - name: "Native: Run SH4 tests"
-        if: matrix.target != 'wasm32-unknown-unknown' && matrix.target != 'aarch64-unknown-linux-gnu' && matrix.target != 'riscv64gc-unknown-linux-gnu'
+        if: matrix.target != 'wasm32-unknown-unknown' && matrix.target != 'aarch64-unknown-linux-gnu' && matrix.target != 'riscv64gc-unknown-linux-gnu' && matrix.target != 'aarch64-pc-windows-msvc'
         run: cargo test --package sh4-core --target ${{ matrix.target }}
       - name: "Native: Build release"
         if: matrix.target != 'wasm32-unknown-unknown'
