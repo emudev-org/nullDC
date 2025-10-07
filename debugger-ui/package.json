@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch --tsconfig tsconfig.server.json server/mockServer.ts",
+    "mock:start": "tsx --tsconfig tsconfig.server.json server/mockServer.ts",
     "build": "tsc -b && vite build",
     "lint": "eslint ."
   },
