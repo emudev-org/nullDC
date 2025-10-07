@@ -108,6 +108,7 @@ const DisassemblyView = ({
   const targetAddressRef = useRef<number | undefined>(undefined);
   const targetTimestampRef = useRef<number | undefined>(undefined);
   const lineRefsMap = useRef<Map<number, HTMLDivElement>>(new Map());
+  const urlHighlightTriggeredRef = useRef(false);
   const [, forceUpdate] = useState(0);
 
   const instructionSize = useMemo(() => instructionSizeForTarget(target), [target]);
@@ -245,9 +246,12 @@ const DisassemblyView = ({
 
   // Trigger highlight effect when loaded from URL
   useEffect(() => {
-    if (!initialAddressData.fromUrl || !initialized || lines.length === 0) {
+    if (!initialAddressData.fromUrl || !initialized || lines.length === 0 || urlHighlightTriggeredRef.current) {
       return;
     }
+
+    // Mark as triggered immediately to prevent re-triggering on scroll
+    urlHighlightTriggeredRef.current = true;
 
     // Set target address for animation trigger
     targetAddressRef.current = initialAddressData.address;

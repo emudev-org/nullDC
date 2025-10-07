@@ -80,6 +80,7 @@ const MemoryView = ({
   const targetAddressRef = useRef<number | undefined>(undefined);
   const targetTimestampRef = useRef<number | undefined>(undefined);
   const lineRefsMap = useRef<Map<number, HTMLDivElement>>(new Map());
+  const urlHighlightTriggeredRef = useRef(false);
 
   const maxAddress = useMemo(() => 0xffffffff - Math.max(length - 1, 0), [length]);
 
@@ -131,9 +132,12 @@ const MemoryView = ({
 
   // Trigger highlight effect when loaded from URL
   useEffect(() => {
-    if (!initialAddressData.fromUrl || !initialized || !slice) {
+    if (!initialAddressData.fromUrl || !initialized || !slice || urlHighlightTriggeredRef.current) {
       return;
     }
+
+    // Mark as triggered immediately to prevent re-triggering on scroll
+    urlHighlightTriggeredRef.current = true;
 
     // Align the address to row boundary for proper highlighting
     const alignedAddress = clampAddress(initialAddressData.address, 0xffffffff - (BYTES_PER_ROW - 1), BYTES_PER_ROW);
