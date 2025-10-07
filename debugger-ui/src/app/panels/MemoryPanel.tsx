@@ -60,19 +60,19 @@ const MemoryView = ({
   const [loading, setLoading] = useState(false);
 
   // Initialize address from URL or default
-  const initialAddress = useMemo(() => {
+  const initialAddressData = useMemo(() => {
     const addressParam = searchParams.get("address");
     if (addressParam) {
       const parsed = parseAddressInput(addressParam);
       if (parsed !== undefined) {
-        return parsed;
+        return { address: parsed, fromUrl: true };
       }
     }
-    return defaultAddress;
+    return { address: defaultAddress, fromUrl: false };
   }, [searchParams, defaultAddress]);
 
-  const [address, setAddress] = useState(initialAddress);
-  const [addressInput, setAddressInput] = useState(formatHexAddress(initialAddress));
+  const [address, setAddress] = useState(initialAddressData.address);
+  const [addressInput, setAddressInput] = useState(formatHexAddress(initialAddressData.address));
   const requestIdRef = useRef(0);
   const wheelRemainder = useRef(0);
   const pendingScrollDelta = useRef(0);
@@ -128,6 +128,31 @@ const MemoryView = ({
       void fetchSlice(normalized);
     }
   }, [address, fetchSlice, maxAddress, initialized]);
+
+  // Trigger highlight effect when loaded from URL
+  useEffect(() => {
+    if (!initialAddressData.fromUrl || !initialized || !slice) {
+      return;
+    }
+
+    // Align the address to row boundary for proper highlighting
+    const alignedAddress = clampAddress(initialAddressData.address, 0xffffffff - (BYTES_PER_ROW - 1), BYTES_PER_ROW);
+
+    // Set target address for animation trigger
+    targetAddressRef.current = alignedAddress;
+    targetTimestampRef.current = Date.now();
+
+    // Update DOM when rows are available
+    setTimeout(() => {
+      const element = lineRefsMap.current.get(alignedAddress);
+      if (element) {
+        element.classList.remove("target-address");
+        // Force reflow to restart animation
+        void element.offsetWidth;
+        element.classList.add("target-address");
+      }
+    }, 0);
+  }, [initialAddressData, initialized, slice]);
 
   // Process pending scroll delta after loading completes
   useEffect(() => {

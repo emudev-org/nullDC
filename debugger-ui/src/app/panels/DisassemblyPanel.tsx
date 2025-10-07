@@ -85,20 +85,20 @@ const DisassemblyView = ({
   const [loading, setLoading] = useState(false);
 
   // Initialize address from URL or default
-  const initialAddress = useMemo(() => {
+  const initialAddressData = useMemo(() => {
     const paramName = target === "dsp" ? "step" : "address";
     const addressParam = searchParams.get(paramName);
     if (addressParam) {
       const parsed = parseAddressInput(target, addressParam);
       if (parsed !== undefined) {
-        return parsed;
+        return { address: parsed, fromUrl: true };
       }
     }
-    return defaultAddress;
+    return { address: defaultAddress, fromUrl: false };
   }, [searchParams, target, defaultAddress]);
 
-  const [address, setAddress] = useState(initialAddress);
-  const [addressInput, setAddressInput] = useState(formatAddressInput(target, initialAddress));
+  const [address, setAddress] = useState(initialAddressData.address);
+  const [addressInput, setAddressInput] = useState(formatAddressInput(target, initialAddressData.address));
   const [error, setError] = useState<string | undefined>();
   const requestIdRef = useRef(0);
   const wheelRemainder = useRef(0);
@@ -242,6 +242,28 @@ const DisassemblyView = ({
       void fetchDisassembly(normalized);
     }
   }, [address, fetchDisassembly, instructionSize, maxAddress, target, initialized]);
+
+  // Trigger highlight effect when loaded from URL
+  useEffect(() => {
+    if (!initialAddressData.fromUrl || !initialized || lines.length === 0) {
+      return;
+    }
+
+    // Set target address for animation trigger
+    targetAddressRef.current = initialAddressData.address;
+    targetTimestampRef.current = Date.now();
+
+    // Update DOM when lines are available
+    setTimeout(() => {
+      const element = lineRefsMap.current.get(initialAddressData.address);
+      if (element) {
+        element.classList.remove("target-address");
+        // Force reflow to restart animation
+        void element.offsetWidth;
+        element.classList.add("target-address");
+      }
+    }, 0);
+  }, [initialAddressData, initialized, lines]);
 
   // Process pending scroll steps after loading completes
   useEffect(() => {

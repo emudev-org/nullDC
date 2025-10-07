@@ -569,7 +569,7 @@ const dispatchMethod = async (
       };
     case "debugger.describe":
       return {
-        emulator: { name: "nullDC", version: "dev", build: "native" as const },
+        emulator: { name: "mockServer", version: "unspecified", build: "native" as const },
         deviceTree: buildDeviceTree(),
         capabilities: ["watches", "step", "breakpoints", "frame-log", "waveforms"],
       } as DebuggerShape;
