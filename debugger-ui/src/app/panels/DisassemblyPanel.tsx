@@ -387,7 +387,7 @@ const DisassemblyView = ({
                       display: "grid",
                       gridTemplateColumns: target === "dsp" ? "24px 80px 120px 1fr" : "24px 140px 140px 1fr",
                       gap: 1,
-                      alignItems: "center",
+                      alignItems: "stretch",
                       px: 0.5,
                       py: 0.25,
                       border: "2px solid transparent",
@@ -406,6 +406,7 @@ const DisassemblyView = ({
                         opacity: hasBreakpoint ? 1 : 0,
                         cursor: "pointer",
                         transition: "opacity 0.1s",
+                        alignSelf: "stretch",
                       }}
                       onClick={(e) => {
                         if ((e.shiftKey || e.ctrlKey || e.metaKey) && hasBreakpoint) {
