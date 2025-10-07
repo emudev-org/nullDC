@@ -149,6 +149,10 @@ jobs:
         if: matrix.target == 'wasm32-unknown-unknown'
         run: |
           trunk build
+      - name: "WASM: Optimize with wasm-opt"
+        if: matrix.target == 'wasm32-unknown-unknown'
+        run: |
+          wasm-opt --enable-bulk-memory --enable-reference-types --enable-simd -O4 -o dist/*.wasm dist/*.wasm
       - name: "WASM: Upload artifacts"
         if: matrix.target == 'wasm32-unknown-unknown'
         uses: actions/upload-artifact@v4
