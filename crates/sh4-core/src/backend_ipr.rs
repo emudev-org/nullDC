@@ -130,9 +130,25 @@ fn set_host_daz(enable: bool) {
         std::arch::asm!("ldmxcsr [{}]", in(reg) &mxcsr, options(nostack));
     }
 
-    #[cfg(not(target_arch = "x86_64"))]
+    #[cfg(target_arch = "aarch64")]
+    unsafe {
+        // On ARM64, use FPCR (Floating-Point Control Register)
+        let mut fpcr: u64;
+        std::arch::asm!("mrs {}, fpcr", out(reg) fpcr, options(nomem, nostack));
+
+        // Bit 24 is FZ (Flush-to-Zero), equivalent to DAZ on x86
+        if enable {
+            fpcr |= 1 << 24;  // Set FZ
+        } else {
+            fpcr &= !(1 << 24);  // Clear FZ
+        }
+
+        std::arch::asm!("msr fpcr, {}", in(reg) fpcr, options(nomem, nostack));
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
     {
-        // On non-x86_64 architectures, we can't set DAZ
+        // On other architectures, we can't set DAZ/FZ
         // The emulator will need software emulation for denormals
         let _ = enable;
     }
