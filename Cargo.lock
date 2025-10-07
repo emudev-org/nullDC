@@ -1738,7 +1738,6 @@ name = "nullDC"
 version = "2.0.0-pre"
 dependencies = [
  "axum",
- "bitfield",
  "bytemuck",
  "console_error_panic_hook",
  "egui",
@@ -1749,11 +1748,10 @@ dependencies = [
  "git-version",
  "include_dir",
  "log",
- "paste",
  "pollster",
- "seq-macro",
  "serde",
  "serde_json",
+ "sh4-core",
  "sha2",
  "tokio",
  "tower 0.4.13",
@@ -2587,6 +2585,15 @@ dependencies = [
  "itoa",
  "ryu",
  "serde",
+]
+
+[[package]]
+name = "sh4-core"
+version = "0.1.0"
+dependencies = [
+ "bitfield",
+ "paste",
+ "seq-macro",
 ]
 
 [[package]]
