@@ -389,7 +389,6 @@ const MemoryView = ({
                   fontSize: 13,
                   alignItems: "baseline",
                   border: "2px solid transparent",
-                  borderBottom: "1px solid transparent",
                   borderRadius: 1,
                   px: 0.5,
                   py: 0,

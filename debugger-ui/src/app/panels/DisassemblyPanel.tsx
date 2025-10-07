@@ -659,7 +659,6 @@ const DisassemblyView = ({
                       px: 0.5,
                       py: 0,
                       border: "2px solid transparent",
-                      borderBottom: "1px solid transparent",
                       borderRadius: 1,
                       "&:hover": {
                         borderBottomColor: "primary.main",
