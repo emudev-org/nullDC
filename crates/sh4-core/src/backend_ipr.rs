@@ -95,6 +95,13 @@ pub fn sh4_store_fpscr(dst: *mut u32, src: *const u32, fr: *mut u32, xf: *mut u3
         let new_val = *src;
         let old_val = *dst;
         let changed = old_val ^ new_val;
+
+        // Check if RM (rounding mode) bits changed (bits 0-1)
+        if changed & 0x3 != 0 {
+            let rm = new_val & 0x3;
+            set_host_rounding_mode(rm);
+        }
+
         // Check if DN bit changed (bit 18)
         if changed & (1 << 18) != 0 {
             // DN bit changed, sync host FPU DAZ flag
@@ -107,6 +114,71 @@ pub fn sh4_store_fpscr(dst: *mut u32, src: *const u32, fr: *mut u32, xf: *mut u3
         }
 
         *dst = new_val;
+    }
+}
+
+// Set host FPU rounding mode
+// SH4 FPSCR.RM (bits 0-1): 00 = round to nearest, 01 = round to zero, 10/11 = reserved
+#[inline(always)]
+fn set_host_rounding_mode(sh4_rm: u32) {
+    #[cfg(target_arch = "x86_64")]
+    unsafe {
+        // Get current MXCSR
+        let mut mxcsr: u32 = 0;
+        std::arch::asm!("stmxcsr [{}]", in(reg) &mut mxcsr, options(nostack));
+
+        // Clear rounding control bits (13-14)
+        mxcsr &= !(0x3 << 13);
+
+        // x86 MXCSR rounding modes (bits 13-14):
+        // 00 = Round to nearest (even)
+        // 01 = Round down (toward -∞)
+        // 10 = Round up (toward +∞)
+        // 11 = Round toward zero
+        //
+        // SH4 FPSCR.RM: 00 = nearest, 01 = zero
+        let x86_rm = match sh4_rm {
+            0 => 0,  // Round to nearest
+            1 => 3,  // Round to zero
+            _ => 0,  // Reserved modes default to round to nearest
+        };
+        mxcsr |= x86_rm << 13;
+
+        // Set new MXCSR
+        std::arch::asm!("ldmxcsr [{}]", in(reg) &mxcsr, options(nostack));
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    unsafe {
+        // On ARM64, use FPCR (Floating-Point Control Register)
+        let mut fpcr: u64;
+        std::arch::asm!("mrs {}, fpcr", out(reg) fpcr, options(nomem, nostack));
+
+        // Clear rounding mode bits (22-23)
+        fpcr &= !(0x3 << 22);
+
+        // ARM64 FPCR rounding modes (bits 22-23):
+        // 00 = Round to nearest (ties to even)
+        // 01 = Round toward +∞
+        // 10 = Round toward -∞
+        // 11 = Round toward zero
+        //
+        // SH4 FPSCR.RM: 00 = nearest, 01 = zero
+        let arm_rm = match sh4_rm {
+            0 => 0,  // Round to nearest
+            1 => 3,  // Round to zero
+            _ => 0,  // Reserved modes default to round to nearest
+        };
+        fpcr |= arm_rm << 22;
+
+        std::arch::asm!("msr fpcr, {}", in(reg) fpcr, options(nomem, nostack));
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    {
+        // On other architectures (including WASM), we can't set rounding mode
+        // The emulator will use the default host rounding mode (round to nearest)
+        let _ = sh4_rm;
     }
 }
 
