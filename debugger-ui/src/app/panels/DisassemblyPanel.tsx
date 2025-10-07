@@ -75,6 +75,7 @@ const DisassemblyView = ({
 }) => {
   const [searchParams, setSearchParams] = useSearchParams();
   const client = useSessionStore((state) => state.client);
+  const executionState = useSessionStore((state) => state.executionState);
   const initialized = useDebuggerDataStore((state) => state.initialized);
   const breakpoints = useDebuggerDataStore((state) => state.breakpoints);
   const registersByPath = useDebuggerDataStore((state) => state.registersByPath);
@@ -163,6 +164,8 @@ const DisassemblyView = ({
 
     // Update DOM directly without triggering re-render
     const oldPc = currentPcRef.current;
+    const isPaused = executionState === "paused";
+
     if (oldPc !== newPc) {
       // Remove current styling from old PC
       if (oldPc !== undefined) {
@@ -172,8 +175,8 @@ const DisassemblyView = ({
         }
       }
 
-      // Add current styling to new PC
-      if (newPc !== undefined) {
+      // Add current styling to new PC only if paused
+      if (newPc !== undefined && isPaused) {
         const newElement = lineRefsMap.current.get(newPc);
         if (newElement) {
           newElement.classList.add("current-instruction");
@@ -181,8 +184,18 @@ const DisassemblyView = ({
       }
 
       currentPcRef.current = newPc;
+    } else if (oldPc !== undefined) {
+      // If PC hasn't changed but execution state changed, update styling
+      const element = lineRefsMap.current.get(oldPc);
+      if (element) {
+        if (isPaused) {
+          element.classList.add("current-instruction");
+        } else {
+          element.classList.remove("current-instruction");
+        }
+      }
     }
-  }, [registersByPath, target]);
+  }, [registersByPath, target, executionState]);
 
   // Map addresses to breakpoints
   const breakpointsByAddress = useMemo(() => {
@@ -643,8 +656,8 @@ const DisassemblyView = ({
                     ref={(el: HTMLDivElement | null) => {
                       if (el) {
                         lineRefsMap.current.set(line.address, el);
-                        // Apply current styling if this line is the current PC
-                        if (currentPcRef.current === line.address) {
+                        // Apply current styling if this line is the current PC and we're paused
+                        if (currentPcRef.current === line.address && executionState === "paused") {
                           el.classList.add("current-instruction");
                         }
                       } else {
