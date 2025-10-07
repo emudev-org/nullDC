@@ -76,7 +76,7 @@ const CategoryControls = ({
   );
 };
 
-const BreakpointsView = ({ title, filter, addMode, showCategoryControls = false }: BreakpointsViewProps) => {
+const BreakpointsView = ({ filter, addMode, showCategoryControls = false }: BreakpointsViewProps) => {
   const breakpoints = useDebuggerDataStore((state) => state.breakpoints);
   const availableEvents = useDebuggerDataStore((state) => state.availableEvents);
   const removeBreakpoint = useDebuggerDataStore((state) => state.removeBreakpoint);
