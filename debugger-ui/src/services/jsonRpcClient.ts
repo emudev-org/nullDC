@@ -84,7 +84,9 @@ export class JsonRpcClient<S extends RpcSchema> {
       } catch (error) {
         window.clearTimeout(timeout);
         this.pending.delete(id);
-        reject(error);
+        // Wrap the error with the method name for better error messages
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        reject(new Error(`${String(method)}: ${errorMessage}`));
       }
     });
 

@@ -100,7 +100,7 @@ export class WebSocketTransport extends BaseTransport {
 
   send(payload: string) {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-      throw new Error("WebSocket is not open");
+      throw new Error("Not Connected");
     }
 
     this.socket.send(payload);
@@ -146,7 +146,7 @@ export class BroadcastChannelTransport extends BaseTransport {
 
   send(payload: string): void {
     if (!this.channel) {
-      throw new Error("Broadcast channel is not open");
+      throw new Error("Not Connected");
     }
     this.channel.postMessage(payload);
   }
