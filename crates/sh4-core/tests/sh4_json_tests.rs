@@ -72,17 +72,16 @@ impl TestMemory {
         }
         let idx = self.expectation_index.get();
 
-        // Special case for 16-bit reads: allow default opcode if no match
-        if size == 16 {
-            if idx < self.expectations.len() {
-                if let MemOp::Read { size: exp_size, addr: exp_addr, value } = self.expectations[idx] {
-                    if exp_size == 16 && exp_addr == addr {
-                        self.expectation_index.set(idx + 1);
-                        return value;
-                    }
+        // Special case for 16-bit reads: check if this matches an expectation
+        if size == 16 && idx < self.expectations.len() {
+            if let MemOp::Read { size: exp_size, addr: exp_addr, value } = self.expectations[idx] {
+                // Match if it's an instruction fetch (size 16) or data read (size 64) at correct address
+                if exp_addr == addr && (exp_size == 16 || exp_size == 64) {
+                    self.expectation_index.set(idx + 1);
+                    return value;
                 }
             }
-            // Return default opcode for unmatched 16-bit reads (instruction fetches)
+            // If address doesn't match and it's a 16-bit read, return default opcode (instruction fetch)
             return self.default_opcode as u64;
         }
 
