@@ -1427,7 +1427,7 @@ sh4op! {
     i1000_1101_iiii_iiii(dc, state, opcode) {
         let disp = GetSImm8(opcode);
         let target = branch_target_s8(state.pc, disp);
-        let next = state.pc.wrapping_add(2);
+        let next = state.pc.wrapping_add(4);
         backend::sh4_branch_cond_delay(dc, addr_of!((*dc).sr_T), 1, next, target);
     }
 
