@@ -59,7 +59,7 @@ pub fn sh4_store64(dst: *mut u64, src: *const u64) {
 }
 
 #[inline(always)]
-pub fn sh4_store_sr(dst: *mut u32, dst_t: *mut u32, src: *const u32, r: *mut u32, r_bank: *mut u32) {
+pub fn sh4_store_sr_rest(dst: *mut u32, src: *const u32, r: *mut u32, r_bank: *mut u32) {
     unsafe {
         // Bit layout: MD(30), RB(29), BL(28), FD(15), IMASK(7-4), M(9), Q(8), S(1), T(0)
         const SR_MASK: u32 = 0x700083F2;
@@ -86,7 +86,6 @@ pub fn sh4_store_sr(dst: *mut u32, dst_t: *mut u32, src: *const u32, r: *mut u32
         }
 
         *dst = new_val;
-        *dst_t = new_t;
     }
 }
 

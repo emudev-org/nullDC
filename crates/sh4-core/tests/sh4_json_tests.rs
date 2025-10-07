@@ -259,8 +259,9 @@ fn load_state_into_ctx(ctx: &mut Sh4Ctx, state: &Sh4State) {
 
         // Now use the special store functions to set the correct values
         // This will trigger bank switches if needed
-        use sh4_core::backend_ipr::{sh4_store_sr, sh4_store_fpscr};
-        sh4_store_sr(&mut ctx.sr.0, &mut ctx.sr_T, &state.sr, &mut ctx.r[0], &mut ctx.r_bank[0]);
+        use sh4_core::backend_ipr::{sh4_store32, sh4_store_sr_rest, sh4_store_fpscr};
+        ctx.sr_T = state.sr & 1;
+        sh4_store_sr_rest(&mut ctx.sr.0, &state.sr, &mut ctx.r[0], &mut ctx.r_bank[0]);
         sh4_store_fpscr(&mut ctx.fpscr.0, &state.fpscr, &mut ctx.fr.u32s[0], &mut ctx.xf.u32s[0]);
 
         // NOW load registers - they will go into whichever banks are currently active
