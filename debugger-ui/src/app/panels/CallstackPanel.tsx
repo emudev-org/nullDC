@@ -66,8 +66,9 @@ const CallstackPanel = ({ target, showTitle = false }: CallstackPanelProps) => {
         <Box sx={{ p: 1 }}>
           <List dense disablePadding>
             {frames.map((f) => (
-              <ListItem key={f.index} sx={{ py: 0.25 }}>
+              <ListItem key={f.index} disablePadding sx={{ py: 0 }}>
                 <ListItemText
+                  sx={{ my: 0 }}
                   primary={
                     <Stack direction="row" spacing={1} alignItems="baseline" sx={{ flexWrap: "wrap" }}>
                       <Typography variant="caption" color="text.secondary" sx={{ minWidth: 28 }}>
