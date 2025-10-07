@@ -3,16 +3,17 @@ import { Panel } from "../layout/Panel";
 import { Box, IconButton, List, ListItem, ListItemText, Stack, Tooltip, Typography } from "@mui/material";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import { useSessionStore } from "../../state/sessionStore";
+import { useDebuggerDataStore } from "../../state/debuggerDataStore";
 import type { CallstackFrame } from "../../lib/debuggerSchema";
 
 const CallstackView = ({ title, target, showTitle = false }: { title: string; target: "sh4" | "arm7"; showTitle?: boolean }) => {
   const client = useSessionStore((s) => s.client);
-  const connectionState = useSessionStore((s) => s.connectionState);
+  const initialized = useDebuggerDataStore((s) => s.initialized);
   const [frames, setFrames] = useState<CallstackFrame[] | null>(null);
   const [loading, setLoading] = useState(false);
 
   const refresh = async () => {
-    if (!client || connectionState !== "connected") return;
+    if (!client) return;
     setLoading(true);
     try {
       const res = await client.fetchCallstack(target, 32);
@@ -23,26 +24,32 @@ const CallstackView = ({ title, target, showTitle = false }: { title: string; ta
   };
 
   useEffect(() => {
-    void refresh();
+    if (initialized) {
+      void refresh();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [client, connectionState]);
+  }, [client, initialized]);
 
   return (
     <Panel
       title={showTitle ? title : undefined}
       action={
         <Tooltip title="Refresh">
-          <span>
-            <IconButton size="small" onClick={refresh} disabled={connectionState !== "connected" || loading}>
-              <RefreshIcon fontSize="small" />
-            </IconButton>
-          </span>
+          <IconButton size="small" onClick={refresh} disabled={loading}>
+            <RefreshIcon fontSize="small" />
+          </IconButton>
         </Tooltip>
       }
     >
-      {!frames ? (
+      {!initialized ? (
+        <Stack alignItems="center" justifyContent="center" sx={{ height: "100%" }}>
+          <Typography variant="body2" color="text.secondary">
+            No Data
+          </Typography>
+        </Stack>
+      ) : !frames ? (
         <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
-          {connectionState === "connected" ? "Loading…" : "Not connected."}
+          Loading…
         </Typography>
       ) : frames.length === 0 ? (
         <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>

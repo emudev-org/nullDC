@@ -13,6 +13,7 @@ import { useDebuggerDataStore } from "../../state/debuggerDataStore";
 
 
 export const DeviceTreePanel = () => {
+  const initialized = useDebuggerDataStore((state) => state.initialized);
   const deviceTree = useDebuggerDataStore((state) => state.deviceTree);
   const registersByPath = useDebuggerDataStore((state) => state.registersByPath);
   const addWatch = useDebuggerDataStore((state) => state.addWatch);
@@ -180,7 +181,13 @@ export const DeviceTreePanel = () => {
 
   return (
     <Panel>
-      {deviceTree.length === 0 ? (
+      {!initialized ? (
+        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}>
+          <Typography variant="body2" color="text.secondary">
+            No Data
+          </Typography>
+        </Box>
+      ) : deviceTree.length === 0 ? (
         <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
           No device information available.
         </Typography>

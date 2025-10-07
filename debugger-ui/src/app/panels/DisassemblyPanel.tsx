@@ -73,7 +73,7 @@ const DisassemblyView = ({
   defaultAddress: number;
 }) => {
   const client = useSessionStore((state) => state.client);
-  const connectionState = useSessionStore((state) => state.connectionState);
+  const initialized = useDebuggerDataStore((state) => state.initialized);
   const breakpoints = useDebuggerDataStore((state) => state.breakpoints);
   const registersByPath = useDebuggerDataStore((state) => state.registersByPath);
   const addBreakpoint = useDebuggerDataStore((state) => state.addBreakpoint);
@@ -186,7 +186,7 @@ const DisassemblyView = ({
 
   const fetchDisassembly = useCallback(
     async (addr: number) => {
-      if (!client || connectionState !== "connected") {
+      if (!client) {
         return;
       }
       const requestId = ++requestIdRef.current;
@@ -213,7 +213,7 @@ const DisassemblyView = ({
         }
       }
     },
-    [client, connectionState, target, maxAddress, instructionSize],
+    [client, target, maxAddress, instructionSize],
   );
 
   useEffect(() => {
@@ -222,8 +222,10 @@ const DisassemblyView = ({
     const displayAddress = Math.min(maxAddress, normalized + instructionSize * 10);
     setAddressInput(formatAddressInput(target, displayAddress));
 
-    void fetchDisassembly(normalized);
-  }, [address, fetchDisassembly, instructionSize, maxAddress, target]);
+    if (initialized) {
+      void fetchDisassembly(normalized);
+    }
+  }, [address, fetchDisassembly, instructionSize, maxAddress, target, initialized]);
 
   // Process pending scroll steps after loading completes
   useEffect(() => {
@@ -348,7 +350,7 @@ const DisassemblyView = ({
   }, [instructionSize]);
 
   const handleStep = useCallback(async () => {
-    if (!client || connectionState !== "connected") {
+    if (!client) {
       return;
     }
     try {
@@ -360,10 +362,10 @@ const DisassemblyView = ({
     } catch (error) {
       console.error("Failed to step", error);
     }
-  }, [client, connectionState, target]);
+  }, [client, target]);
 
   const handleStepIn = useCallback(async () => {
-    if (!client || connectionState !== "connected") {
+    if (!client) {
       return;
     }
     try {
@@ -376,10 +378,10 @@ const DisassemblyView = ({
     } catch (error) {
       console.error("Failed to step in", error);
     }
-  }, [client, connectionState, target]);
+  }, [client, target]);
 
   const handleStepOut = useCallback(async () => {
-    if (!client || connectionState !== "connected") {
+    if (!client) {
       return;
     }
     try {
@@ -392,7 +394,7 @@ const DisassemblyView = ({
     } catch (error) {
       console.error("Failed to step out", error);
     }
-  }, [client, connectionState, target]);
+  }, [client, target]);
 
   const showStepInOut = target === "sh4" || target === "arm7";
   const isDsp = target === "dsp";
@@ -422,39 +424,30 @@ const DisassemblyView = ({
       >
         <Stack direction="row" spacing={0.5} alignItems="center">
           <Tooltip title={stepLabel}>
-            <span>
-              <IconButton
-                size="small"
-                onClick={handleStep}
-                disabled={connectionState !== "connected"}
-              >
-                <StepIcon fontSize="small" />
-              </IconButton>
-            </span>
+            <IconButton
+              size="small"
+              onClick={handleStep}
+            >
+              <StepIcon fontSize="small" />
+            </IconButton>
           </Tooltip>
           {showStepInOut && (
             <>
               <Tooltip title="Step In">
-                <span>
-                  <IconButton
-                    size="small"
-                    onClick={handleStepIn}
-                    disabled={connectionState !== "connected"}
-                  >
-                    <ArrowDownwardRoundedIcon fontSize="small" />
-                  </IconButton>
-                </span>
+                <IconButton
+                  size="small"
+                  onClick={handleStepIn}
+                >
+                  <ArrowDownwardRoundedIcon fontSize="small" />
+                </IconButton>
               </Tooltip>
               <Tooltip title="Step Out">
-                <span>
-                  <IconButton
-                    size="small"
-                    onClick={handleStepOut}
-                    disabled={connectionState !== "connected"}
-                  >
-                    <ArrowUpwardRoundedIcon fontSize="small" />
-                  </IconButton>
-                </span>
+                <IconButton
+                  size="small"
+                  onClick={handleStepOut}
+                >
+                  <ArrowUpwardRoundedIcon fontSize="small" />
+                </IconButton>
               </Tooltip>
             </>
           )}
@@ -475,7 +468,7 @@ const DisassemblyView = ({
               <IconButton
                 size="small"
                 onClick={handleGotoPC}
-                disabled={connectionState !== "connected" || currentPcRef.current === undefined}
+                disabled={currentPcRef.current === undefined}
               >
                 <MyLocationIcon fontSize="small" />
               </IconButton>
@@ -492,12 +485,11 @@ const DisassemblyView = ({
               }
             }}
             sx={{ width: 160 }}
-            disabled={connectionState !== "connected"}
             slotProps={{
               input: {
                 endAdornment: (
                   <InputAdornment position="end">
-                    <Button size="small" onClick={handleAddressSubmit} disabled={connectionState !== "connected"} sx={{ minWidth: "auto", px: 1 }}>
+                    <Button size="small" onClick={handleAddressSubmit} sx={{ minWidth: "auto", px: 1 }}>
                       Go
                     </Button>
                   </InputAdornment>
@@ -506,19 +498,19 @@ const DisassemblyView = ({
             }}
           />
           <Tooltip title="Refresh">
-            <span>
-              <IconButton size="small" onClick={handleRefresh} disabled={loading || connectionState !== "connected"}>
-                <RefreshIcon fontSize="small" />
-              </IconButton>
-            </span>
+            <IconButton size="small" onClick={handleRefresh} disabled={loading}>
+              <RefreshIcon fontSize="small" />
+            </IconButton>
           </Tooltip>
         </Stack>
       </Box>
       <Box sx={{ flex: 1, overflow: "auto" }}>
-      {connectionState !== "connected" ? (
-        <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
-          Connect to view disassembly.
-        </Typography>
+      {!initialized ? (
+        <Stack alignItems="center" justifyContent="center" sx={{ height: "100%" }}>
+          <Typography variant="body2" color="text.secondary">
+            No Data
+          </Typography>
+        </Stack>
       ) : error ? (
         <Typography variant="body2" color="error" sx={{ p: 2 }}>
           {error}

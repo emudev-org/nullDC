@@ -1,5 +1,5 @@
 ﻿import { useEffect, useCallback, useMemo, useState, useRef } from "react";
-import { AppBar, Box, Button, CircularProgress, Divider, IconButton, Snackbar, Stack, Switch, Tab, Tabs, Tooltip, Typography, Alert } from "@mui/material";
+import { AppBar, Box, Button, Divider, IconButton, Stack, Switch, Tab, Tabs, Tooltip, Typography, Alert } from "@mui/material";
 import PowerSettingsNewIcon from "@mui/icons-material/PowerSettingsNew";
 import CloudDoneIcon from "@mui/icons-material/CloudDone";
 import CloudOffIcon from "@mui/icons-material/CloudOff";
@@ -502,30 +502,6 @@ export const AppLayout = () => {
               <WatchesPanel showTitle={true} />
               <Sh4CallstackPanel showTitle={true} />
               <Arm7CallstackPanel showTitle={true} />
-            </Box>
-          )}
-          {connectionState !== "connected" && (
-            <Box
-              sx={{
-                position: "absolute",
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                backgroundColor: "rgba(0, 0, 0, 0.3)",
-                backdropFilter: "blur(4px)",
-                zIndex: 1000,
-              }}
-            >
-              <Stack spacing={2} alignItems="center" sx={{ backgroundColor: "background.paper", p: 4, borderRadius: 2, boxShadow: 3 }}>
-                <CircularProgress size={48} />
-                <Typography variant="body1" color="text.secondary">
-                  {connectionState === "connecting" ? "Connecting to debugger..." : connectionState === "error" ? "Connection failed" : "Not connected"}
-                </Typography>
-              </Stack>
             </Box>
           )}
         </Box>

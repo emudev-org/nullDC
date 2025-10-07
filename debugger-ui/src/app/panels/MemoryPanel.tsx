@@ -4,6 +4,7 @@ import { Box, Button, CircularProgress, IconButton, InputAdornment, Stack, TextF
 import RefreshIcon from "@mui/icons-material/Refresh";
 import type { MemorySlice } from "../../lib/debuggerSchema";
 import { useSessionStore } from "../../state/sessionStore";
+import { useDebuggerDataStore } from "../../state/debuggerDataStore";
 
 type MemoryRow = {
   id: number;
@@ -47,7 +48,7 @@ const MemoryView = ({
   wordSize?: MemorySlice["wordSize"];
 }) => {
   const client = useSessionStore((state) => state.client);
-  const connectionState = useSessionStore((state) => state.connectionState);
+  const initialized = useDebuggerDataStore((state) => state.initialized);
   const [slice, setSlice] = useState<MemorySlice | null>(null);
   const [loading, setLoading] = useState(false);
   const [address, setAddress] = useState(defaultAddress);
@@ -64,7 +65,7 @@ const MemoryView = ({
 
   const fetchSlice = useCallback(
     async (addr: number) => {
-      if (!client || connectionState !== "connected") {
+      if (!client) {
         return;
       }
 
@@ -94,7 +95,7 @@ const MemoryView = ({
         }
       }
     },
-    [client, connectionState, target, length, encoding, wordSize],
+    [client, target, length, encoding, wordSize],
   );
 
   useEffect(() => {
@@ -102,8 +103,11 @@ const MemoryView = ({
     // Display the address 10 rows down (the intended target), not the fetch start
     const displayAddress = Math.min(0xffffffff - (BYTES_PER_ROW - 1), normalized + BYTES_PER_ROW * 10);
     setAddressInput(formatHexAddress(displayAddress));
-    void fetchSlice(normalized);
-  }, [address, fetchSlice, maxAddress]);
+
+    if (initialized) {
+      void fetchSlice(normalized);
+    }
+  }, [address, fetchSlice, maxAddress, initialized]);
 
   // Process pending scroll delta after loading completes
   useEffect(() => {
@@ -234,12 +238,11 @@ const MemoryView = ({
               }
             }}
             sx={{ flex: 1 }}
-            disabled={connectionState !== "connected"}
             slotProps={{
               input: {
                 endAdornment: (
                   <InputAdornment position="end">
-                    <Button size="small" onClick={handleAddressSubmit} disabled={connectionState !== "connected"} sx={{ minWidth: "auto", px: 1 }}>
+                    <Button size="small" onClick={handleAddressSubmit} sx={{ minWidth: "auto", px: 1 }}>
                       Go
                     </Button>
                   </InputAdornment>
@@ -248,16 +251,20 @@ const MemoryView = ({
             }}
           />
           <Tooltip title="Refresh">
-            <span>
-              <IconButton size="small" onClick={handleRefresh} disabled={loading || connectionState !== "connected"}>
-                <RefreshIcon fontSize="small" />
-              </IconButton>
-            </span>
+            <IconButton size="small" onClick={handleRefresh} disabled={loading}>
+              <RefreshIcon fontSize="small" />
+            </IconButton>
           </Tooltip>
         </Stack>
       }
     >
-      {loading && !slice ? (
+      {!initialized ? (
+        <Stack alignItems="center" justifyContent="center" sx={{ height: "100%" }}>
+          <Typography variant="body2" color="text.secondary">
+            No Data
+          </Typography>
+        </Stack>
+      ) : loading && !slice ? (
         <Stack alignItems="center" justifyContent="center" sx={{ height: "100%" }} spacing={1}>
           <CircularProgress size={18} />
           <Typography variant="body2" color="text.secondary">
