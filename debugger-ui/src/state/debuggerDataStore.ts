@@ -153,29 +153,36 @@ export const useDebuggerDataStore = create<DebuggerDataState>()((set, get) => ({
       set({ initialized: true, notificationUnsub: unsub });
     } catch (error) {
       console.error("Failed to initialize debugger data", error);
-      get().reset();
+      // On initialization failure, clear everything since we never successfully connected
+      const { notificationUnsub } = get();
+      notificationUnsub?.();
+      set({
+        initialized: false,
+        client: undefined,
+        shape: undefined,
+        latestTick: undefined,
+        deviceTree: [],
+        registersByPath: {},
+        availableEvents: [],
+        watchExpressions: [],
+        watchValues: {},
+        breakpoints: [],
+        threads: [],
+        frameLog: [],
+        executionState: { state: "paused" },
+        waveform: null,
+        notificationUnsub: undefined,
+        errorMessage: undefined,
+      });
     }
   },
   reset() {
     const { notificationUnsub } = get();
     notificationUnsub?.();
+    // Only clear client and subscription, preserve all data and initialized state
     set({
-      initialized: false,
       client: undefined,
-      shape: undefined,
-      latestTick: undefined,
-      deviceTree: [],
-      registersByPath: {},
-      availableEvents: [],
-      watchExpressions: [],
-      watchValues: {},
-      breakpoints: [],
-      threads: [],
-      frameLog: [],
-      executionState: { state: "paused" },
-      waveform: null,
       notificationUnsub: undefined,
-      errorMessage: undefined,
     });
   },
   async addWatch(expression) {

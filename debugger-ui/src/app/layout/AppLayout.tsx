@@ -113,7 +113,6 @@ export const AppLayout = () => {
   const client = useSessionStore((state) => state.client);
   const executionState = useSessionStore((state) => state.executionState);
   const initializeData = useDebuggerDataStore((state) => state.initialize);
-  const resetData = useDebuggerDataStore((state) => state.reset);
   const breakpointHit = useDebuggerDataStore((state) => state.breakpointHit);
   const errorMessage = useDebuggerDataStore((state) => state.errorMessage);
   const clearError = useDebuggerDataStore((state) => state.clearError);
@@ -175,11 +174,6 @@ export const AppLayout = () => {
     }
   }, [client, connectionState, initializeData]);
 
-  useEffect(() => {
-    if (connectionState === "idle" || connectionState === "error") {
-      resetData();
-    }
-  }, [connectionState, resetData]);
 
   // Add error messages to notification stack
   useEffect(() => {
