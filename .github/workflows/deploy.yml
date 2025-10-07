@@ -117,7 +117,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: build-${{ matrix.target }}
-          path: target/${{ matrix.target }}/release
+          path: |
+            target/${{ matrix.target }}/release/nullDC.exe
+            target/${{ matrix.target }}/release/nullDC.pdb
+            target/${{ matrix.target }}/release/nullDC
+            target/${{ matrix.target }}/release/nullDC.dSYM/**
 
       # WASM targets
       - name: "WASM: Read tool versions"
