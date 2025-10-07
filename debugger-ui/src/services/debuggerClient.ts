@@ -173,6 +173,11 @@ const mapNotification = (notification: JsonRpcNotification): DebuggerNotificatio
         topic: "state.thread",
         payload: params as ThreadInfo,
       };
+    case "event.state.execution":
+      return {
+        topic: "state.execution",
+        payload: params as { state: "running" | "paused"; breakpoint?: BreakpointDescriptor },
+      };
     case "event.stream.waveform":
       return {
         topic: "stream.waveform",

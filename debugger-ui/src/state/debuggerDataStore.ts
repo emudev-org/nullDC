@@ -8,6 +8,7 @@ import type {
   WaveformChunk,
 } from "../lib/debuggerSchema";
 import type { DebuggerClient } from "../services/debuggerClient";
+import { useSessionStore } from "./sessionStore";
 const DEFAULT_WATCH_EXPRESSIONS = ["dc.sh4.cpu.pc", "dc.sh4.dmac.dmaor"] as const;
 const FRAME_LOG_LIMIT = 200;
 interface RegistersByPath {
@@ -26,6 +27,7 @@ interface DebuggerDataState {
   threads: ThreadInfo[];
   frameLog: FrameLogEntry[];
   waveform?: WaveformChunk | null;
+  breakpointHit?: { breakpoint: BreakpointDescriptor; timestamp: number };
   notificationUnsub?: () => void;
   initialize: (client: DebuggerClient) => Promise<void>;
   reset: () => void;
@@ -95,6 +97,7 @@ export const useDebuggerDataStore = create<DebuggerDataState>()((set, get) => ({
         "state.watch",
         "state.breakpoint",
         "state.thread",
+        "state.execution",
         "stream.waveform",
         "stream.frameLog",
       ];
@@ -173,6 +176,25 @@ export const useDebuggerDataStore = create<DebuggerDataState>()((set, get) => ({
             });
             break;
           }
+          case "state.execution": {
+            const { state: execState, breakpoint } = notification.payload as { state: "running" | "paused"; breakpoint?: BreakpointDescriptor };
+            useSessionStore.getState().setExecutionState(execState);
+
+            // Show notification if breakpoint was hit
+            if (breakpoint && execState === "paused") {
+              set({
+                breakpointHit: {
+                  breakpoint,
+                  timestamp: Date.now(),
+                },
+              });
+              // Clear the notification after 4 seconds
+              setTimeout(() => {
+                set({ breakpointHit: undefined });
+              }, 4000);
+            }
+            break;
+          }
           default:
             break;
         }
@@ -193,6 +215,7 @@ export const useDebuggerDataStore = create<DebuggerDataState>()((set, get) => ({
           "state.watch",
           "state.breakpoint",
           "state.thread",
+          "state.execution",
           "stream.waveform",
           "stream.frameLog",
         ])

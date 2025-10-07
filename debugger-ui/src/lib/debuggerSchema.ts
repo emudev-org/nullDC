@@ -205,6 +205,10 @@ export type DebuggerNotification =
       payload: ThreadInfo;
     }
   | {
+      topic: "state.execution";
+      payload: { state: "running" | "paused"; breakpoint?: BreakpointDescriptor };
+    }
+  | {
       topic: "stream.waveform";
       payload: WaveformChunk;
     }

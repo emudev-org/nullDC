@@ -1,5 +1,5 @@
 ﻿import { useEffect, useCallback, useMemo, useState, useRef } from "react";
-import { AppBar, Box, Button, CircularProgress, Divider, IconButton, Stack, Switch, Tab, Tabs, Tooltip, Typography, Alert } from "@mui/material";
+import { AppBar, Box, Button, CircularProgress, Divider, IconButton, Snackbar, Stack, Switch, Tab, Tabs, Tooltip, Typography, Alert } from "@mui/material";
 import PowerSettingsNewIcon from "@mui/icons-material/PowerSettingsNew";
 import CloudDoneIcon from "@mui/icons-material/CloudDone";
 import CloudOffIcon from "@mui/icons-material/CloudOff";
@@ -8,6 +8,9 @@ import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import DarkModeIcon from "@mui/icons-material/DarkMode";
 import LightModeIcon from "@mui/icons-material/LightMode";
+import PlayArrowIcon from "@mui/icons-material/PlayArrow";
+import PauseIcon from "@mui/icons-material/Pause";
+import SkipNextIcon from "@mui/icons-material/SkipNext";
 import { useSessionStore } from "../../state/sessionStore";
 import { useDebuggerDataStore } from "../../state/debuggerDataStore";
 import { DeviceTreePanel } from "../panels/DeviceTreePanel";
@@ -101,8 +104,11 @@ export const AppLayout = () => {
   const session = useSessionStore((state) => state.session);
   const endpoint = useSessionStore((state) => state.endpoint);
   const client = useSessionStore((state) => state.client);
+  const executionState = useSessionStore((state) => state.executionState);
+  const setExecutionState = useSessionStore((state) => state.setExecutionState);
   const initializeData = useDebuggerDataStore((state) => state.initialize);
   const resetData = useDebuggerDataStore((state) => state.reset);
+  const breakpointHit = useDebuggerDataStore((state) => state.breakpointHit);
   const navigate = useNavigate();
   const { tab } = useParams();
   const [leftPanelOpen, setLeftPanelOpen] = useState(() => loadLayoutPrefs().leftPanelOpen);
@@ -217,6 +223,51 @@ export const AppLayout = () => {
     }
   }, []);
 
+  const handleRun = useCallback(async () => {
+    if (!client || connectionState !== "connected") {
+      return;
+    }
+    try {
+      await (client as any).rpc.call("control.runUntil", {
+        target: "sh4",
+        type: "interrupt",
+      });
+      // State will be updated via notification from server
+    } catch (error) {
+      console.error("Failed to run", error);
+    }
+  }, [client, connectionState]);
+
+  const handlePause = useCallback(async () => {
+    if (!client || connectionState !== "connected") {
+      return;
+    }
+    try {
+      await (client as any).rpc.call("control.pause", {
+        target: "sh4",
+      });
+      // State will be updated via notification from server
+    } catch (error) {
+      console.error("Failed to pause", error);
+    }
+  }, [client, connectionState]);
+
+  const handleRunToBreakpoint = useCallback(async () => {
+    if (!client || connectionState !== "connected") {
+      return;
+    }
+    try {
+      // Run until breakpoint - using sh4 as default target
+      await (client as any).rpc.call("control.runUntil", {
+        target: "sh4",
+        type: "interrupt",
+      });
+      // State will be updated via notification from server
+    } catch (error) {
+      console.error("Failed to run to breakpoint", error);
+    }
+  }, [client, connectionState]);
+
   return (
     <Box sx={{ height: "100vh", display: "flex", flexDirection: "column" }}>
       <AppBar position="static" elevation={1} color="default">
@@ -266,7 +317,47 @@ export const AppLayout = () => {
         </Alert>
       )}
       <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-        <Box sx={{ px: 1, pt: 1 }}>
+        <Box sx={{ px: 1, pt: 1, pb: 0.5 }}>
+          <Box sx={{ display: "flex", justifyContent: "center", mb: 0.5 }}>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Tooltip title="Run">
+                <span>
+                  <IconButton
+                    size="small"
+                    color={connectionState === "connected" && executionState === "paused" ? "success" : "default"}
+                    disabled={connectionState !== "connected" || executionState === "running"}
+                    onClick={handleRun}
+                  >
+                    <PlayArrowIcon />
+                  </IconButton>
+                </span>
+              </Tooltip>
+              <Tooltip title="Pause">
+                <span>
+                  <IconButton
+                    size="small"
+                    color={connectionState === "connected" && executionState === "running" ? "warning" : "default"}
+                    disabled={connectionState !== "connected" || executionState === "paused"}
+                    onClick={handlePause}
+                  >
+                    <PauseIcon />
+                  </IconButton>
+                </span>
+              </Tooltip>
+              <Tooltip title="Run to next breakpoint">
+                <span>
+                  <IconButton
+                    size="small"
+                    color={connectionState === "connected" && executionState === "paused" ? "primary" : "default"}
+                    disabled={connectionState !== "connected" || executionState === "running"}
+                    onClick={handleRunToBreakpoint}
+                  >
+                    <SkipNextIcon />
+                  </IconButton>
+                </span>
+              </Tooltip>
+            </Stack>
+          </Box>
           <Tabs
             value={currentTab}
             onChange={(_, value) => navigate(`/${value}`)}
@@ -417,6 +508,15 @@ export const AppLayout = () => {
         <Typography variant="caption">nullDC Debugger UI prototype</Typography>
       </Box>
       <AboutDialog open={aboutOpen} onClose={hideAbout} />
+      <Snackbar
+        open={!!breakpointHit}
+        anchorOrigin={{ vertical: "top", horizontal: "center" }}
+        sx={{ mt: 8 }}
+      >
+        <Alert severity="warning" variant="filled" sx={{ width: "100%" }}>
+          Breakpoint hit: {breakpointHit?.breakpoint.location}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };

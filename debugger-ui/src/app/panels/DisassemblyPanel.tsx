@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Panel } from "../layout/Panel";
-import { Box, Button, CircularProgress, IconButton, Stack, TextField, Typography } from "@mui/material";
+import { Box, Button, CircularProgress, IconButton, Paper, Stack, TextField, Tooltip, Typography } from "@mui/material";
 import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
 import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
 import CircleIcon from "@mui/icons-material/Circle";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
+import MyLocationIcon from "@mui/icons-material/MyLocation";
+import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
+import ArrowDownwardRoundedIcon from "@mui/icons-material/ArrowDownwardRounded";
+import ArrowUpwardRoundedIcon from "@mui/icons-material/ArrowUpwardRounded";
+import SubdirectoryArrowRightIcon from "@mui/icons-material/SubdirectoryArrowRight";
 import type { DisassemblyLine } from "../../lib/debuggerSchema";
 import { useSessionStore } from "../../state/sessionStore";
 import { useDebuggerDataStore } from "../../state/debuggerDataStore";
@@ -59,11 +63,9 @@ const parseAddressInput = (target: string, input: string) => {
 };
 
 const DisassemblyView = ({
-  title,
   target,
   defaultAddress,
 }: {
-  title: string;
   target: string;
   defaultAddress: number;
 }) => {
@@ -240,7 +242,10 @@ const DisassemblyView = ({
     if (parsed === undefined) {
       return;
     }
-    setAddress(normalizeAddress(parsed, maxAddress, instructionSize));
+    // Start 10 instructions before for context
+    const contextOffset = instructionSize * 10;
+    const targetAddress = Math.max(0, parsed - contextOffset);
+    setAddress(normalizeAddress(targetAddress, maxAddress, instructionSize));
   }, [addressInput, instructionSize, maxAddress, target]);
 
   const handlePageUp = useCallback(() => {
@@ -279,11 +284,139 @@ const DisassemblyView = ({
     [breakpointsByAddress, toggleBreakpoint],
   );
 
+  const handleGotoPC = useCallback(() => {
+    if (currentPcRef.current !== undefined) {
+      // Start 10 instructions before for context
+      const contextOffset = instructionSize * 10;
+      const targetAddress = Math.max(0, currentPcRef.current - contextOffset);
+      setAddress(targetAddress);
+    }
+  }, [instructionSize]);
+
+  const handleStep = useCallback(async () => {
+    if (!client || connectionState !== "connected") {
+      return;
+    }
+    try {
+      await (client as any).rpc.call("control.step", {
+        target,
+        granularity: "instruction",
+      });
+      // State will be updated via notification from server
+    } catch (error) {
+      console.error("Failed to step", error);
+    }
+  }, [client, connectionState, target]);
+
+  const handleStepIn = useCallback(async () => {
+    if (!client || connectionState !== "connected") {
+      return;
+    }
+    try {
+      await (client as any).rpc.call("control.step", {
+        target,
+        granularity: "instruction",
+        modifiers: ["into"],
+      });
+      // State will be updated via notification from server
+    } catch (error) {
+      console.error("Failed to step in", error);
+    }
+  }, [client, connectionState, target]);
+
+  const handleStepOut = useCallback(async () => {
+    if (!client || connectionState !== "connected") {
+      return;
+    }
+    try {
+      await (client as any).rpc.call("control.step", {
+        target,
+        granularity: "instruction",
+        modifiers: ["out"],
+      });
+      // State will be updated via notification from server
+    } catch (error) {
+      console.error("Failed to step out", error);
+    }
+  }, [client, connectionState, target]);
+
+  const showStepInOut = target === "sh4" || target === "arm7";
+  const isDsp = target === "dsp";
+  const stepLabel = isDsp ? "STEP" : "Step Over";
+  const StepIcon = isDsp ? ArrowForwardIcon : SubdirectoryArrowRightIcon;
+
   return (
-    <Panel
-      title={title}
-      action={
-        <Stack direction="row" spacing={1} alignItems="center">
+    <Paper
+      elevation={0}
+      sx={{
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+        height: "100%",
+      }}
+    >
+      <Box
+        sx={{
+          px: 2,
+          py: 1,
+          display: "flex",
+          alignItems: "center",
+          gap: 1,
+          borderBottom: "1px solid",
+          borderColor: "divider",
+        }}
+      >
+        <Stack direction="row" spacing={0.5} alignItems="center">
+          <Tooltip title={stepLabel}>
+            <span>
+              <IconButton
+                size="small"
+                onClick={handleStep}
+                disabled={connectionState !== "connected"}
+              >
+                <StepIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+          {showStepInOut && (
+            <>
+              <Tooltip title="Step In">
+                <span>
+                  <IconButton
+                    size="small"
+                    onClick={handleStepIn}
+                    disabled={connectionState !== "connected"}
+                  >
+                    <ArrowDownwardRoundedIcon fontSize="small" />
+                  </IconButton>
+                </span>
+              </Tooltip>
+              <Tooltip title="Step Out">
+                <span>
+                  <IconButton
+                    size="small"
+                    onClick={handleStepOut}
+                    disabled={connectionState !== "connected"}
+                  >
+                    <ArrowUpwardRoundedIcon fontSize="small" />
+                  </IconButton>
+                </span>
+              </Tooltip>
+            </>
+          )}
+        </Stack>
+        <Stack direction="row" spacing={1} alignItems="center" sx={{ flex: 1, justifyContent: "flex-end" }}>
+          <Tooltip title={target === "dsp" ? "Go to current STEP" : "Go to current PC"}>
+            <span>
+              <IconButton
+                size="small"
+                onClick={handleGotoPC}
+                disabled={connectionState !== "connected" || currentPcRef.current === undefined}
+              >
+                <MyLocationIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
           <TextField
             size="small"
             value={addressInput}
@@ -307,8 +440,8 @@ const DisassemblyView = ({
             <ArrowDownwardIcon fontSize="small" />
           </IconButton>
         </Stack>
-      }
-    >
+      </Box>
+      <Box sx={{ flex: 1, overflow: "auto" }}>
       {connectionState !== "connected" ? (
         <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
           Connect to view disassembly.
@@ -447,18 +580,19 @@ const DisassemblyView = ({
           )}
         </Box>
       )}
-    </Panel>
+      </Box>
+    </Paper>
   );
 };
 
 export const Sh4DisassemblyPanel = () => (
-  <DisassemblyView title="SH4: Disassembly" target="sh4" defaultAddress={0x8c0000a0} />
+  <DisassemblyView target="sh4" defaultAddress={0x8c0000a0} />
 );
 
 export const Arm7DisassemblyPanel = () => (
-  <DisassemblyView title="ARM7: Disassembly" target="arm7" defaultAddress={0x00200000} />
+  <DisassemblyView target="arm7" defaultAddress={0x00200000} />
 );
 
 export const DspDisassemblyPanel = () => (
-  <DisassemblyView title="DSP: Disassembly" target="dsp" defaultAddress={0x00000000} />
+  <DisassemblyView target="dsp" defaultAddress={0x00000000} />
 );
