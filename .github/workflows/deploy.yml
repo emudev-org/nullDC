@@ -104,6 +104,21 @@ jobs:
             hashFiles('**/Cargo.lock') }}
 
       # Native targets
+      - name: "Native: Install cross-compilation tools"
+        if: matrix.target == 'aarch64-unknown-linux-gnu' || matrix.target == 'riscv64gc-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          if [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
+            sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+            echo "[target.aarch64-unknown-linux-gnu]" >> ~/.cargo/config.toml
+            echo "linker = \"aarch64-linux-gnu-gcc\"" >> ~/.cargo/config.toml
+          fi
+          if [ "${{ matrix.target }}" = "riscv64gc-unknown-linux-gnu" ]; then
+            sudo apt-get install -y gcc-riscv64-linux-gnu g++-riscv64-linux-gnu
+            echo "[target.riscv64gc-unknown-linux-gnu]" >> ~/.cargo/config.toml
+            echo "linker = \"riscv64-linux-gnu-gcc\"" >> ~/.cargo/config.toml
+          fi
+
       - name: "Native: Download debugger-ui"
         if: matrix.target != 'wasm32-unknown-unknown'
         uses: actions/download-artifact@v4
