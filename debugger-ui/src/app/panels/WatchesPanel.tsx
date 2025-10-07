@@ -1,11 +1,16 @@
 ﻿import { useCallback } from "react";
 import { Panel } from "../layout/Panel";
-import { IconButton, List, ListItem, ListItemText, Tooltip, Typography } from "@mui/material";
+import { Box, IconButton, List, ListItem, ListItemText, Tooltip, Typography } from "@mui/material";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import AddIcon from "@mui/icons-material/Add";
 import { useDebuggerDataStore } from "../../state/debuggerDataStore";
 
-export const WatchesPanel = () => {
+interface WatchesPanelProps {
+  showTitle?: boolean;
+}
+
+export const WatchesPanel = ({ showTitle = false }: WatchesPanelProps) => {
+  const initialized = useDebuggerDataStore((state) => state.initialized);
   const watchExpressions = useDebuggerDataStore((state) => state.watchExpressions);
   const watchValues = useDebuggerDataStore((state) => state.watchValues);
   const addWatch = useDebuggerDataStore((state) => state.addWatch);
@@ -28,7 +33,7 @@ export const WatchesPanel = () => {
 
   return (
     <Panel
-      title="Watches"
+      title={showTitle ? "Watches" : undefined}
       action={
         <Tooltip title="Add watch">
           <IconButton size="small" color="primary" onClick={handleAdd}>
@@ -37,7 +42,13 @@ export const WatchesPanel = () => {
         </Tooltip>
       }
     >
-      {watchExpressions.length === 0 ? (
+      {!initialized ? (
+        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}>
+          <Typography variant="body2" color="text.secondary">
+            No Data
+          </Typography>
+        </Box>
+      ) : watchExpressions.length === 0 ? (
         <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
           No watches subscribed.
         </Typography>

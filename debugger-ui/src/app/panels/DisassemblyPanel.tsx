@@ -1,13 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Panel } from "../layout/Panel";
-import { Box, Button, CircularProgress, IconButton, Stack, TextField, Typography } from "@mui/material";
-import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
-import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
+import { useSearchParams } from "react-router-dom";
+import { Box, Button, CircularProgress, IconButton, InputAdornment, Paper, Stack, TextField, Tooltip, Typography } from "@mui/material";
 import CircleIcon from "@mui/icons-material/Circle";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
+import RadioButtonCheckedIcon from "@mui/icons-material/RadioButtonChecked";
+import MyLocationIcon from "@mui/icons-material/MyLocation";
+import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
+import ArrowDownwardRoundedIcon from "@mui/icons-material/ArrowDownwardRounded";
+import ArrowUpwardRoundedIcon from "@mui/icons-material/ArrowUpwardRounded";
+import SubdirectoryArrowRightIcon from "@mui/icons-material/SubdirectoryArrowRight";
+import VolumeOffIcon from "@mui/icons-material/VolumeOff";
+import VolumeUpIcon from "@mui/icons-material/VolumeUp";
+import RefreshIcon from "@mui/icons-material/Refresh";
 import type { DisassemblyLine } from "../../lib/debuggerSchema";
 import { useSessionStore } from "../../state/sessionStore";
 import { useDebuggerDataStore } from "../../state/debuggerDataStore";
+import { categoryStates, syncCategoryStatesToServer, type BreakpointCategory } from "../../state/breakpointCategoryState";
 
 const WHEEL_PIXEL_THRESHOLD = 60;
 const INSTRUCTIONS_PER_TICK = 6;
@@ -59,37 +67,140 @@ const parseAddressInput = (target: string, input: string) => {
 };
 
 const DisassemblyView = ({
-  title,
   target,
   defaultAddress,
 }: {
-  title: string;
   target: string;
   defaultAddress: number;
 }) => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const client = useSessionStore((state) => state.client);
-  const connectionState = useSessionStore((state) => state.connectionState);
+  const executionState = useSessionStore((state) => state.executionState);
+  const initialized = useDebuggerDataStore((state) => state.initialized);
   const breakpoints = useDebuggerDataStore((state) => state.breakpoints);
+  const registersByPath = useDebuggerDataStore((state) => state.registersByPath);
   const addBreakpoint = useDebuggerDataStore((state) => state.addBreakpoint);
   const removeBreakpoint = useDebuggerDataStore((state) => state.removeBreakpoint);
   const toggleBreakpoint = useDebuggerDataStore((state) => state.toggleBreakpoint);
   const [lines, setLines] = useState<DisassemblyLine[]>([]);
   const [loading, setLoading] = useState(false);
-  const [address, setAddress] = useState(defaultAddress);
-  const [addressInput, setAddressInput] = useState(formatAddressInput(target, defaultAddress));
+
+  // Initialize address from URL or default
+  const initialAddressData = useMemo(() => {
+    const paramName = target === "dsp" ? "step" : "address";
+    const addressParam = searchParams.get(paramName);
+    if (addressParam) {
+      const parsed = parseAddressInput(target, addressParam);
+      if (parsed !== undefined) {
+        return { address: parsed, fromUrl: true };
+      }
+    }
+    return { address: defaultAddress, fromUrl: false };
+  }, [searchParams, target, defaultAddress]);
+
+  const [address, setAddress] = useState(initialAddressData.address);
+  const [addressInput, setAddressInput] = useState(formatAddressInput(target, initialAddressData.address));
   const [error, setError] = useState<string | undefined>();
   const requestIdRef = useRef(0);
   const wheelRemainder = useRef(0);
   const pendingScrollSteps = useRef(0);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const currentPcRef = useRef<number | undefined>(undefined);
+  const targetAddressRef = useRef<number | undefined>(undefined);
+  const targetTimestampRef = useRef<number | undefined>(undefined);
+  const lineRefsMap = useRef<Map<number, HTMLDivElement>>(new Map());
+  const urlHighlightTriggeredRef = useRef(false);
+  const [, forceUpdate] = useState(0);
 
   const instructionSize = useMemo(() => instructionSizeForTarget(target), [target]);
   const maxAddress = useMemo(() => maxAddressForTarget(target), [target]);
 
+  // Get category for this disassembly view
+  const category: BreakpointCategory = target === "sh4" ? "sh4" : target === "arm7" ? "arm7" : "dsp";
+  const categoryState = categoryStates.get(category);
+
+  const handleMuteToggle = useCallback(() => {
+    const state = categoryStates.get(category);
+    if (state) {
+      state.muted = !state.muted;
+      if (state.muted) {
+        state.soloed = false; // Can't be both muted and soloed
+      }
+      forceUpdate((v) => v + 1);
+      syncCategoryStatesToServer();
+    }
+  }, [category]);
+
+  const handleSoloToggle = useCallback(() => {
+    const state = categoryStates.get(category);
+    if (state) {
+      state.soloed = !state.soloed;
+      if (state.soloed) {
+        state.muted = false; // Can't be both muted and soloed
+        // Unsolo all other categories
+        for (const [cat, s] of categoryStates.entries()) {
+          if (cat !== category) {
+            s.soloed = false;
+          }
+        }
+      }
+      forceUpdate((v) => v + 1);
+      syncCategoryStatesToServer();
+    }
+  }, [category]);
+
+  // Get current PC/step value for this target and update DOM directly
+  useEffect(() => {
+    const cpuPath = target === "dsp" ? "dc.aica.dsp" : target === "sh4" ? "dc.sh4.cpu" : "dc.aica.arm7";
+    const counterName = target === "dsp" ? "STEP" : "PC";
+    const registers = registersByPath[cpuPath];
+    const pcReg = registers?.find((r) => r.name === counterName);
+
+    let newPc: number | undefined;
+    if (pcReg?.value) {
+      const parsed = Number.parseInt(pcReg.value.replace(/^0x/i, ""), 16);
+      newPc = Number.isNaN(parsed) ? undefined : parsed;
+    }
+
+    // Update DOM directly without triggering re-render
+    const oldPc = currentPcRef.current;
+    const isPaused = executionState === "paused";
+
+    if (oldPc !== newPc) {
+      // Remove current styling from old PC
+      if (oldPc !== undefined) {
+        const oldElement = lineRefsMap.current.get(oldPc);
+        if (oldElement) {
+          oldElement.classList.remove("current-instruction");
+        }
+      }
+
+      // Add current styling to new PC only if paused
+      if (newPc !== undefined && isPaused) {
+        const newElement = lineRefsMap.current.get(newPc);
+        if (newElement) {
+          newElement.classList.add("current-instruction");
+        }
+      }
+
+      currentPcRef.current = newPc;
+    } else if (oldPc !== undefined) {
+      // If PC hasn't changed but execution state changed, update styling
+      const element = lineRefsMap.current.get(oldPc);
+      if (element) {
+        if (isPaused) {
+          element.classList.add("current-instruction");
+        } else {
+          element.classList.remove("current-instruction");
+        }
+      }
+    }
+  }, [registersByPath, target, executionState]);
+
   // Map addresses to breakpoints
   const breakpointsByAddress = useMemo(() => {
     const map = new Map<number, { id: string; enabled: boolean }>();
-    const cpuPath = target === "dsp" ? "dc.aica.dsp" : target === "sh4" ? "dc.sh4.cpu" : "dc.arm7.cpu";
+    const cpuPath = target === "dsp" ? "dc.aica.dsp" : target === "sh4" ? "dc.sh4.cpu" : "dc.aica.arm7";
     const counterName = target === "dsp" ? "step" : "pc";
 
     for (const bp of breakpoints) {
@@ -105,7 +216,7 @@ const DisassemblyView = ({
 
   const fetchDisassembly = useCallback(
     async (addr: number) => {
-      if (!client || connectionState !== "connected") {
+      if (!client) {
         return;
       }
       const requestId = ++requestIdRef.current;
@@ -132,14 +243,44 @@ const DisassemblyView = ({
         }
       }
     },
-    [client, connectionState, target, maxAddress, instructionSize],
+    [client, target, maxAddress, instructionSize],
   );
 
   useEffect(() => {
     const normalized = normalizeAddress(address, maxAddress, instructionSize);
-    setAddressInput(formatAddressInput(target, normalized));
-    void fetchDisassembly(normalized);
-  }, [address, fetchDisassembly, instructionSize, maxAddress, target]);
+    // Display the address 10 instructions down (the intended target), not the fetch start
+    const displayAddress = Math.min(maxAddress, normalized + instructionSize * 10);
+    setAddressInput(formatAddressInput(target, displayAddress));
+
+    if (initialized) {
+      void fetchDisassembly(normalized);
+    }
+  }, [address, fetchDisassembly, instructionSize, maxAddress, target, initialized]);
+
+  // Trigger highlight effect when loaded from URL
+  useEffect(() => {
+    if (!initialAddressData.fromUrl || !initialized || lines.length === 0 || urlHighlightTriggeredRef.current) {
+      return;
+    }
+
+    // Mark as triggered immediately to prevent re-triggering on scroll
+    urlHighlightTriggeredRef.current = true;
+
+    // Set target address for animation trigger
+    targetAddressRef.current = initialAddressData.address;
+    targetTimestampRef.current = Date.now();
+
+    // Update DOM when lines are available
+    setTimeout(() => {
+      const element = lineRefsMap.current.get(initialAddressData.address);
+      if (element) {
+        element.classList.remove("target-address");
+        // Force reflow to restart animation
+        void element.offsetWidth;
+        element.classList.add("target-address");
+      }
+    }, 0);
+  }, [initialAddressData, initialized, lines]);
 
   // Process pending scroll steps after loading completes
   useEffect(() => {
@@ -152,9 +293,14 @@ const DisassemblyView = ({
 
   const adjustAddress = useCallback(
     (steps: number) => {
-      setAddress((prev) => normalizeAddress(prev + steps * instructionSize, maxAddress, instructionSize));
+      setAddress((prev) => {
+        const newAddr = normalizeAddress(prev + steps * instructionSize, maxAddress, instructionSize);
+        const paramName = target === "dsp" ? "step" : "address";
+        setSearchParams({ [paramName]: formatAddressInput(target, newAddr) });
+        return newAddr;
+      });
     },
-    [instructionSize, maxAddress],
+    [instructionSize, maxAddress, setSearchParams, target],
   );
 
   const handleWheel = useCallback(
@@ -201,16 +347,34 @@ const DisassemblyView = ({
     if (parsed === undefined) {
       return;
     }
-    setAddress(normalizeAddress(parsed, maxAddress, instructionSize));
-  }, [addressInput, instructionSize, maxAddress, target]);
+    // Start 10 instructions before for context
+    const contextOffset = instructionSize * 10;
+    const targetAddress = Math.max(0, parsed - contextOffset);
+    const normalizedTarget = normalizeAddress(targetAddress, maxAddress, instructionSize);
 
-  const handlePageUp = useCallback(() => {
-    adjustAddress(-FETCH_LINE_COUNT);
-  }, [adjustAddress]);
+    setAddress(normalizedTarget);
+    const paramName = target === "dsp" ? "step" : "address";
+    setSearchParams({ [paramName]: formatAddressInput(target, parsed) });
 
-  const handlePageDown = useCallback(() => {
-    adjustAddress(FETCH_LINE_COUNT);
-  }, [adjustAddress]);
+    // Set target address and timestamp for animation trigger
+    targetAddressRef.current = parsed;
+    targetTimestampRef.current = Date.now();
+
+    // Update DOM when lines are available
+    setTimeout(() => {
+      const element = lineRefsMap.current.get(parsed);
+      if (element) {
+        element.classList.remove("target-address");
+        // Force reflow to restart animation
+        void element.offsetWidth;
+        element.classList.add("target-address");
+      }
+    }, 0);
+  }, [addressInput, instructionSize, maxAddress, target, setSearchParams]);
+
+  const handleRefresh = useCallback(() => {
+    void fetchDisassembly(address);
+  }, [fetchDisassembly, address]);
 
   const handleBreakpointClick = useCallback(
     async (lineAddress: number) => {
@@ -220,7 +384,7 @@ const DisassemblyView = ({
         await removeBreakpoint(existing.id);
       } else {
         // Add new breakpoint
-        const cpuPath = target === "dsp" ? "dc.aica.dsp" : target === "sh4" ? "dc.sh4.cpu" : "dc.arm7.cpu";
+        const cpuPath = target === "dsp" ? "dc.aica.dsp" : target === "sh4" ? "dc.sh4.cpu" : "dc.aica.arm7";
         const counterName = target === "dsp" ? "step" : "pc";
         const location = `${cpuPath}.${counterName} == ${formatHexAddress(lineAddress)}`;
         await addBreakpoint(location, "code");
@@ -240,11 +404,129 @@ const DisassemblyView = ({
     [breakpointsByAddress, toggleBreakpoint],
   );
 
+  const handleGotoPC = useCallback(() => {
+    if (currentPcRef.current !== undefined) {
+      // Start 10 instructions before for context
+      const contextOffset = instructionSize * 10;
+      const targetAddress = Math.max(0, currentPcRef.current - contextOffset);
+      setAddress(targetAddress);
+    }
+  }, [instructionSize]);
+
+  const handleStep = useCallback(async () => {
+    if (!client) {
+      return;
+    }
+    try {
+      await client.step(target, "instruction");
+      // State will be updated via notification from server
+    } catch (error) {
+      console.error("Failed to step", error);
+    }
+  }, [client, target]);
+
+  const handleStepIn = useCallback(async () => {
+    if (!client) {
+      return;
+    }
+    try {
+      await client.step(target, "instruction", ["into"]);
+      // State will be updated via notification from server
+    } catch (error) {
+      console.error("Failed to step in", error);
+    }
+  }, [client, target]);
+
+  const handleStepOut = useCallback(async () => {
+    if (!client) {
+      return;
+    }
+    try {
+      await client.step(target, "instruction", ["out"]);
+      // State will be updated via notification from server
+    } catch (error) {
+      console.error("Failed to step out", error);
+    }
+  }, [client, target]);
+
+  const showStepInOut = target === "sh4" || target === "arm7";
+  const isDsp = target === "dsp";
+  const stepLabel = isDsp ? "STEP" : "Step Over";
+  const StepIcon = isDsp ? ArrowForwardIcon : SubdirectoryArrowRightIcon;
+
   return (
-    <Panel
-      title={title}
-      action={
-        <Stack direction="row" spacing={1} alignItems="center">
+    <Paper
+      elevation={0}
+      sx={{
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+        height: "100%",
+      }}
+    >
+      <Box
+        sx={{
+          px: 2,
+          py: 1,
+          display: "flex",
+          alignItems: "center",
+          gap: 1,
+          borderBottom: "1px solid",
+          borderColor: "divider",
+        }}
+      >
+        <Stack direction="row" spacing={0.5} alignItems="center">
+          <Tooltip title={stepLabel}>
+            <IconButton
+              size="small"
+              onClick={handleStep}
+            >
+              <StepIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+          {showStepInOut && (
+            <>
+              <Tooltip title="Step In">
+                <IconButton
+                  size="small"
+                  onClick={handleStepIn}
+                >
+                  <ArrowDownwardRoundedIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="Step Out">
+                <IconButton
+                  size="small"
+                  onClick={handleStepOut}
+                >
+                  <ArrowUpwardRoundedIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </>
+          )}
+        </Stack>
+        <Stack direction="row" spacing={1} alignItems="center" sx={{ flex: 1, justifyContent: "flex-end" }}>
+          <Tooltip title={categoryState?.muted ? "Unmute category" : "Mute category"}>
+            <IconButton size="small" onClick={handleMuteToggle} color={categoryState?.muted ? "warning" : "default"}>
+              {categoryState?.muted ? <VolumeOffIcon fontSize="small" /> : <VolumeUpIcon fontSize="small" />}
+            </IconButton>
+          </Tooltip>
+          <Tooltip title={categoryState?.soloed ? "Unsolo category" : "Solo category"}>
+            <IconButton size="small" onClick={handleSoloToggle} color={categoryState?.soloed ? "primary" : "default"}>
+              {categoryState?.soloed ? <RadioButtonCheckedIcon fontSize="small" /> : <RadioButtonUncheckedIcon fontSize="small" />}
+            </IconButton>
+          </Tooltip>
+          <Tooltip title={target === "dsp" ? "Go to current STEP" : "Go to current PC"}>
+            <span>
+              <IconButton
+                size="small"
+                onClick={handleGotoPC}
+                disabled={currentPcRef.current === undefined}
+              >
+                <MyLocationIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
           <TextField
             size="small"
             value={addressInput}
@@ -256,24 +538,32 @@ const DisassemblyView = ({
               }
             }}
             sx={{ width: 160 }}
-            disabled={connectionState !== "connected"}
+            slotProps={{
+              input: {
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <Button size="small" onClick={handleAddressSubmit} sx={{ minWidth: "auto", px: 1 }}>
+                      Go
+                    </Button>
+                  </InputAdornment>
+                ),
+              },
+            }}
           />
-          <Button size="small" onClick={handleAddressSubmit} disabled={connectionState !== "connected"}>
-            Go
-          </Button>
-          <IconButton size="small" onClick={handlePageUp} disabled={connectionState !== "connected"}>
-            <ArrowUpwardIcon fontSize="small" />
-          </IconButton>
-          <IconButton size="small" onClick={handlePageDown} disabled={connectionState !== "connected"}>
-            <ArrowDownwardIcon fontSize="small" />
-          </IconButton>
+          <Tooltip title="Refresh">
+            <IconButton size="small" onClick={handleRefresh} disabled={loading}>
+              <RefreshIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
         </Stack>
-      }
-    >
-      {connectionState !== "connected" ? (
-        <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
-          Connect to view disassembly.
-        </Typography>
+      </Box>
+      <Box sx={{ flex: 1, overflow: "auto" }}>
+      {!initialized ? (
+        <Stack alignItems="center" justifyContent="center" sx={{ height: "100%" }}>
+          <Typography variant="body2" color="text.secondary">
+            No Data
+          </Typography>
+        </Stack>
       ) : error ? (
         <Typography variant="body2" color="error" sx={{ p: 2 }}>
           {error}
@@ -312,7 +602,36 @@ const DisassemblyView = ({
               No disassembly returned.
             </Typography>
           ) : (
-            <Stack spacing={0.25}>
+            <Stack
+              spacing={0}
+              sx={{
+                "& .current-instruction": {
+                  color: "primary.main",
+                  fontWeight: 600,
+                  border: "2px solid",
+                  borderColor: "success.main",
+                  "&:hover": {
+                    borderColor: "success.main !important",
+                  },
+                },
+                "& .target-address": {
+                  border: "2px solid",
+                  borderColor: "warning.main",
+                  animation: "fadeOutTarget 2s forwards",
+                  "&:hover": {
+                    borderColor: "inherit !important",
+                  },
+                },
+                "@keyframes fadeOutTarget": {
+                  "0%": {
+                    borderColor: "warning.main",
+                  },
+                  "100%": {
+                    borderColor: "transparent",
+                  },
+                },
+              }}
+            >
               {lines.map((line) => {
                 const commentText = line.comment ? `; ${line.comment}` : "";
                 const mnemonicSegment = line.operands ? `${line.mnemonic} ${line.operands}` : line.mnemonic;
@@ -323,15 +642,29 @@ const DisassemblyView = ({
                 return (
                   <Box
                     key={`${line.address}-${hasBreakpoint}-${breakpointEnabled}`}
+                    ref={(el: HTMLDivElement | null) => {
+                      if (el) {
+                        lineRefsMap.current.set(line.address, el);
+                        // Apply current styling if this line is the current PC and we're paused
+                        if (currentPcRef.current === line.address && executionState === "paused") {
+                          el.classList.add("current-instruction");
+                        }
+                      } else {
+                        lineRefsMap.current.delete(line.address);
+                      }
+                    }}
                     sx={{
                       display: "grid",
                       gridTemplateColumns: target === "dsp" ? "24px 80px 120px 1fr" : "24px 140px 140px 1fr",
                       gap: 1,
-                      alignItems: "center",
-                      color: line.isCurrent ? "primary.main" : "inherit",
-                      fontWeight: line.isCurrent ? 600 : 400,
+                      alignItems: "stretch",
                       px: 0.5,
-                      py: 0.25,
+                      py: 0,
+                      border: "2px solid transparent",
+                      borderRadius: 1,
+                      "&:hover": {
+                        borderBottomColor: "primary.main",
+                      },
                       "&:hover .breakpoint-gutter": {
                         opacity: 1,
                       },
@@ -346,6 +679,7 @@ const DisassemblyView = ({
                         opacity: hasBreakpoint ? 1 : 0,
                         cursor: "pointer",
                         transition: "opacity 0.1s",
+                        alignSelf: "stretch",
                       }}
                       onClick={(e) => {
                         if ((e.shiftKey || e.ctrlKey || e.metaKey) && hasBreakpoint) {
@@ -386,18 +720,55 @@ const DisassemblyView = ({
           )}
         </Box>
       )}
-    </Panel>
+      </Box>
+    </Paper>
   );
 };
 
-export const Sh4DisassemblyPanel = () => (
-  <DisassemblyView title="SH4: Disassembly" target="sh4" defaultAddress={0x8c0000a0} />
-);
+export const Sh4DisassemblyPanel = () => {
+  const registersByPath = useDebuggerDataStore((state) => state.registersByPath);
+  const registers = registersByPath["dc.sh4.cpu"];
+  const pcReg = registers?.find((r) => r.name === "PC");
 
-export const Arm7DisassemblyPanel = () => (
-  <DisassemblyView title="ARM7: Disassembly" target="arm7" defaultAddress={0x00200000} />
-);
+  let defaultAddress = 0x8c0000a0;
+  if (pcReg?.value) {
+    const pc = Number.parseInt(pcReg.value.replace(/^0x/i, ""), 16);
+    if (!Number.isNaN(pc)) {
+      defaultAddress = Math.max(0, pc - 2 * 10); // 10 instructions before
+    }
+  }
 
-export const DspDisassemblyPanel = () => (
-  <DisassemblyView title="DSP: Disassembly" target="dsp" defaultAddress={0x00000000} />
-);
+  return <DisassemblyView target="sh4" defaultAddress={defaultAddress} />;
+};
+
+export const Arm7DisassemblyPanel = () => {
+  const registersByPath = useDebuggerDataStore((state) => state.registersByPath);
+  const registers = registersByPath["dc.aica.arm7"];
+  const pcReg = registers?.find((r) => r.name === "PC");
+
+  let defaultAddress = 0x00200000;
+  if (pcReg?.value) {
+    const pc = Number.parseInt(pcReg.value.replace(/^0x/i, ""), 16);
+    if (!Number.isNaN(pc)) {
+      defaultAddress = Math.max(0, pc - 4 * 10); // 10 instructions before
+    }
+  }
+
+  return <DisassemblyView target="arm7" defaultAddress={defaultAddress} />;
+};
+
+export const DspDisassemblyPanel = () => {
+  const registersByPath = useDebuggerDataStore((state) => state.registersByPath);
+  const registers = registersByPath["dc.aica.dsp"];
+  const stepReg = registers?.find((r) => r.name === "STEP");
+
+  let defaultAddress = 0x00000000;
+  if (stepReg?.value) {
+    const step = Number.parseInt(stepReg.value.replace(/^0x/i, ""), 16);
+    if (!Number.isNaN(step)) {
+      defaultAddress = Math.max(0, step - 10); // 10 steps before
+    }
+  }
+
+  return <DisassemblyView target="dsp" defaultAddress={defaultAddress} />;
+};

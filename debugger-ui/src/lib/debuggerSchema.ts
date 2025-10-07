@@ -1,19 +1,9 @@
 ﻿import type { RpcSchema } from "./jsonRpc";
 
-export type DeviceKind =
-  | "bus"
-  | "processor"
-  | "coprocessor"
-  | "peripheral"
-  | "memory"
-  | "channel"
-  | "pipeline"
-  | "debugger";
-
 export interface DeviceNodeDescriptor {
   path: string;
   label: string;
-  kind: DeviceKind;
+  kind: string;
   description?: string;
   registers?: RegisterValue[];
   events?: string[];
@@ -81,6 +71,7 @@ export interface WaveformChunk {
 }
 
 export interface FrameLogEntry {
+  eventId: string;
   timestamp: number;
   subsystem: "sh4" | "holly" | "ta" | "core" | "aica" | "dsp";
   severity: "trace" | "info" | "warn" | "error";
@@ -101,6 +92,30 @@ export interface CallstackFrame {
   location?: string;
 }
 
+export interface DebuggerShape {
+  emulator: { name: string; version: string; build: "native" | "wasm" };
+  deviceTree: DeviceNodeDescriptor[];
+  capabilities: string[];
+}
+
+export interface DebuggerTick {
+  tickId: number;
+  timestamp: number;
+  executionState: {
+    state: "running" | "paused";
+    breakpointId?: string;
+  };
+  registers: Record<string, RegisterValue[]>;
+  breakpoints: Record<string, BreakpointDescriptor>;
+  eventLog: FrameLogEntry[];
+  watches?: Record<string, unknown>;
+  threads?: ThreadInfo[];
+}
+
+export interface RpcError {
+  error?: { code: number; message: string };
+}
+
 export type DebuggerRpcSchema = RpcSchema & {
   "debugger.handshake": {
     params: { clientName: string; clientVersion: string; transport: TransportSettings };
@@ -111,31 +126,8 @@ export type DebuggerRpcSchema = RpcSchema & {
     result: { target: string; frames: CallstackFrame[] };
   };
   "debugger.describe": {
-    params: { include?: ("devices" | "breakpoints" | "threads")[] };
-    result: {
-      emulator: { name: string; version: string; build: "native" | "wasm" };
-      devices: DeviceNodeDescriptor[];
-      breakpoints: BreakpointDescriptor[];
-      threads: ThreadInfo[];
-    };
-  };
-  "debugger.subscribe": {
-    params: {
-      topics: string[];
-    };
-    result: { acknowledged: string[] };
-  };
-  "debugger.unsubscribe": {
-    params: { topics: string[] };
-    result: { acknowledged: string[] };
-  };
-  "state.getRegisters": {
-    params: { path: string };
-    result: { path: string; registers: RegisterValue[] };
-  };
-  "state.getCache": {
-    params: { path: string; cache: "icache" | "dcache" | "utlb" | "itlb" };
-    result: { path: string; cache: string; entries: Record<string, unknown>[] };
+    params: Record<string, never>;
+    result: DebuggerShape;
   };
   "state.getMemorySlice": {
     params: { target?: string; address: number; length: number; encoding?: MemorySlice["encoding"]; wordSize?: MemorySlice["wordSize"]; };
@@ -147,70 +139,54 @@ export type DebuggerRpcSchema = RpcSchema & {
   };
   "state.watch": {
     params: { expressions: string[] };
-    result: { accepted: string[]; all: string[] };
+    result: RpcError;
   };
   "state.unwatch": {
     params: { expressions: string[] };
-    result: { accepted: string[]; all: string[] };
+    result: RpcError;
   };
   "control.step": {
     params: { target: string; granularity: "instruction" | "block" | "event"; modifiers?: string[] };
-    result: { target: string; state: "running" | "halted" };
+    result: RpcError;
   };
   "control.runUntil": {
     params: { target: string; type: "interrupt" | "exception" | "primitive" | "tile" | "vertex" | "list" | "sample"; value?: string };
-    result: { target: string; state: "running" | "halted"; reason?: string };
+    result: RpcError;
+  };
+  "control.pause": {
+    params: { target?: string };
+    result: RpcError;
   };
   "breakpoints.add": {
     params: { location: string; kind?: BreakpointDescriptor["kind"]; enabled?: boolean };
-    result: { breakpoint: BreakpointDescriptor; all: BreakpointDescriptor[] };
+    result: RpcError;
+  };
+  "breakpoints.setCategoryStates": {
+    params: { categories: Record<string, { muted: boolean; soloed: boolean }> };
+    result: RpcError;
   };
   "breakpoints.remove": {
     params: { id: string };
-    result: { removed: boolean; all: BreakpointDescriptor[] };
+    result: RpcError;
   };
   "breakpoints.toggle": {
     params: { id: string; enabled: boolean };
-    result: { breakpoint: BreakpointDescriptor; all: BreakpointDescriptor[] };
-  };
-  "breakpoints.list": {
-    params: Record<string, never>;
-    result: { breakpoints: BreakpointDescriptor[] };
+    result: RpcError;
   };
   "audio.requestWaveform": {
     params: { channelId: string; window: number };
     result: WaveformChunk;
   };
-  "logs.fetchFrameLog": {
-    params: { frame: number; limit?: number };
-    result: { frame: number; entries: FrameLogEntry[] };
-  };
 };
 
 export type DebuggerNotification =
   | {
-      topic: "state.registers";
-      payload: { path: string; registers: RegisterValue[] };
-    }
-  | {
-      topic: "state.watch";
-      payload: { expression: string; value: unknown };
-    }
-  | {
-      topic: "state.breakpoint";
-      payload: BreakpointDescriptor;
-    }
-  | {
-      topic: "state.thread";
-      payload: ThreadInfo;
+      topic: "tick";
+      payload: DebuggerTick;
     }
   | {
       topic: "stream.waveform";
       payload: WaveformChunk;
-    }
-  | {
-      topic: "stream.frameLog";
-      payload: FrameLogEntry;
     };
 
 

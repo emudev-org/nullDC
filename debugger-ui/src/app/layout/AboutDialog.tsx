@@ -50,16 +50,16 @@ export const AboutDialog = ({ open, onClose }: AboutDialogProps) => {
     setLoading(true);
     setError(null);
     void client
-      .fetchEmulatorInfo()
-      .then((result) => {
+      .describe()
+      .then((result: { emulator?: { name?: string; version?: string; build?: string } }) => {
         if (cancelled) {
           return;
         }
-        if (result) {
-          setInfo(result);
+        if (result?.emulator) {
+          setInfo(result.emulator);
         }
       })
-      .catch((err) => {
+      .catch((err: unknown) => {
         if (cancelled) {
           return;
         }

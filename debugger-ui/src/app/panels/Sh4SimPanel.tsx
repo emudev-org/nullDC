@@ -798,7 +798,6 @@ export const Sh4SimPanel = () => {
 
   return (
     <Panel
-      title="SH4: Sim"
       action={
         <Stack direction="row" spacing={1}>
           <Tooltip title={copiedMain ? "Copied!" : "Copy share link"} open={copiedMain} arrow disableHoverListener>

@@ -699,7 +699,6 @@ export const CoreInspectorPanel = () => {
 
   return (
     <Panel
-      title="CORE: PowerVR Log Visualizer"
       action={
         hasData ? (
           <Button variant="outlined" size="small" onClick={handleCloseLog}>

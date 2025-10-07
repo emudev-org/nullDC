@@ -13,6 +13,7 @@ import { useDebuggerDataStore } from "../../state/debuggerDataStore";
 
 
 export const DeviceTreePanel = () => {
+  const initialized = useDebuggerDataStore((state) => state.initialized);
   const deviceTree = useDebuggerDataStore((state) => state.deviceTree);
   const registersByPath = useDebuggerDataStore((state) => state.registersByPath);
   const addWatch = useDebuggerDataStore((state) => state.addWatch);
@@ -179,8 +180,14 @@ export const DeviceTreePanel = () => {
   );
 
   return (
-    <Panel title="Device Tree">
-      {deviceTree.length === 0 ? (
+    <Panel>
+      {!initialized ? (
+        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}>
+          <Typography variant="body2" color="text.secondary">
+            No Data
+          </Typography>
+        </Box>
+      ) : deviceTree.length === 0 ? (
         <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
           No device information available.
         </Typography>
@@ -190,7 +197,7 @@ export const DeviceTreePanel = () => {
             <TextField
               size="small"
               fullWidth
-              placeholder="Search devices..."
+              placeholder="Search registers..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               InputProps={{

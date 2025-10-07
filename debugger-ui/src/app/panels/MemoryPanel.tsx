@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Panel } from "../layout/Panel";
-import { Box, Button, CircularProgress, Stack, TextField, Typography } from "@mui/material";
+import { Box, Button, CircularProgress, IconButton, InputAdornment, Stack, TextField, Tooltip, Typography } from "@mui/material";
+import RefreshIcon from "@mui/icons-material/Refresh";
 import type { MemorySlice } from "../../lib/debuggerSchema";
 import { useSessionStore } from "../../state/sessionStore";
+import { useDebuggerDataStore } from "../../state/debuggerDataStore";
 
 type MemoryRow = {
   id: number;
@@ -30,8 +33,13 @@ const MEMORY_SCROLL_BYTES = 96;
 const BYTES_PER_ROW = 16;
 const VISIBLE_ROWS = 60;
 
+const parseAddressInput = (input: string) => {
+  const normalized = input.trim();
+  const parsed = Number.parseInt(normalized.replace(/^0x/i, ""), 16);
+  return Number.isNaN(parsed) ? undefined : parsed;
+};
+
 const MemoryView = ({
-  title,
   target,
   defaultAddress,
   length,
@@ -45,22 +53,40 @@ const MemoryView = ({
   encoding?: MemorySlice["encoding"];
   wordSize?: MemorySlice["wordSize"];
 }) => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const client = useSessionStore((state) => state.client);
-  const connectionState = useSessionStore((state) => state.connectionState);
+  const initialized = useDebuggerDataStore((state) => state.initialized);
   const [slice, setSlice] = useState<MemorySlice | null>(null);
   const [loading, setLoading] = useState(false);
-  const [address, setAddress] = useState(defaultAddress);
-  const [addressInput, setAddressInput] = useState(formatHexAddress(defaultAddress));
+
+  // Initialize address from URL or default
+  const initialAddressData = useMemo(() => {
+    const addressParam = searchParams.get("address");
+    if (addressParam) {
+      const parsed = parseAddressInput(addressParam);
+      if (parsed !== undefined) {
+        return { address: parsed, fromUrl: true };
+      }
+    }
+    return { address: defaultAddress, fromUrl: false };
+  }, [searchParams, defaultAddress]);
+
+  const [address, setAddress] = useState(initialAddressData.address);
+  const [addressInput, setAddressInput] = useState(formatHexAddress(initialAddressData.address));
   const requestIdRef = useRef(0);
   const wheelRemainder = useRef(0);
   const pendingScrollDelta = useRef(0);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const targetAddressRef = useRef<number | undefined>(undefined);
+  const targetTimestampRef = useRef<number | undefined>(undefined);
+  const lineRefsMap = useRef<Map<number, HTMLDivElement>>(new Map());
+  const urlHighlightTriggeredRef = useRef(false);
 
   const maxAddress = useMemo(() => 0xffffffff - Math.max(length - 1, 0), [length]);
 
   const fetchSlice = useCallback(
     async (addr: number) => {
-      if (!client || connectionState !== "connected") {
+      if (!client) {
         return;
       }
 
@@ -90,13 +116,47 @@ const MemoryView = ({
         }
       }
     },
-    [client, connectionState, target, length, encoding, wordSize],
+    [client, target, length, encoding, wordSize],
   );
 
   useEffect(() => {
-    setAddressInput(formatHexAddress(address));
-    void fetchSlice(address);
-  }, [address, fetchSlice]);
+    const normalized = clampAddress(address, maxAddress, BYTES_PER_ROW);
+    // Display the address 10 rows down (the intended target), not the fetch start
+    const displayAddress = Math.min(0xffffffff - (BYTES_PER_ROW - 1), normalized + BYTES_PER_ROW * 10);
+    setAddressInput(formatHexAddress(displayAddress));
+
+    if (initialized) {
+      void fetchSlice(normalized);
+    }
+  }, [address, fetchSlice, maxAddress, initialized]);
+
+  // Trigger highlight effect when loaded from URL
+  useEffect(() => {
+    if (!initialAddressData.fromUrl || !initialized || !slice || urlHighlightTriggeredRef.current) {
+      return;
+    }
+
+    // Mark as triggered immediately to prevent re-triggering on scroll
+    urlHighlightTriggeredRef.current = true;
+
+    // Align the address to row boundary for proper highlighting
+    const alignedAddress = clampAddress(initialAddressData.address, 0xffffffff - (BYTES_PER_ROW - 1), BYTES_PER_ROW);
+
+    // Set target address for animation trigger
+    targetAddressRef.current = alignedAddress;
+    targetTimestampRef.current = Date.now();
+
+    // Update DOM when rows are available
+    setTimeout(() => {
+      const element = lineRefsMap.current.get(alignedAddress);
+      if (element) {
+        element.classList.remove("target-address");
+        // Force reflow to restart animation
+        void element.offsetWidth;
+        element.classList.add("target-address");
+      }
+    }, 0);
+  }, [initialAddressData, initialized, slice]);
 
   // Process pending scroll delta after loading completes
   useEffect(() => {
@@ -131,9 +191,13 @@ const MemoryView = ({
 
   const adjustAddress = useCallback(
     (delta: number) => {
-      setAddress((prev) => clampAddress(prev + delta, maxAddress, BYTES_PER_ROW));
+      setAddress((prev) => {
+        const newAddr = clampAddress(prev + delta, maxAddress, BYTES_PER_ROW);
+        setSearchParams({ address: formatHexAddress(newAddr) });
+        return newAddr;
+      });
     },
-    [maxAddress],
+    [maxAddress, setSearchParams],
   );
 
   const handleWheel = useCallback(
@@ -176,13 +240,39 @@ const MemoryView = ({
   }, [handleWheel]);
 
   const handleAddressSubmit = useCallback(() => {
-    const normalized = addressInput.trim();
-    const parsed = Number.parseInt(normalized.replace(/^0x/i, ""), 16);
-    if (Number.isNaN(parsed)) {
+    const parsed = parseAddressInput(addressInput);
+    if (parsed === undefined) {
       return;
     }
-    setAddress(clampAddress(parsed, maxAddress, BYTES_PER_ROW));
-  }, [addressInput, maxAddress]);
+    // Align down to row boundary
+    const alignedAddress = clampAddress(parsed, 0xffffffff - (BYTES_PER_ROW - 1), BYTES_PER_ROW);
+
+    // Update the input field to show the aligned address
+    setAddressInput(formatHexAddress(alignedAddress));
+
+    // Start 10 rows before for context
+    const contextOffset = BYTES_PER_ROW * 10;
+    const targetAddress = Math.max(0, alignedAddress - contextOffset);
+    const clampedTarget = clampAddress(targetAddress, maxAddress, BYTES_PER_ROW);
+
+    setAddress(clampedTarget);
+    setSearchParams({ address: formatHexAddress(alignedAddress) });
+
+    // Set target address (aligned) and timestamp for animation trigger
+    targetAddressRef.current = alignedAddress;
+    targetTimestampRef.current = Date.now();
+
+    // Update DOM when rows are available
+    setTimeout(() => {
+      const element = lineRefsMap.current.get(alignedAddress);
+      if (element) {
+        element.classList.remove("target-address");
+        // Force reflow to restart animation
+        void element.offsetWidth;
+        element.classList.add("target-address");
+      }
+    }, 0);
+  }, [addressInput, maxAddress, setSearchParams]);
 
   const handleRefresh = useCallback(() => {
     void fetchSlice(address);
@@ -190,9 +280,8 @@ const MemoryView = ({
 
   return (
     <Panel
-      title={title}
       action={
-        <Stack direction="row" spacing={1} alignItems="center">
+        <Stack direction="row" spacing={1} alignItems="center" sx={{ flex: 1 }}>
           <TextField
             size="small"
             value={addressInput}
@@ -203,19 +292,34 @@ const MemoryView = ({
                 handleAddressSubmit();
               }
             }}
-            sx={{ width: 140 }}
-            disabled={connectionState !== "connected"}
+            sx={{ flex: 1 }}
+            slotProps={{
+              input: {
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <Button size="small" onClick={handleAddressSubmit} sx={{ minWidth: "auto", px: 1 }}>
+                      Go
+                    </Button>
+                  </InputAdornment>
+                ),
+              },
+            }}
           />
-          <Button size="small" onClick={handleAddressSubmit} disabled={connectionState !== "connected"}>
-            Go
-          </Button>
-          <Button size="small" onClick={handleRefresh} disabled={loading || connectionState !== "connected"}>
-            Refresh
-          </Button>
+          <Tooltip title="Refresh">
+            <IconButton size="small" onClick={handleRefresh} disabled={loading}>
+              <RefreshIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
         </Stack>
       }
     >
-      {loading && !slice ? (
+      {!initialized ? (
+        <Stack alignItems="center" justifyContent="center" sx={{ height: "100%" }}>
+          <Typography variant="body2" color="text.secondary">
+            No Data
+          </Typography>
+        </Stack>
+      ) : loading && !slice ? (
         <Stack alignItems="center" justifyContent="center" sx={{ height: "100%" }} spacing={1}>
           <CircularProgress size={18} />
           <Typography variant="body2" color="text.secondary">
@@ -233,7 +337,6 @@ const MemoryView = ({
             fontSize: 13,
             p: 1.5,
             position: "relative",
-            cursor: "ns-resize",
           }}
         >
           {loading && (
@@ -249,11 +352,50 @@ const MemoryView = ({
             <Typography component="span" sx={{ width: 380, flexShrink: 0, mr: "4em" }}>Hex</Typography>
             <Typography component="span" sx={{ width: 130, flexShrink: 0 }}>ASCII</Typography>
           </Box>
-          <Stack spacing={0.5}>
+          <Stack
+            spacing={0}
+            sx={{
+              "& .target-address": {
+                border: "2px solid",
+                borderColor: "warning.main",
+                animation: "fadeOutTarget 2s forwards",
+                "&:hover": {
+                  borderColor: "inherit !important",
+                },
+              },
+              "@keyframes fadeOutTarget": {
+                "0%": {
+                  borderColor: "warning.main",
+                },
+                "100%": {
+                  borderColor: "transparent",
+                },
+              },
+            }}
+          >
             {rows.map((row) => (
               <Box
                 key={`${target}-${row.id}`}
-                sx={{ display: "flex", fontFamily: "monospace", fontSize: 13, alignItems: "baseline" }}>
+                ref={(el: HTMLDivElement | null) => {
+                  if (el) {
+                    lineRefsMap.current.set(row.address, el);
+                  } else {
+                    lineRefsMap.current.delete(row.address);
+                  }
+                }}
+                sx={{
+                  display: "flex",
+                  fontFamily: "monospace",
+                  fontSize: 13,
+                  alignItems: "baseline",
+                  border: "2px solid transparent",
+                  borderRadius: 1,
+                  px: 0.5,
+                  py: 0,
+                  "&:hover": {
+                    borderBottomColor: "primary.main",
+                  },
+                }}>
                 <Typography component="span" sx={{ width: 100, flexShrink: 0, mr: "1.5em" }}>{formatHexAddress(row.address)}</Typography>
                 <Typography component="span" sx={{ width: 380, flexShrink: 0, whiteSpace: "nowrap", letterSpacing: 0, mr: "4em" }}>{row.hex}</Typography>
                 <Typography component="span" sx={{ width: 130, flexShrink: 0, whiteSpace: "pre", letterSpacing: "0.05em" }}>{row.ascii}</Typography>

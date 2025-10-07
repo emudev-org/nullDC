@@ -3,6 +3,7 @@ import { appConfig, resolveEndpoint, resolveTransportOptions } from "../config";
 import { DebuggerClient } from "../services/debuggerClient";
 
 export type ConnectionState = "idle" | "connecting" | "connected" | "error";
+export type ExecutionState = "running" | "paused";
 
 export interface SessionInfo {
   sessionId: string;
@@ -16,6 +17,8 @@ interface SessionStore {
   connectionState: ConnectionState;
   connectionError?: string;
   session?: SessionInfo;
+  executionState: ExecutionState;
+  setExecutionState: (state: ExecutionState) => void;
   connect: (options?: { force?: boolean }) => Promise<void>;
   disconnect: () => void;
 }
@@ -23,6 +26,10 @@ interface SessionStore {
 export const useSessionStore = create<SessionStore>()((set, get) => ({
   mode: appConfig.mode,
   connectionState: "idle",
+  executionState: "running",
+  setExecutionState(state) {
+    set({ executionState: state });
+  },
   async connect({ force } = {}) {
     const current = get();
     if (!force && (current.connectionState === "connecting" || current.connectionState === "connected")) {

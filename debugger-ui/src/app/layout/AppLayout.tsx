@@ -1,5 +1,5 @@
 ﻿import { useEffect, useCallback, useMemo, useState, useRef } from "react";
-import { AppBar, Box, Button, CircularProgress, Divider, IconButton, Stack, Switch, Tab, Tabs, Tooltip, Typography, Alert } from "@mui/material";
+import { AppBar, Box, Button, Divider, IconButton, Stack, Switch, Tab, Tabs, Tooltip, Typography, Alert } from "@mui/material";
 import PowerSettingsNewIcon from "@mui/icons-material/PowerSettingsNew";
 import CloudDoneIcon from "@mui/icons-material/CloudDone";
 import CloudOffIcon from "@mui/icons-material/CloudOff";
@@ -8,6 +8,9 @@ import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import DarkModeIcon from "@mui/icons-material/DarkMode";
 import LightModeIcon from "@mui/icons-material/LightMode";
+import PlayArrowIcon from "@mui/icons-material/PlayArrow";
+import PauseIcon from "@mui/icons-material/Pause";
+import SkipNextIcon from "@mui/icons-material/SkipNext";
 import { useSessionStore } from "../../state/sessionStore";
 import { useDebuggerDataStore } from "../../state/debuggerDataStore";
 import { DeviceTreePanel } from "../panels/DeviceTreePanel";
@@ -15,7 +18,7 @@ import { WatchesPanel } from "../panels/WatchesPanel";
 import { EventLogPanel } from "../panels/EventLogPanel";
 import { Sh4DisassemblyPanel, Arm7DisassemblyPanel, DspDisassemblyPanel } from "../panels/DisassemblyPanel";
 import { Sh4MemoryPanel, Arm7MemoryPanel } from "../panels/MemoryPanel";
-import { Sh4CallstackPanel, Arm7CallstackPanel } from "../panels/CallstackPanel";
+import CallstackPanel from "../panels/CallstackPanel";
 import { AudioPanel } from "../panels/AudioPanel";
 import { TaInspectorPanel } from "../panels/TaInspectorPanel";
 import { CoreInspectorPanel } from "../panels/CoreInspectorPanel";
@@ -27,6 +30,7 @@ import { AboutDialog } from "./AboutDialog";
 import { useAboutModal } from "./useAboutModal";
 import { TopNav } from "./TopNav";
 import { useThemeMode } from "../../theme/ThemeModeProvider";
+import { DEBUGGER_VERSION } from "./aboutVersion";
 
 const LAYOUT_STORAGE_KEY = "nulldc-debugger-layout";
 
@@ -81,9 +85,9 @@ const mainTabs = [
 
 const sidePanelTabs = [
   { value: "device-tree", label: "Device Tree", component: <DeviceTreePanel /> },
-  { value: "watches", label: "Watches", component: <WatchesPanel /> },
-  { value: "sh4-callstack", label: "SH4: Callstack", component: <Sh4CallstackPanel /> },
-  { value: "arm7-callstack", label: "ARM7: Callstack", component: <Arm7CallstackPanel /> },
+  { value: "watches", label: "Watches", component: <WatchesPanel showTitle={false} /> },
+  { value: "sh4-callstack", label: "SH4: Callstack", component: <CallstackPanel target="sh4" showTitle={false} /> },
+  { value: "arm7-callstack", label: "ARM7: Callstack", component: <CallstackPanel target="arm7" showTitle={false} /> },
 ];
 
 const connectionIcons = {
@@ -91,6 +95,13 @@ const connectionIcons = {
   error: <CloudOffIcon fontSize="small" />,
   connecting: <SyncIcon fontSize="small" className="spin" />,
   connected: <CloudDoneIcon fontSize="small" />,
+};
+
+type Notification = {
+  id: string;
+  type: "error" | "warning";
+  message: string;
+  timestamp: number;
 };
 
 export const AppLayout = () => {
@@ -101,8 +112,11 @@ export const AppLayout = () => {
   const session = useSessionStore((state) => state.session);
   const endpoint = useSessionStore((state) => state.endpoint);
   const client = useSessionStore((state) => state.client);
+  const executionState = useSessionStore((state) => state.executionState);
   const initializeData = useDebuggerDataStore((state) => state.initialize);
-  const resetData = useDebuggerDataStore((state) => state.reset);
+  const breakpointHit = useDebuggerDataStore((state) => state.breakpointHit);
+  const errorMessage = useDebuggerDataStore((state) => state.errorMessage);
+  const clearError = useDebuggerDataStore((state) => state.clearError);
   const navigate = useNavigate();
   const { tab } = useParams();
   const [leftPanelOpen, setLeftPanelOpen] = useState(() => loadLayoutPrefs().leftPanelOpen);
@@ -112,6 +126,7 @@ export const AppLayout = () => {
   const { open: aboutOpen, show: showAbout, hide: hideAbout } = useAboutModal();
   const { mode, toggleMode } = useThemeMode();
   const isDarkMode = mode === "dark";
+  const [notifications, setNotifications] = useState<Notification[]>([]);
 
   const workspaceTabs = useMemo(() => {
     return isNarrow ? [...mainTabs, ...sidePanelTabs] : mainTabs;
@@ -160,11 +175,45 @@ export const AppLayout = () => {
     }
   }, [client, connectionState, initializeData]);
 
+
+  // Add error messages to notification stack
   useEffect(() => {
-    if (connectionState === "idle" || connectionState === "error") {
-      resetData();
+    if (errorMessage) {
+      const notification: Notification = {
+        id: `error-${Date.now()}`,
+        type: "error",
+        message: errorMessage,
+        timestamp: Date.now(),
+      };
+      setNotifications((prev) => [...prev, notification]);
+
+      // Auto-remove after 5 seconds
+      setTimeout(() => {
+        setNotifications((prev) => prev.filter((n) => n.id !== notification.id));
+      }, 5000);
+
+      // Clear the error from the store
+      clearError();
     }
-  }, [connectionState, resetData]);
+  }, [errorMessage, clearError]);
+
+  // Add breakpoint hits to notification stack
+  useEffect(() => {
+    if (breakpointHit) {
+      const notification: Notification = {
+        id: `breakpoint-${Date.now()}`,
+        type: "warning",
+        message: `Breakpoint hit: ${breakpointHit.breakpoint.location}`,
+        timestamp: Date.now(),
+      };
+      setNotifications((prev) => [...prev, notification]);
+
+      // Auto-remove after 5 seconds
+      setTimeout(() => {
+        setNotifications((prev) => prev.filter((n) => n.id !== notification.id));
+      }, 5000);
+    }
+  }, [breakpointHit]);
 
   useEffect(() => {
     const container = tabsContainerRef.current;
@@ -217,6 +266,43 @@ export const AppLayout = () => {
     }
   }, []);
 
+  const handleRun = useCallback(async () => {
+    if (!client || connectionState !== "connected") {
+      return;
+    }
+    try {
+      await client.runUntil("sh4", "interrupt");
+      // State will be updated via notification from server
+    } catch (error) {
+      console.error("Failed to run", error);
+    }
+  }, [client, connectionState]);
+
+  const handlePause = useCallback(async () => {
+    if (!client || connectionState !== "connected") {
+      return;
+    }
+    try {
+      await client.pause("sh4");
+      // State will be updated via notification from server
+    } catch (error) {
+      console.error("Failed to pause", error);
+    }
+  }, [client, connectionState]);
+
+  const handleRunToBreakpoint = useCallback(async () => {
+    if (!client || connectionState !== "connected") {
+      return;
+    }
+    try {
+      // Run until breakpoint - using sh4 as default target
+      await client.runUntil("sh4", "interrupt");
+      // State will be updated via notification from server
+    } catch (error) {
+      console.error("Failed to run to breakpoint", error);
+    }
+  }, [client, connectionState]);
+
   return (
     <Box sx={{ height: "100vh", display: "flex", flexDirection: "column" }}>
       <AppBar position="static" elevation={1} color="default">
@@ -266,7 +352,47 @@ export const AppLayout = () => {
         </Alert>
       )}
       <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-        <Box sx={{ px: 1, pt: 1 }}>
+        <Box sx={{ px: 1, pt: 1, pb: 0.5 }}>
+          <Box sx={{ display: "flex", justifyContent: "center", mb: 0.5 }}>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Tooltip title="Run">
+                <span>
+                  <IconButton
+                    size="small"
+                    color={connectionState === "connected" && executionState === "paused" ? "success" : "default"}
+                    disabled={connectionState !== "connected" || executionState === "running"}
+                    onClick={handleRun}
+                  >
+                    <PlayArrowIcon />
+                  </IconButton>
+                </span>
+              </Tooltip>
+              <Tooltip title="Pause">
+                <span>
+                  <IconButton
+                    size="small"
+                    color={connectionState === "connected" && executionState === "running" ? "warning" : "default"}
+                    disabled={connectionState !== "connected" || executionState === "paused"}
+                    onClick={handlePause}
+                  >
+                    <PauseIcon />
+                  </IconButton>
+                </span>
+              </Tooltip>
+              <Tooltip title="Run to next breakpoint">
+                <span>
+                  <IconButton
+                    size="small"
+                    color={connectionState === "connected" && executionState === "paused" ? "primary" : "default"}
+                    disabled={connectionState !== "connected" || executionState === "running"}
+                    onClick={handleRunToBreakpoint}
+                  >
+                    <SkipNextIcon />
+                  </IconButton>
+                </span>
+              </Tooltip>
+            </Stack>
+          </Box>
           <Tabs
             value={currentTab}
             onChange={(_, value) => navigate(`/${value}`)}
@@ -360,33 +486,9 @@ export const AppLayout = () => {
                 width: 340,
               }}
             >
-              <WatchesPanel />
-              <Sh4CallstackPanel />
-              <Arm7CallstackPanel />
-            </Box>
-          )}
-          {connectionState !== "connected" && (
-            <Box
-              sx={{
-                position: "absolute",
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                backgroundColor: "rgba(0, 0, 0, 0.3)",
-                backdropFilter: "blur(4px)",
-                zIndex: 1000,
-              }}
-            >
-              <Stack spacing={2} alignItems="center" sx={{ backgroundColor: "background.paper", p: 4, borderRadius: 2, boxShadow: 3 }}>
-                <CircularProgress size={48} />
-                <Typography variant="body1" color="text.secondary">
-                  {connectionState === "connecting" ? "Connecting to debugger..." : connectionState === "error" ? "Connection failed" : "Not connected"}
-                </Typography>
-              </Stack>
+              <WatchesPanel showTitle={true} />
+              <CallstackPanel target="sh4" showTitle={true} />
+              <CallstackPanel target="arm7" showTitle={true} />
             </Box>
           )}
         </Box>
@@ -414,9 +516,33 @@ export const AppLayout = () => {
         <Divider orientation="vertical" flexItem />
         <Typography variant="caption">Endpoint: {endpoint ?? "-"}</Typography>
         <Box sx={{ flexGrow: 1 }} />
-        <Typography variant="caption">nullDC Debugger UI prototype</Typography>
+        <Typography variant="caption">{DEBUGGER_VERSION}</Typography>
       </Box>
       <AboutDialog open={aboutOpen} onClose={hideAbout} />
+      <Box
+        sx={{
+          position: "fixed",
+          bottom: 16,
+          right: 16,
+          zIndex: 9999,
+          display: "flex",
+          flexDirection: "column-reverse",
+          gap: 1,
+          pointerEvents: "none",
+        }}
+      >
+        {notifications.map((notification) => (
+          <Alert
+            key={notification.id}
+            severity={notification.type}
+            variant="filled"
+            onClose={() => setNotifications((prev) => prev.filter((n) => n.id !== notification.id))}
+            sx={{ pointerEvents: "auto" }}
+          >
+            {notification.message}
+          </Alert>
+        ))}
+      </Box>
     </Box>
   );
 };

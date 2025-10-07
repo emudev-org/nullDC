@@ -4,12 +4,9 @@
   "version": "2.0.0-pre",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "tsx watch --tsconfig tsconfig.server.json server/mockServer.ts",
     "build": "tsc -b && vite build",
-    "lint": "eslint .",
-    "preview": "vite preview",
-    "dev:mock": "tsx watch --tsconfig tsconfig.server.json server/mockServer.ts",
-    "mock:start": "tsx --tsconfig tsconfig.server.json server/mockServer.ts"
+    "lint": "eslint ."
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",

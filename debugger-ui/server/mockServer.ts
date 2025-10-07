@@ -16,11 +16,14 @@ import type {
   BreakpointDescriptor,
   DebuggerNotification,
   DebuggerRpcSchema,
+  DebuggerShape,
+  DebuggerTick,
   DeviceNodeDescriptor,
   DisassemblyLine,
   FrameLogEntry,
   MemorySlice,
   RegisterValue,
+  RpcError,
   ThreadInfo,
   WaveformChunk,
 } from "../src/lib/debuggerSchema";
@@ -32,12 +35,63 @@ const IS_PRODUCTION = process.env.NODE_ENV === "production";
 interface ClientContext {
   socket: WebSocket;
   sessionId: string;
-  topics: Set<string>;
   watches: Set<string>;
 }
 
 const serverWatches = new Set<string>();
 const serverBreakpoints = new Map<string, BreakpointDescriptor>();
+let isRunning = true; // Execution state
+let nextEventId = 1n; // Event ID counter (BigInt for 64-bit)
+let tickId = 0; // Tick counter
+
+type BreakpointCategory = "events" | "sh4" | "arm7" | "dsp";
+
+interface CategoryState {
+  muted: boolean;
+  soloed: boolean;
+}
+
+const categoryStates = new Map<BreakpointCategory, CategoryState>([
+  ["events", { muted: false, soloed: false }],
+  ["sh4", { muted: false, soloed: false }],
+  ["arm7", { muted: false, soloed: false }],
+  ["dsp", { muted: false, soloed: false }],
+]);
+
+const categorizeBreakpoint = (bp: BreakpointDescriptor): BreakpointCategory => {
+  // All event breakpoints go to "events" category
+  if (bp.kind === "event") {
+    return "events";
+  }
+
+  // Code breakpoints are categorized by processor
+  const lower = bp.location.toLowerCase();
+  if (lower.includes("sh4")) return "sh4";
+  if (lower.includes("arm7")) return "arm7";
+  if (lower.includes("aica") || lower.includes("dsp")) return "dsp";
+
+  // Default to events if we can't determine
+  return "events";
+};
+
+const isBreakpointActive = (bp: BreakpointDescriptor): boolean => {
+  const category = categorizeBreakpoint(bp);
+  const state = categoryStates.get(category);
+  if (!state) return true;
+
+  // If muted, it's inactive
+  if (state.muted) return false;
+
+  // Check if any category is soloed
+  const anyCategorySoloed = Array.from(categoryStates.values()).some((s) => s.soloed);
+
+  // If any category is soloed, only soloed categories are active
+  if (anyCategorySoloed) {
+    return state.soloed;
+  }
+
+  return true;
+};
 
 // Shared register values storage
 const registerValues = new Map<string, string>([
@@ -64,9 +118,10 @@ const registerValues = new Map<string, string>([
   // AICA
   ["dc.aica.aica_ctrl", "0x00000002"],
   ["dc.aica.aica_status", "0x00000001"],
+  ["dc.aica.arm7.pc", "0x00200010"],
   ["dc.aica.channels.ch0_vol", "0x7F"],
   ["dc.aica.channels.ch1_vol", "0x6A"],
-  ["dc.aica.dsp.step", "0x020"],
+  ["dc.aica.dsp.step", "0x000"],
   ["dc.aica.dsp.dsp_acc", "0x1F"],
   // System
   ["dc.sysclk", "200MHz"],
@@ -87,7 +142,7 @@ const buildDeviceTree = (): DeviceNodeDescriptor[] => [
   {
     path: "dc",
     label: "Dreamcast",
-    kind: "bus",
+    kind: "our beloved console",
     description: "Sega Dreamcast system bus",
     registers: [
       { name: "SYSCLK", value: getRegisterValue("dc", "SYSCLK"), width: 0 },
@@ -221,6 +276,15 @@ const buildDeviceTree = (): DeviceNodeDescriptor[] => [
         ],
         children: [
           {
+            path: "dc.aica.arm7",
+            label: "ARM7",
+            kind: "processor",
+            description: "ARM7TDMI sound CPU",
+            registers: [
+              { name: "PC", value: getRegisterValue("dc.aica.arm7", "PC"), width: 32 },
+            ],
+          },
+          {
             path: "dc.aica.channels",
             label: "Channels",
             kind: "channel",
@@ -250,14 +314,6 @@ const buildDeviceTree = (): DeviceNodeDescriptor[] => [
       },
     ],
   },
-];
-
-const baseRegisters: RegisterValue[] = [
-  { name: "PC", value: "0x8C0000A0", width: 32 },
-  { name: "R0", value: "0x00000000", width: 32 },
-  { name: "R1", value: "0x00000001", width: 32 },
-  { name: "R2", value: "0x8C001000", width: 32 },
-  { name: "PR", value: "0x8C0000A2", width: 32 },
 ];
 
 const sh4Instructions = [
@@ -430,7 +486,7 @@ const sampleThreads: ThreadInfo[] = [
 
 const FRAME_LOG_LIMIT = 256;
 
-const frameEventGenerators: Array<() => Omit<FrameLogEntry, "timestamp">> = [
+const frameEventGenerators: Array<() => Omit<FrameLogEntry, "timestamp" | "eventId">> = [
   () => ({ subsystem: "ta", severity: "info", message: `TA/END_LIST tile ${Math.floor(Math.random() * 32)}` }),
   () => ({ subsystem: "core", severity: "info", message: "CORE/START_RENDER" }),
   () => ({ subsystem: "core", severity: "trace", message: `CORE/QUEUE_SUBMISSION ${Math.floor(Math.random() * 4)}` }),
@@ -444,6 +500,7 @@ const createFrameEvent = (): FrameLogEntry => {
   const generator = frameEventGenerators[Math.floor(Math.random() * frameEventGenerators.length)];
   const event = generator();
   return {
+    eventId: (nextEventId++).toString(),
     timestamp: Date.now(),
     ...event,
   };
@@ -454,36 +511,13 @@ const frameLogEntries: FrameLogEntry[] = Array.from({ length: 6 }, () => createF
 const clients = new Set<ClientContext>();
 
 const sendNotification = (client: ClientContext, notification: DebuggerNotification) => {
-  const method = mapTopicToMethod(notification.topic);
-  if (!method) {
-    return;
-  }
-
+  const method = notification.topic === "tick" ? "event.tick" : `event.${notification.topic}`;
   const payload = JSON.stringify({
     jsonrpc: JSON_RPC_VERSION,
     method,
     params: notification.payload,
   });
   client.socket.send(payload);
-};
-
-const mapTopicToMethod = (topic: DebuggerNotification["topic"]): string | undefined => {
-  switch (topic) {
-    case "state.registers":
-      return "event.state.registers";
-    case "state.watch":
-      return "event.state.watch";
-    case "state.breakpoint":
-      return "event.state.breakpoint";
-    case "state.thread":
-      return "event.state.thread";
-    case "stream.waveform":
-      return "event.stream.waveform";
-    case "stream.frameLog":
-      return "event.stream.frameLog";
-    default:
-      return undefined;
-  }
 };
 
 const handleRequest = async (client: ClientContext, message: JsonRpcRequest) => {
@@ -527,33 +561,10 @@ const dispatchMethod = async (
       };
     case "debugger.describe":
       return {
-        emulator: { name: "nullDC", version: "dev", build: "native" as const },
-        devices: buildDeviceTree(),
-        breakpoints: Array.from(serverBreakpoints.values()),
-        threads: sampleThreads,
-      };
-    case "debugger.subscribe": {
-      const topics = new Set<string>((params.topics as string[]) ?? []);
-      topics.forEach((topic) => client.topics.add(topic));
-      return { acknowledged: Array.from(topics) };
-    }
-    case "debugger.unsubscribe": {
-      const topics = (params.topics as string[]) ?? [];
-      topics.forEach((topic) => client.topics.delete(topic));
-      return { acknowledged: topics };
-    }
-    case "state.getRegisters":
-      return { path: params.path, registers: mutateRegisters(baseRegisters) };
-    case "state.getCache":
-      return {
-        path: params.path,
-        cache: params.cache,
-        entries: Array.from({ length: 16 }).map((_, index) => ({
-          index,
-          tag: `0x${(0x8000 + index).toString(16)}`,
-          valid: Math.random() > 0.2,
-        })),
-      };
+        emulator: { name: "mockServer", version: "unspecified", build: "native" as const },
+        deviceTree: buildDeviceTree(),
+        capabilities: ["watches", "step", "breakpoints", "frame-log", "waveforms"],
+      } as DebuggerShape;
     case "state.getMemorySlice": {
       const target = typeof params.target === "string" ? params.target : "sh4";
       const addressValue = Number(params.address);
@@ -593,7 +604,9 @@ const dispatchMethod = async (
         client.watches.add(expr);
         serverWatches.add(expr);
       });
-      return { accepted: expressions, all: Array.from(serverWatches) };
+      // Broadcast tick after adding watches
+      setTimeout(() => broadcastTick(), 0);
+      return {} as RpcError;
     }
     case "state.unwatch": {
       const expressions = (params.expressions as string[]) ?? [];
@@ -601,12 +614,25 @@ const dispatchMethod = async (
         client.watches.delete(expr);
         serverWatches.delete(expr);
       });
-      return { accepted: expressions, all: Array.from(serverWatches) };
+      // Broadcast tick after removing watches
+      setTimeout(() => broadcastTick(), 0);
+      return {} as RpcError;
     }
+    case "control.pause":
+      isRunning = false;
+      // Broadcast tick after state change
+      setTimeout(() => broadcastTick(), 0);
+      return {} as RpcError;
     case "control.step":
-      return { target: params.target, state: "halted" as const };
+      isRunning = false;
+      // Broadcast tick after state change
+      setTimeout(() => broadcastTick(), 0);
+      return {} as RpcError;
     case "control.runUntil":
-      return { target: params.target, state: "running" as const, reason: "breakpoint" };
+      isRunning = true;
+      // Broadcast tick after state change
+      setTimeout(() => broadcastTick(), 0);
+      return {} as RpcError;
     case "breakpoints.add": {
       const location = params.location as string;
       const kind = (params.kind as BreakpointDescriptor["kind"]) ?? "code";
@@ -620,67 +646,50 @@ const dispatchMethod = async (
         hitCount: 0,
       };
       serverBreakpoints.set(id, breakpoint);
-
-      // Broadcast to all clients
-      for (const client of clients) {
-        if (client.topics.has("state.breakpoint")) {
-          sendNotification(client, {
-            topic: "state.breakpoint",
-            payload: breakpoint,
-          });
-        }
-      }
-
-      return { breakpoint, all: Array.from(serverBreakpoints.values()) };
+      // Broadcast tick after mutation
+      setTimeout(() => broadcastTick(), 0);
+      return {} as RpcError;
     }
     case "breakpoints.remove": {
       const id = params.id as string;
       const removed = serverBreakpoints.delete(id);
-      return { removed, all: Array.from(serverBreakpoints.values()) };
+      if (!removed) {
+        return { error: { code: -32000, message: `Breakpoint ${id} not found` } } as RpcError;
+      }
+      // Broadcast tick after mutation
+      setTimeout(() => broadcastTick(), 0);
+      return {} as RpcError;
     }
     case "breakpoints.toggle": {
       const id = params.id as string;
       const enabled = params.enabled as boolean;
       const breakpoint = serverBreakpoints.get(id);
       if (!breakpoint) {
-        throw new Error(`Breakpoint ${id} not found`);
+        return { error: { code: -32000, message: `Breakpoint ${id} not found` } } as RpcError;
       }
       const updated = { ...breakpoint, enabled };
       serverBreakpoints.set(id, updated);
-
-      // Broadcast to all clients
-      for (const client of clients) {
-        if (client.topics.has("state.breakpoint")) {
-          sendNotification(client, {
-            topic: "state.breakpoint",
-            payload: updated,
-          });
+      // Broadcast tick after mutation
+      setTimeout(() => broadcastTick(), 0);
+      return {} as RpcError;
+    }
+    case "breakpoints.setCategoryStates": {
+      const categories = params.categories as Record<string, { muted: boolean; soloed: boolean }>;
+      for (const [category, state] of Object.entries(categories)) {
+        const categoryKey = category as BreakpointCategory;
+        if (categoryStates.has(categoryKey)) {
+          categoryStates.set(categoryKey, { muted: state.muted, soloed: state.soloed });
         }
       }
-
-      return { breakpoint: updated, all: Array.from(serverBreakpoints.values()) };
+      // Broadcast tick after mutation
+      setTimeout(() => broadcastTick(), 0);
+      return {} as RpcError;
     }
-    case "breakpoints.list":
-      return { breakpoints: Array.from(serverBreakpoints.values()) };
     case "audio.requestWaveform":
       return buildWaveform(String(params.channelId ?? "0"), Number(params.window) || 256);
-    case "logs.fetchFrameLog":
-      return { frame: params.frame ?? 0, entries: frameLogEntries };
     default:
       throw new Error(`Unhandled JSON-RPC method: ${String(method)}`);
   }
-};
-
-const mutateRegisters = (registers: RegisterValue[]): RegisterValue[] =>
-  registers.map((reg) => ({
-    ...reg,
-    value: reg.name === "PC" ? advancePc(reg.value) : reg.value,
-  }));
-
-const advancePc = (value: string): string => {
-  const current = Number.parseInt(value, 16);
-  const next = current + 2;
-  return `0x${next.toString(16).toUpperCase().padStart(8, "0")}`;
 };
 
 const sha256Byte = (input: string): number => {
@@ -758,70 +767,190 @@ const collectRegistersFromTree = (tree: DeviceNodeDescriptor[]): Array<{ path: s
   return result;
 };
 
+const checkBreakpoint = (path: string, registerName: string, value: number): BreakpointDescriptor | undefined => {
+  const location = `${path}.${registerName.toLowerCase()} == 0x${value.toString(16).toUpperCase().padStart(8, "0")}`;
+  for (const bp of serverBreakpoints.values()) {
+    if (bp.location === location && bp.enabled && bp.kind === "code" && isBreakpointActive(bp)) {
+      return bp;
+    }
+  }
+  return undefined;
+};
+
 const broadcastTick = () => {
-  // Mutate some register values to simulate execution
-  const pcValue = registerValues.get("dc.sh4.cpu.pc");
-  if (pcValue && pcValue.startsWith("0x")) {
-    const pc = Number.parseInt(pcValue, 16);
-    setRegisterValue("dc.sh4.cpu", "PC", `0x${(pc + 2).toString(16).toUpperCase().padStart(8, "0")}`);
+  let hitBreakpointId: string | undefined;
+
+  // Only mutate registers and generate events when running
+  if (isRunning) {
+    // Mutate some register values to simulate execution
+    // Loop around first 8 instructions for debugging
+    const pcValue = registerValues.get("dc.sh4.cpu.pc");
+    if (pcValue && pcValue.startsWith("0x")) {
+      const pc = Number.parseInt(pcValue, 16);
+      const baseAddress = 0x8C0000A0;
+      const offset = pc - baseAddress;
+      const newOffset = (offset + 2) % (8 * 2); // 8 instructions * 2 bytes each
+      const newPc = baseAddress + newOffset;
+      setRegisterValue("dc.sh4.cpu", "PC", `0x${newPc.toString(16).toUpperCase().padStart(8, "0")}`);
+
+      // Check if we hit a breakpoint
+      const hitBp = checkBreakpoint("dc.sh4.cpu", "PC", newPc);
+      if (hitBp) {
+        isRunning = false;
+        hitBp.hitCount++;
+        hitBreakpointId = hitBp.id;
+        const message = `SH4 breakpoint hit at 0x${newPc.toString(16).toUpperCase()}`;
+
+        // Add to frame log
+        const logEntry: FrameLogEntry = {
+          eventId: (nextEventId++).toString(),
+          timestamp: Date.now(),
+          subsystem: "sh4",
+          severity: "info",
+          message,
+          metadata: { breakpointId: hitBp.id, address: newPc },
+        };
+        frameLogEntries.push(logEntry);
+        if (frameLogEntries.length > FRAME_LOG_LIMIT) {
+          frameLogEntries.splice(0, frameLogEntries.length - FRAME_LOG_LIMIT);
+        }
+      }
+    }
+
+    const prValue = registerValues.get("dc.sh4.cpu.pr");
+    if (prValue && prValue.startsWith("0x")) {
+      const pr = Number.parseInt(prValue, 16);
+      setRegisterValue("dc.sh4.cpu", "PR", `0x${(pr + 2).toString(16).toUpperCase().padStart(8, "0")}`);
+    }
+
+    // Mutate ARM7 PC value - loop around first 8 instructions
+    const arm7PcValue = registerValues.get("dc.aica.arm7.pc");
+    if (arm7PcValue && arm7PcValue.startsWith("0x")) {
+      const arm7Pc = Number.parseInt(arm7PcValue, 16);
+      const baseAddress = 0x00200010;
+      const offset = arm7Pc - baseAddress;
+      const newOffset = (offset + 4) % (8 * 4); // 8 instructions * 4 bytes each
+      const newPc = baseAddress + newOffset;
+      setRegisterValue("dc.aica.arm7", "PC", `0x${newPc.toString(16).toUpperCase().padStart(8, "0")}`);
+
+      // Check if we hit a breakpoint
+      const hitBp = checkBreakpoint("dc.aica.arm7", "pc", newPc);
+      if (hitBp && !hitBreakpointId) {
+        isRunning = false;
+        hitBp.hitCount++;
+        hitBreakpointId = hitBp.id;
+        const message = `ARM7 breakpoint hit at 0x${newPc.toString(16).toUpperCase()}`;
+
+        // Add to frame log
+        const logEntry: FrameLogEntry = {
+          eventId: (nextEventId++).toString(),
+          timestamp: Date.now(),
+          subsystem: "aica",
+          severity: "info",
+          message,
+          metadata: { breakpointId: hitBp.id, address: newPc },
+        };
+        frameLogEntries.push(logEntry);
+        if (frameLogEntries.length > FRAME_LOG_LIMIT) {
+          frameLogEntries.splice(0, frameLogEntries.length - FRAME_LOG_LIMIT);
+        }
+      }
+    }
+
+    // Mutate DSP step value - loop around first 8 steps (0..7)
+    const dspStepValue = registerValues.get("dc.aica.dsp.step");
+    if (dspStepValue && dspStepValue.startsWith("0x")) {
+      const step = Number.parseInt(dspStepValue, 16);
+      const newStep = (step + 1) % 8; // Loop 0..7
+      setRegisterValue("dc.aica.dsp", "STEP", `0x${newStep.toString(16).toUpperCase().padStart(3, "0")}`);
+
+      // Check if we hit a breakpoint (using lowercase "step" for compatibility)
+      const hitBp = checkBreakpoint("dc.aica.dsp", "step", newStep);
+      if (hitBp && !hitBreakpointId) {
+        isRunning = false;
+        hitBp.hitCount++;
+        hitBreakpointId = hitBp.id;
+        const message = `DSP breakpoint hit at step ${newStep}`;
+
+        // Add to frame log
+        const logEntry: FrameLogEntry = {
+          eventId: (nextEventId++).toString(),
+          timestamp: Date.now(),
+          subsystem: "dsp",
+          severity: "info",
+          message,
+          metadata: { breakpointId: hitBp.id, step: newStep },
+        };
+        frameLogEntries.push(logEntry);
+        if (frameLogEntries.length > FRAME_LOG_LIMIT) {
+          frameLogEntries.splice(0, frameLogEntries.length - FRAME_LOG_LIMIT);
+        }
+      }
+    }
+
+    // Mutate some AICA values
+    const ch0Vol = registerValues.get("dc.aica.channels.ch0_vol");
+    if (ch0Vol && ch0Vol.startsWith("0x")) {
+      const vol = Number.parseInt(ch0Vol, 16);
+      setRegisterValue("dc.aica.channels", "CH0_VOL", `0x${((vol + 1) & 0xFF).toString(16).toUpperCase().padStart(2, "0")}`);
+    }
+
+    // Generate frame log event only when running
+    const event = createFrameEvent();
+    frameLogEntries.push(event);
+    if (frameLogEntries.length > FRAME_LOG_LIMIT) {
+      frameLogEntries.splice(0, frameLogEntries.length - FRAME_LOG_LIMIT);
+    }
   }
 
-  const prValue = registerValues.get("dc.sh4.cpu.pr");
-  if (prValue && prValue.startsWith("0x")) {
-    const pr = Number.parseInt(prValue, 16);
-    setRegisterValue("dc.sh4.cpu", "PR", `0x${(pr + 2).toString(16).toUpperCase().padStart(8, "0")}`);
-  }
-
-  // Mutate some AICA values
-  const ch0Vol = registerValues.get("dc.aica.channels.ch0_vol");
-  if (ch0Vol && ch0Vol.startsWith("0x")) {
-    const vol = Number.parseInt(ch0Vol, 16);
-    setRegisterValue("dc.aica.channels", "CH0_VOL", `0x${((vol + 1) & 0xFF).toString(16).toUpperCase().padStart(2, "0")}`);
-  }
-
-  const event = createFrameEvent();
-  frameLogEntries.push(event);
-  if (frameLogEntries.length > FRAME_LOG_LIMIT) {
-    frameLogEntries.splice(0, frameLogEntries.length - FRAME_LOG_LIMIT);
-  }
-
-  // Get current device tree with live values
+  // Build complete tick with all state
   const deviceTree = buildDeviceTree();
   const allRegisters = collectRegistersFromTree(deviceTree);
 
+  // Convert registers array to Record<string, RegisterValue[]>
+  const registersById: Record<string, RegisterValue[]> = {};
+  for (const { path, registers } of allRegisters) {
+    registersById[path] = registers;
+  }
+
+  // Convert breakpoints map to Record<string, BreakpointDescriptor>
+  const breakpointsById: Record<string, BreakpointDescriptor> = {};
+  for (const [id, bp] of serverBreakpoints.entries()) {
+    breakpointsById[id] = bp;
+  }
+
+  // Build watches object
+  const watches: Record<string, unknown> = {};
+  for (const expression of serverWatches) {
+    watches[expression] = registerValues.get(expression) ?? "0x00000000";
+  }
+
+  const tick: DebuggerTick = {
+    tickId: tickId++,
+    timestamp: Date.now(),
+    executionState: {
+      state: isRunning ? "running" : "paused",
+      breakpointId: hitBreakpointId,
+    },
+    registers: registersById,
+    breakpoints: breakpointsById,
+    eventLog: frameLogEntries.slice(),
+    watches: serverWatches.size > 0 ? watches : undefined,
+    threads: sampleThreads,
+  };
+
+  // Broadcast tick to all clients
   for (const client of clients) {
-    if (client.topics.has("state.registers")) {
-      // Send register updates for all paths in device tree
-      for (const { path, registers } of allRegisters) {
-        sendNotification(client, {
-          topic: "state.registers",
-          payload: { path, registers },
-        });
-      }
-    }
+    sendNotification(client, {
+      topic: "tick",
+      payload: tick,
+    });
 
-    if (client.topics.has("stream.frameLog")) {
-      sendNotification(client, {
-        topic: "stream.frameLog",
-        payload: event,
-      });
-    }
-    if (client.topics.has("stream.waveform")) {
-      sendNotification(client, {
-        topic: "stream.waveform",
-        payload: buildWaveform("0", 128),
-      });
-    }
-
-    if (serverWatches.size > 0) {
-      for (const expression of serverWatches) {
-        const value = registerValues.get(expression) ?? "0x00000000";
-        sendNotification(client, {
-          topic: "state.watch",
-          payload: { expression, value },
-        });
-      }
-    }
+    // Still send waveform separately as it's not part of tick
+    sendNotification(client, {
+      topic: "stream.waveform",
+      payload: buildWaveform("0", 128),
+    });
   }
 };
 
@@ -876,11 +1005,13 @@ const start = async () => {
     const context: ClientContext = {
       socket,
       sessionId: randomUUID(),
-      topics: new Set(),
       watches: new Set(),
     };
 
     clients.add(context);
+
+    // Send initial tick on connection
+    setTimeout(() => broadcastTick(), 100);
 
     socket.on("message", (data) => {
       let message: JsonRpcMessage;

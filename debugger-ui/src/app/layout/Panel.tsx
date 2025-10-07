@@ -2,7 +2,7 @@
 import { Box, Paper, Typography } from "@mui/material";
 
 type PanelProps = PropsWithChildren<{
-  title: string;
+  title?: string;
   action?: ReactNode;
   footer?: ReactNode;
 }>;
@@ -18,22 +18,26 @@ export const Panel = ({ title, action, footer, children }: PanelProps) => {
         height: "100%",
       }}
     >
-      <Box
-        sx={{
-          px: 2,
-          py: 1,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          borderBottom: "1px solid",
-          borderColor: "divider",
-        }}
-      >
-        <Typography variant="subtitle2" component="h2" sx={{ fontWeight: 600 }}>
-          {title}
-        </Typography>
-        {action && <Box sx={{ display: "flex", gap: 1 }}>{action}</Box>}
-      </Box>
+      {(title || action) && (
+        <Box
+          sx={{
+            px: 2,
+            py: 1,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            borderBottom: "1px solid",
+            borderColor: "divider",
+          }}
+        >
+          {title && (
+            <Typography variant="subtitle2" component="h2" sx={{ fontWeight: 600 }}>
+              {title}
+            </Typography>
+          )}
+          {action && <Box sx={{ display: "flex", gap: 1, ml: title ? 0 : "auto", flex: title ? 0 : 1 }}>{action}</Box>}
+        </Box>
+      )}
       <Box sx={{ flex: 1, overflow: "auto" }}>{children}</Box>
       {footer && (
         <Box
