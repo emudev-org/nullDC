@@ -32,18 +32,18 @@ bitfield! {
     impl Debug;
 
     pub u32, full, set_full: 31, 0;
-    pub T, set_T: 0;
-    pub S, set_S: 1;
+    pub t, set_t: 0;
+    pub s, set_s: 1;
     // bits 2-3 reserved
-    pub IMASK, set_IMASK: 7, 4;
-    pub Q, set_Q: 8;
-    pub M, set_M: 9;
+    pub imask, set_imask: 7, 4;
+    pub q, set_q: 8;
+    pub m, set_m: 9;
     // bits 10-14 reserved
-    pub FD, set_FD: 15;
+    pub fd, set_fd: 15;
     // bits 16-27 reserved
-    pub BL, set_BL: 28;
-    pub RB, set_RB: 29;
-    pub MD, set_MD: 30;
+    pub bl, set_bl: 28;
+    pub rb, set_rb: 29;
+    pub md, set_md: 30;
     // bit 31 reserved
 }
 
@@ -54,7 +54,7 @@ bitfield! {
     impl Debug;
 
     pub u32, full, set_full: 31, 0;
-    pub RM, set_RM: 1, 0;
+    pub rm, set_rm: 1, 0;
     pub finexact, set_finexact: 2;
     pub funderflow, set_funderflow: 3;
     pub foverflow, set_foverflow: 4;
@@ -71,10 +71,10 @@ bitfield! {
     pub cdivbyzero, set_cdivbyzero: 15;
     pub cinvalid, set_cinvalid: 16;
     pub cfpuerr, set_cfpuerr: 17;
-    pub DN, set_DN: 18;
-    pub PR, set_PR: 19;
-    pub SZ, set_SZ: 20;
-    pub FR, set_FR: 21;
+    pub dn, set_dn: 18;
+    pub pr, set_pr: 19;
+    pub sz, set_sz: 20;
+    pub fr, set_fr: 21;
     // bits 22-31 reserved (pad)
 }
 
@@ -145,7 +145,7 @@ pub struct Sh4Ctx {
     pub fr: FRBank,
     pub xf: FRBank,
 
-    pub sr_T: u32,
+    pub sr_t: u32,
     pub sr: SrStatus,
     pub mac: MacReg,
     pub fpul: u32,
@@ -200,7 +200,7 @@ impl Default for Sh4Ctx {
             fr: FRBank { u32s: [0; 32] },
             xf: FRBank { u32s: [0; 32] },
 
-            sr_T: 0,
+            sr_t: 0,
             sr: SrStatus(0),
             mac: MacReg { full: 0 },
             fpul: 0,
@@ -313,11 +313,7 @@ unsafe fn sh4_build_block(ctx: &mut Sh4Ctx, start_pc: u32) -> *const u8 {
             match ctx.dec_branch {
                 1 => {
                     // Conditional branch
-                    if was_branch_dslot != 0 {
-                        sh4_dec_branch_cond(addr_of_mut!(ctx.pc0), addr_of!(ctx.virt_jdyn), ctx.dec_branch_cond, ctx.dec_branch_next, ctx.dec_branch_target);
-                    } else {
-                        sh4_dec_branch_cond(addr_of_mut!(ctx.pc0), addr_of!(ctx.sr_T), ctx.dec_branch_cond, ctx.dec_branch_next, ctx.dec_branch_target);
-                    }
+                    sh4_dec_branch_cond(addr_of_mut!(ctx.pc0), addr_of!(ctx.virt_jdyn), ctx.dec_branch_cond, ctx.dec_branch_next, ctx.dec_branch_target);
                 }
                 2 => {
                     // Static branch with immediate target

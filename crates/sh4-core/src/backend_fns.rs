@@ -7,7 +7,7 @@ use core::{mem, ptr};
 use std::alloc::{alloc, dealloc, realloc, handle_alloc_error, Layout};
 use paste::paste;
 use seq_macro::seq;
-use std::ptr::{ addr_of, addr_of_mut };
+use std::ptr::{ addr_of_mut };
 /* ------------------------------ Types ------------------------------ */
 
 /// Handler receives pointer just after the stored handler ptr, returns pointer
@@ -240,8 +240,8 @@ define_op!(sh4_addi (dst: *mut u32, src_n: *const u32, imm: u32));
 define_op!(sh4_andi (dst: *mut u32, src: *const u32, imm: u32));
 define_op!(sh4_neg (dst: *mut u32, src_n: *const u32));
 define_op!(sh4_extub (dst: *mut u32, src: *const u32));
-define_op!(sh4_dt (sr_T: *mut u32, dst: *mut u32));
-define_op!(sh4_shlr (sr_T: *mut u32, dst: *mut u32, src_n: *const u32));
+define_op!(sh4_dt (sr_t: *mut u32, dst: *mut u32));
+define_op!(sh4_shlr (sr_t: *mut u32, dst: *mut u32, src_n: *const u32));
 define_op!(sh4_shllf (dst: *mut u32, src_n: *const u32, amt: u32));
 define_op!(sh4_shlrf (dst: *mut u32, src_n: *const u32, amt: u32));
 
@@ -280,8 +280,10 @@ define_op!(sh4_dec_branch_cond (dst: *mut u32, jdyn: *const u32, condition: u32,
 define_op!(sh4_dec_call_decode (ctx: *mut Sh4Ctx));
 
 #[inline(always)]
-pub fn sh4_branch_cond(ctx: *mut Sh4Ctx, T: *const u32, condition: u32, next: u32, target: u32) {
+pub fn sh4_branch_cond(ctx: *mut Sh4Ctx, t: *const u32, condition: u32, next: u32, target: u32) {
     unsafe {
+        sh4_store32(addr_of_mut!((*ctx).virt_jdyn), t);
+
         (*ctx).dec_branch = 1;
         (*ctx).dec_branch_cond = condition;
         (*ctx).dec_branch_next = next;
@@ -290,9 +292,9 @@ pub fn sh4_branch_cond(ctx: *mut Sh4Ctx, T: *const u32, condition: u32, next: u3
 }
 
 #[inline(always)]
-pub fn sh4_branch_cond_delay(ctx: *mut Sh4Ctx, T: *const u32, condition: u32, next: u32, target: u32) {
+pub fn sh4_branch_cond_delay(ctx: *mut Sh4Ctx, t: *const u32, condition: u32, next: u32, target: u32) {
     unsafe {
-        sh4_store32(addr_of_mut!((*ctx).virt_jdyn), addr_of!((*ctx).sr_T));
+        sh4_store32(addr_of_mut!((*ctx).virt_jdyn), t);
 
         (*ctx).dec_branch = 1;
         (*ctx).dec_branch_cond = condition;
@@ -313,10 +315,10 @@ pub fn sh4_branch_delay(ctx: *mut Sh4Ctx, target: u32) {
 
 define_op!(sh4_read_mems16_i (ctx: *mut Sh4Ctx, addr: u32, data: *mut u32));
 
-define_op!(sh4_fcmp_eq (sr_T: *mut u32, src_n: *const f32, src_m: *const f32));
-define_op!(sh4_fcmp_gt (sr_T: *mut u32, src_n: *const f32, src_m: *const f32));
-define_op!(sh4_fcmp_eq_d (sr_T: *mut u32, src_n: *const u32, src_m: *const u32));
-define_op!(sh4_fcmp_gt_d (sr_T: *mut u32, src_n: *const u32, src_m: *const u32));
+define_op!(sh4_fcmp_eq (sr_t: *mut u32, src_n: *const f32, src_m: *const f32));
+define_op!(sh4_fcmp_gt (sr_t: *mut u32, src_n: *const f32, src_m: *const f32));
+define_op!(sh4_fcmp_eq_d (sr_t: *mut u32, src_n: *const u32, src_m: *const u32));
+define_op!(sh4_fcmp_gt_d (sr_t: *mut u32, src_n: *const u32, src_m: *const u32));
 define_op!(sh4_fcnvds (dst: *mut u32, src: *const u32));
 define_op!(sh4_fcnvsd (dst: *mut u32, src: *const u32));
 
@@ -398,7 +400,7 @@ pub fn sh4_rte(ctx: *mut Sh4Ctx, spc: *const u32) {
 
 define_op!(sh4_shad (dst: *mut u32, src_n: *const u32, src_m: *const u32));
 define_op!(sh4_shld (dst: *mut u32, src_n: *const u32, src_m: *const u32));
-define_op!(sh4_tas (sr_T: *mut u32, ctx: *mut Sh4Ctx, addr: *const u32));
+define_op!(sh4_tas (sr_t: *mut u32, ctx: *mut Sh4Ctx, addr: *const u32));
 define_op!(sh4_not (dst: *mut u32, src: *const u32));
 define_op!(sh4_extuw (dst: *mut u32, src: *const u32));
 define_op!(sh4_extsb (dst: *mut u32, src: *const u32));
@@ -407,48 +409,48 @@ define_op!(sh4_swapb (dst: *mut u32, src: *const u32));
 define_op!(sh4_swapw (dst: *mut u32, src: *const u32));
 define_op!(sh4_xtrct (dst: *mut u32, src_n: *const u32, src_m: *const u32));
 
-define_op!(sh4_cmp_eq (sr_T: *mut u32, src_n: *const u32, src_m: *const u32));
-define_op!(sh4_cmp_hs (sr_T: *mut u32, src_n: *const u32, src_m: *const u32));
-define_op!(sh4_cmp_ge (sr_T: *mut u32, src_n: *const u32, src_m: *const u32));
-define_op!(sh4_cmp_hi (sr_T: *mut u32, src_n: *const u32, src_m: *const u32));
-define_op!(sh4_cmp_gt (sr_T: *mut u32, src_n: *const u32, src_m: *const u32));
-define_op!(sh4_cmp_pz (sr_T: *mut u32, src: *const u32));
-define_op!(sh4_cmp_pl (sr_T: *mut u32, src: *const u32));
-define_op!(sh4_tst (sr_T: *mut u32, src_n: *const u32, src_m: *const u32));
+define_op!(sh4_cmp_eq (sr_t: *mut u32, src_n: *const u32, src_m: *const u32));
+define_op!(sh4_cmp_hs (sr_t: *mut u32, src_n: *const u32, src_m: *const u32));
+define_op!(sh4_cmp_ge (sr_t: *mut u32, src_n: *const u32, src_m: *const u32));
+define_op!(sh4_cmp_hi (sr_t: *mut u32, src_n: *const u32, src_m: *const u32));
+define_op!(sh4_cmp_gt (sr_t: *mut u32, src_n: *const u32, src_m: *const u32));
+define_op!(sh4_cmp_pz (sr_t: *mut u32, src: *const u32));
+define_op!(sh4_cmp_pl (sr_t: *mut u32, src: *const u32));
+define_op!(sh4_tst (sr_t: *mut u32, src_n: *const u32, src_m: *const u32));
 
-define_op!(sh4_shll (sr_T: *mut u32, dst: *mut u32, src_n: *const u32));
-define_op!(sh4_shal (sr_T: *mut u32, dst: *mut u32, src_n: *const u32));
-define_op!(sh4_shar (sr_T: *mut u32, dst: *mut u32, src_n: *const u32));
+define_op!(sh4_shll (sr_t: *mut u32, dst: *mut u32, src_n: *const u32));
+define_op!(sh4_shal (sr_t: *mut u32, dst: *mut u32, src_n: *const u32));
+define_op!(sh4_shar (sr_t: *mut u32, dst: *mut u32, src_n: *const u32));
 
-define_op!(sh4_cmp_eq_imm (sr_T: *mut u32, src: *const u32, imm: u32));
-define_op!(sh4_tst_imm (sr_T: *mut u32, src: *const u32, imm: u32));
+define_op!(sh4_cmp_eq_imm (sr_t: *mut u32, src: *const u32, imm: u32));
+define_op!(sh4_tst_imm (sr_t: *mut u32, src: *const u32, imm: u32));
 define_op!(sh4_and_imm (dst: *mut u32, src: *const u32, imm: u32));
 define_op!(sh4_xor_imm (dst: *mut u32, src: *const u32, imm: u32));
 define_op!(sh4_or_imm (dst: *mut u32, src: *const u32, imm: u32));
 
-define_op!(sh4_rotcl (sr_T: *mut u32, dst: *mut u32, src_n: *const u32));
-define_op!(sh4_rotl (sr_T: *mut u32, dst: *mut u32, src_n: *const u32));
-define_op!(sh4_rotcr (sr_T: *mut u32, dst: *mut u32, src_n: *const u32));
-define_op!(sh4_rotr (sr_T: *mut u32, dst: *mut u32, src_n: *const u32));
+define_op!(sh4_rotcl (sr_t: *mut u32, dst: *mut u32, src_n: *const u32));
+define_op!(sh4_rotl (sr_t: *mut u32, dst: *mut u32, src_n: *const u32));
+define_op!(sh4_rotcr (sr_t: *mut u32, dst: *mut u32, src_n: *const u32));
+define_op!(sh4_rotr (sr_t: *mut u32, dst: *mut u32, src_n: *const u32));
 
-define_op!(sh4_movt (dst: *mut u32, sr_T: *const u32));
-define_op!(sh4_clrt (sr_T: *mut u32));
-define_op!(sh4_sett (sr_T: *mut u32));
+define_op!(sh4_movt (dst: *mut u32, sr_t: *const u32));
+define_op!(sh4_clrt (sr_t: *mut u32));
+define_op!(sh4_sett (sr_t: *mut u32));
 
-define_op!(sh4_negc (sr_T: *mut u32, dst: *mut u32, src: *const u32));
-define_op!(sh4_addc (sr_T: *mut u32, dst: *mut u32, src_n: *const u32, src_m: *const u32));
-define_op!(sh4_addv (sr_T: *mut u32, dst: *mut u32, src_n: *const u32, src_m: *const u32));
-define_op!(sh4_subc (sr_T: *mut u32, dst: *mut u32, src_n: *const u32, src_m: *const u32));
-define_op!(sh4_subv (sr_T: *mut u32, dst: *mut u32, src_n: *const u32, src_m: *const u32));
+define_op!(sh4_negc (sr_t: *mut u32, dst: *mut u32, src: *const u32));
+define_op!(sh4_addc (sr_t: *mut u32, dst: *mut u32, src_n: *const u32, src_m: *const u32));
+define_op!(sh4_addv (sr_t: *mut u32, dst: *mut u32, src_n: *const u32, src_m: *const u32));
+define_op!(sh4_subc (sr_t: *mut u32, dst: *mut u32, src_n: *const u32, src_m: *const u32));
+define_op!(sh4_subv (sr_t: *mut u32, dst: *mut u32, src_n: *const u32, src_m: *const u32));
 
 define_op!(sh4_muluw (dst: *mut u32, src_n: *const u32, src_m: *const u32));
 define_op!(sh4_mulsw (dst: *mut u32, src_n: *const u32, src_m: *const u32));
-define_op!(sh4_div0u (sr: *mut crate::SrStatus, sr_T: *mut u32));
-define_op!(sh4_div0s (sr: *mut crate::SrStatus, sr_T: *mut u32, src_n: *const u32, src_m: *const u32));
-define_op!(sh4_cmp_str (sr_T: *mut u32, src_n: *const u32, src_m: *const u32));
+define_op!(sh4_div0u (sr: *mut crate::SrStatus, sr_t: *mut u32));
+define_op!(sh4_div0s (sr: *mut crate::SrStatus, sr_t: *mut u32, src_n: *const u32, src_m: *const u32));
+define_op!(sh4_cmp_str (sr_t: *mut u32, src_n: *const u32, src_m: *const u32));
 define_op!(sh4_dmulu (dst: *mut u64, src_n: *const u32, src_m: *const u32));
 define_op!(sh4_dmuls (dst: *mut u64, src_n: *const u32, src_m: *const u32));
-define_op!(sh4_div1 (sr: *mut crate::SrStatus, sr_T: *mut u32, dst: *mut u32, src_n: *const u32, src_m: *const u32));
+define_op!(sh4_div1 (sr: *mut crate::SrStatus, sr_t: *mut u32, dst: *mut u32, src_n: *const u32, src_m: *const u32));
 
 define_op!(sh4_write_mem8_indexed (ctx: *mut Sh4Ctx, base: *const u32, index: *const u32, data: *const u32));
 define_op!(sh4_write_mem16_indexed (ctx: *mut Sh4Ctx, base: *const u32, index: *const u32, data: *const u32));
@@ -459,7 +461,7 @@ define_op!(sh4_read_mem32_indexed (ctx: *mut Sh4Ctx, base: *const u32, index: *c
 define_op!(sh4_read_mem64_indexed (ctx: *mut Sh4Ctx, base: *const u32, index: *const u32, data: *mut u64));
 define_op!(sh4_write_mem64_indexed (ctx: *mut Sh4Ctx, base: *const u32, index: *const u32, data: *const u64));
 
-define_op!(sh4_tst_mem (sr_T: *mut u32, ctx: *mut Sh4Ctx, base: *const u32, index: *const u32, imm: u32));
+define_op!(sh4_tst_mem (sr_t: *mut u32, ctx: *mut Sh4Ctx, base: *const u32, index: *const u32, imm: u32));
 define_op!(sh4_and_mem (ctx: *mut Sh4Ctx, base: *const u32, index: *const u32, imm: u8));
 define_op!(sh4_xor_mem (ctx: *mut Sh4Ctx, base: *const u32, index: *const u32, imm: u8));
 define_op!(sh4_or_mem (ctx: *mut Sh4Ctx, base: *const u32, index: *const u32, imm: u8));
