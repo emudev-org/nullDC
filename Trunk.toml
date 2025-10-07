@@ -2,3 +2,6 @@
 target = "index.html"
 dist   = "dist"
 release = true
+
+[tools]
+wasm-opt = ["-O4", "--enable-bulk-memory", "--enable-reference-types", "--enable-simd"]
