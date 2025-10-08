@@ -1,6 +1,133 @@
-﻿import type { RpcSchema } from "./jsonRpc";
+﻿import { z } from "zod";
+import type { RpcSchema } from "./jsonRpc";
 
-export interface DeviceNodeDescriptor {
+// Zod Schemas
+export const RegisterValueSchema = z.object({
+  name: z.string(),
+  value: z.string(),
+  width: z.number(),
+  flags: z.record(z.string(), z.boolean()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+export const DeviceNodeDescriptorSchema: z.ZodType<DeviceNodeDescriptor> = z.lazy(() =>
+  z.object({
+    path: z.string(),
+    label: z.string(),
+    kind: z.string(),
+    description: z.string().optional(),
+    registers: z.array(RegisterValueSchema).optional(),
+    events: z.array(z.string()).optional(),
+    children: z.array(DeviceNodeDescriptorSchema).optional(),
+  })
+);
+
+export const MemorySliceSchema = z.object({
+  baseAddress: z.number(),
+  wordSize: z.union([z.literal(1), z.literal(2), z.literal(4), z.literal(8)]),
+  encoding: z.enum(["hex", "uint", "float", "ascii"]),
+  data: z.string(),
+  validity: z.enum(["ok", "tlb-miss", "fault"]),
+});
+
+export const DisassemblyLineSchema = z.object({
+  address: z.number(),
+  bytes: z.string(),
+  mnemonic: z.string(),
+  operands: z.string(),
+  comment: z.string().optional(),
+  isCurrent: z.boolean().optional(),
+  isBreakpoint: z.boolean().optional(),
+});
+
+export const BreakpointDescriptorSchema = z.object({
+  id: z.string(),
+  location: z.string(),
+  kind: z.enum(["code", "data", "event"]),
+  enabled: z.boolean(),
+  condition: z.string().optional(),
+  hitCount: z.number(),
+  pending: z.boolean().optional(),
+});
+
+export const BacktraceFrameSchema = z.object({
+  index: z.number(),
+  pc: z.number(),
+  symbol: z.string().optional(),
+  location: z.string().optional(),
+});
+
+export const ThreadInfoSchema = z.object({
+  id: z.string(),
+  name: z.string().optional(),
+  state: z.enum(["running", "stopped", "blocked", "unknown"]),
+  core: z.string().optional(),
+  priority: z.number().optional(),
+  backtrace: z.array(BacktraceFrameSchema).optional(),
+});
+
+export const EventLogEntrySchema = z.object({
+  eventId: z.string(),
+  timestamp: z.number(),
+  subsystem: z.enum(["sh4", "holly", "ta", "core", "aica", "dsp"]),
+  severity: z.enum(["trace", "info", "warn", "error"]),
+  message: z.string(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+export const TransportSettingsSchema = z.object({
+  sessionToken: z.string().optional(),
+  build: z.enum(["native", "wasm"]),
+});
+
+export const CallstackFrameSchema = z.object({
+  index: z.number(),
+  pc: z.number(),
+  sp: z.number().optional(),
+  symbol: z.string().optional(),
+  location: z.string().optional(),
+});
+
+export const DebuggerShapeSchema = z.object({
+  emulator: z.object({
+    name: z.string(),
+    version: z.string(),
+    build: z.enum(["native", "wasm"]),
+  }),
+  deviceTree: z.array(DeviceNodeDescriptorSchema),
+});
+
+export const WatchDescriptorSchema = z.object({
+  id: z.string(),
+  expression: z.string(),
+  value: z.unknown(),
+});
+
+export const DebuggerTickSchema = z.object({
+  tickId: z.number(),
+  timestamp: z.number(),
+  executionState: z.object({
+    state: z.enum(["running", "paused"]),
+    breakpointId: z.string().optional(),
+  }),
+  registers: z.record(z.string(), z.array(RegisterValueSchema)),
+  breakpoints: z.record(z.string(), BreakpointDescriptorSchema),
+  eventLog: z.array(EventLogEntrySchema),
+  watches: z.array(WatchDescriptorSchema).optional(),
+  threads: z.array(ThreadInfoSchema).optional(),
+  callstacks: z.record(z.string(), z.array(CallstackFrameSchema)).optional(),
+});
+
+export const RpcErrorSchema = z.object({
+  error: z.object({
+    code: z.number(),
+    message: z.string(),
+  }).optional(),
+});
+
+// Type exports derived from Zod schemas
+export type RegisterValue = z.infer<typeof RegisterValueSchema>;
+export type DeviceNodeDescriptor = {
   path: string;
   label: string;
   kind: string;
@@ -8,111 +135,160 @@ export interface DeviceNodeDescriptor {
   registers?: RegisterValue[];
   events?: string[];
   children?: DeviceNodeDescriptor[];
-}
+};
+export type MemorySlice = z.infer<typeof MemorySliceSchema>;
+export type DisassemblyLine = z.infer<typeof DisassemblyLineSchema>;
+export type BreakpointDescriptor = z.infer<typeof BreakpointDescriptorSchema>;
+export type BacktraceFrame = z.infer<typeof BacktraceFrameSchema>;
+export type ThreadInfo = z.infer<typeof ThreadInfoSchema>;
+export type EventLogEntry = z.infer<typeof EventLogEntrySchema>;
+export type TransportSettings = z.infer<typeof TransportSettingsSchema>;
+export type CallstackFrame = z.infer<typeof CallstackFrameSchema>;
+export type DebuggerShape = z.infer<typeof DebuggerShapeSchema>;
+export type WatchDescriptor = z.infer<typeof WatchDescriptorSchema>;
+export type DebuggerTick = z.infer<typeof DebuggerTickSchema>;
+export type RpcError = z.infer<typeof RpcErrorSchema>;
 
-export interface RegisterValue {
-  name: string;
-  value: string;
-  width: number;
-  flags?: Record<string, boolean>;
-  metadata?: Record<string, unknown>;
-}
-
-export interface MemorySlice {
-  baseAddress: number;
-  wordSize: 1 | 2 | 4 | 8;
-  encoding: "hex" | "uint" | "float" | "ascii";
-  data: string;
-  validity: "ok" | "tlb-miss" | "fault";
-}
-
-export interface DisassemblyLine {
-  address: number;
-  bytes: string;
-  mnemonic: string;
-  operands: string;
-  comment?: string;
-  isCurrent?: boolean;
-  isBreakpoint?: boolean;
-}
-
-export interface BreakpointDescriptor {
-  id: string;
-  location: string;
-  kind: "code" | "data" | "event";
-  enabled: boolean;
-  condition?: string;
-  hitCount: number;
-  pending?: boolean;
-}
-
-export interface ThreadInfo {
-  id: string;
-  name?: string;
-  state: "running" | "stopped" | "blocked" | "unknown";
-  core?: string;
-  priority?: number;
-  backtrace?: BacktraceFrame[];
-}
-
-export interface BacktraceFrame {
-  index: number;
-  pc: number;
-  symbol?: string;
-  location?: string;
-}
-
-export interface EventLogEntry {
-  eventId: string;
-  timestamp: number;
-  subsystem: "sh4" | "holly" | "ta" | "core" | "aica" | "dsp";
-  severity: "trace" | "info" | "warn" | "error";
-  message: string;
-  metadata?: Record<string, unknown>;
-}
-
-export interface TransportSettings {
-  sessionToken?: string;
-  build: "native" | "wasm";
-}
-
-export interface CallstackFrame {
-  index: number;
-  pc: number;
-  sp?: number;
-  symbol?: string;
-  location?: string;
-}
-
-export interface DebuggerShape {
-  emulator: { name: string; version: string; build: "native" | "wasm" };
-  deviceTree: DeviceNodeDescriptor[];
-}
-
-export interface WatchDescriptor {
-  id: string;
-  expression: string;
-  value: unknown;
-}
-
-export interface DebuggerTick {
-  tickId: number;
-  timestamp: number;
-  executionState: {
-    state: "running" | "paused";
-    breakpointId?: string;
-  };
-  registers: Record<string, RegisterValue[]>;
-  breakpoints: Record<string, BreakpointDescriptor>;
-  eventLog: EventLogEntry[];
-  watches?: WatchDescriptor[];
-  threads?: ThreadInfo[];
-  callstacks?: Record<string, CallstackFrame[]>;
-}
-
-export interface RpcError {
-  error?: { code: number; message: string };
-}
+// RPC Method Schemas for validation
+export const DebuggerRpcMethodSchemas = {
+  "debugger.handshake": {
+    params: z.object({
+      clientName: z.string(),
+      clientVersion: z.string(),
+      transport: TransportSettingsSchema,
+    }),
+    result: z.object({
+      sessionId: z.string(),
+    }),
+  },
+  "state.getCallstack": {
+    params: z.object({
+      target: z.enum(["sh4", "arm7"]),
+      maxFrames: z.number().optional(),
+    }),
+    result: z.object({
+      target: z.string(),
+      frames: z.array(CallstackFrameSchema),
+    }),
+  },
+  "debugger.describe": {
+    params: z.object({}),
+    result: DebuggerShapeSchema,
+  },
+  "state.getMemorySlice": {
+    params: z.object({
+      target: z.string().optional(),
+      address: z.number(),
+      length: z.number(),
+      encoding: z.enum(["hex", "uint", "float", "ascii"]).optional(),
+      wordSize: z.union([z.literal(1), z.literal(2), z.literal(4), z.literal(8)]).optional(),
+    }),
+    result: MemorySliceSchema,
+  },
+  "state.getDisassembly": {
+    params: z.object({
+      target: z.string().optional(),
+      address: z.number(),
+      count: z.number(),
+      context: z.number().optional(),
+    }),
+    result: z.object({
+      lines: z.array(DisassemblyLineSchema),
+    }),
+  },
+  "state.watch": {
+    params: z.object({
+      expressions: z.array(z.string()),
+    }),
+    result: RpcErrorSchema,
+  },
+  "state.unwatch": {
+    params: z.object({
+      expressions: z.array(z.string()),
+    }),
+    result: RpcErrorSchema,
+  },
+  "state.editWatch": {
+    params: z.object({
+      watchId: z.string(),
+      value: z.string(),
+    }),
+    result: RpcErrorSchema,
+  },
+  "state.modifyWatchExpression": {
+    params: z.object({
+      watchId: z.string(),
+      newExpression: z.string(),
+    }),
+    result: RpcErrorSchema,
+  },
+  "control.step": {
+    params: z.object({
+      target: z.string(),
+    }),
+    result: RpcErrorSchema,
+  },
+  "control.stepOver": {
+    params: z.object({
+      target: z.string(),
+    }),
+    result: RpcErrorSchema,
+  },
+  "control.stepOut": {
+    params: z.object({
+      target: z.string(),
+    }),
+    result: RpcErrorSchema,
+  },
+  "control.runUntil": {
+    params: z.object({
+      target: z.string(),
+      type: z.enum(["interrupt", "exception", "primitive", "tile", "vertex", "list", "sample"]),
+      value: z.string().optional(),
+    }),
+    result: RpcErrorSchema,
+  },
+  "control.pause": {
+    params: z.object({
+      target: z.string().optional(),
+    }),
+    result: RpcErrorSchema,
+  },
+  "breakpoints.add": {
+    params: z.object({
+      location: z.string(),
+      kind: z.enum(["code", "data", "event"]).optional(),
+      enabled: z.boolean().optional(),
+    }),
+    result: RpcErrorSchema,
+  },
+  "breakpoints.setCategoryStates": {
+    params: z.object({
+      categories: z.record(z.string(), z.object({
+        muted: z.boolean(),
+        soloed: z.boolean(),
+      })),
+    }),
+    result: RpcErrorSchema,
+  },
+  "breakpoints.remove": {
+    params: z.object({
+      id: z.string(),
+    }),
+    result: RpcErrorSchema,
+  },
+  "breakpoints.toggle": {
+    params: z.object({
+      id: z.string(),
+      enabled: z.boolean(),
+    }),
+    result: RpcErrorSchema,
+  },
+  "event.tick": {
+    params: DebuggerTickSchema,
+    result: z.never(),
+  },
+} as const;
 
 export type DebuggerRpcSchema = RpcSchema & {
   "debugger.handshake": {
@@ -189,9 +365,11 @@ export type DebuggerRpcSchema = RpcSchema & {
   };
 };
 
-export type DebuggerNotification = {
-  topic: "tick";
-  payload: DebuggerTick;
-};
+export const DebuggerNotificationSchema = z.object({
+  topic: z.literal("tick"),
+  payload: DebuggerTickSchema,
+});
+
+export type DebuggerNotification = z.infer<typeof DebuggerNotificationSchema>;
 
 

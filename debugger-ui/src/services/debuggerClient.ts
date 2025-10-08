@@ -6,6 +6,7 @@ import type {
   DebuggerRpcSchema,
   MemorySlice,
 } from "../lib/debuggerSchema";
+import { DebuggerRpcMethodSchemas } from "../lib/debuggerSchema";
 import { JsonRpcClient } from "./jsonRpcClient";
 import type { JsonRpcClientOptions } from "./jsonRpcClient";
 import type { DebuggerTransport, TransportOptions } from "./transport";
@@ -27,7 +28,11 @@ export class DebuggerClient {
   constructor(config: DebuggerClientConfig) {
     this.config = config;
     this.transport = createTransport(config.mode);
-    this.rpc = new JsonRpcClient<DebuggerRpcSchema>(this.transport, config.rpcOptions);
+    this.rpc = new JsonRpcClient<DebuggerRpcSchema>(this.transport, {
+      ...config.rpcOptions,
+      validationSchemas: DebuggerRpcMethodSchemas,
+      validateResponses: true,
+    });
     this.rpc.onNotification((notification) => {
       const mapped = mapNotification(notification);
       if (mapped) {
