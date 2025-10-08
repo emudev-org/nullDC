@@ -37,7 +37,7 @@ const WatchItem = ({ expression, value, onRemove, onEdit, onModifyExpression }: 
       await onEdit(editValue);
       setIsEditingValue(false);
       setHasValueError(false);
-    } catch (error) {
+    } catch {
       // Flash red border on error - keep edit box open
       setHasValueError(true);
       setTimeout(() => setHasValueError(false), 500);
@@ -49,7 +49,7 @@ const WatchItem = ({ expression, value, onRemove, onEdit, onModifyExpression }: 
       await onModifyExpression(editExpression);
       setIsEditingExpression(false);
       setHasExpressionError(false);
-    } catch (error) {
+    } catch {
       // Flash red border on error - keep edit box open
       setHasExpressionError(true);
       setTimeout(() => setHasExpressionError(false), 500);

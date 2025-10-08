@@ -7,7 +7,6 @@ export type ExecutionState = "running" | "paused";
 
 export interface SessionInfo {
   sessionId: string;
-  capabilities: string[];
 }
 
 interface SessionStore {

@@ -5,7 +5,6 @@ import type {
   DebuggerNotification,
   DebuggerRpcSchema,
   MemorySlice,
-  WaveformChunk,
 } from "../lib/debuggerSchema";
 import { JsonRpcClient } from "./jsonRpcClient";
 import type { JsonRpcClientOptions } from "./jsonRpcClient";
@@ -150,11 +149,6 @@ const mapNotification = (notification: JsonRpcNotification): DebuggerNotificatio
       return {
         topic: "tick",
         payload: params as import("../lib/debuggerSchema").DebuggerTick,
-      };
-    case "event.stream.waveform":
-      return {
-        topic: "stream.waveform",
-        payload: params as WaveformChunk,
       };
     default:
       return undefined;
