@@ -181,13 +181,9 @@ export const MemoryView = ({
 
   const adjustAddress = useCallback(
     (delta: number) => {
-      setAddress((prev) => {
-        const newAddr = clampAddress(prev + delta, config.maxAddress, BYTES_PER_ROW);
-        callbacks.onAddressChange?.(newAddr);
-        return newAddr;
-      });
+      setAddress((prev) => clampAddress(prev + delta, config.maxAddress, BYTES_PER_ROW));
     },
-    [config.maxAddress, callbacks],
+    [config.maxAddress],
   );
 
   const handleWheel = useCallback(
