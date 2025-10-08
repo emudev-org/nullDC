@@ -85,11 +85,7 @@ export const MemorySliceSchema = z.object({
 export const DisassemblyLineSchema = z.object({
   address: z.number(),
   bytes: z.string(),
-  mnemonic: z.string(),
-  operands: z.string(),
-  comment: z.string().optional(),
-  isCurrent: z.boolean().optional(),
-  isBreakpoint: z.boolean().optional(),
+  disassembly: z.string(),
 });
 
 export const BreakpointDescriptorSchema = z.object({

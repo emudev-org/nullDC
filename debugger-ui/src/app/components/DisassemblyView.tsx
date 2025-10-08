@@ -109,8 +109,6 @@ const DisassemblyLineItem = memo(({
   onBreakpointToggle,
   lineRef,
 }: DisassemblyLineItemProps) => {
-  const commentText = line.comment ? `; ${line.comment}` : "";
-  const mnemonicSegment = line.operands ? `${line.mnemonic} ${line.operands}` : line.mnemonic;
   const hasBreakpoint = !!breakpoint;
   const breakpointEnabled = breakpoint?.enabled ?? false;
 
@@ -170,12 +168,7 @@ const DisassemblyLineItem = memo(({
         {line.bytes}
       </Typography>
       <Typography component="span" sx={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-        {mnemonicSegment}
-        {commentText && (
-          <Box component="span" sx={{ color: "text.secondary", ml: 1, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-            {commentText}
-          </Box>
-        )}
+        {line.disassembly}
       </Typography>
     </Box>
   );

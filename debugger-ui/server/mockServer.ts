@@ -424,8 +424,7 @@ const generateDisassembly = (target: string, address: number, count: number): Di
       lines.push({
         address: step,
         bytes: ((step * 2) & 0xff).toString(16).toUpperCase().padStart(2, "0"),
-        mnemonic: programLine,
-        operands: "",
+        disassembly: programLine,
       });
     }
 
@@ -454,6 +453,7 @@ const generateDisassembly = (target: string, address: number, count: number): Di
     const offset = (hash * 7) & 0xfff;
 
     const operands = instr.operands(r1, r2, r3, val, offset);
+    const disassembly = operands ? `${instr.mnemonic} ${operands}` : instr.mnemonic;
 
     const byteValues: number[] = [];
     for (let b = 0; b < instr.bytes; b++) {
@@ -464,9 +464,7 @@ const generateDisassembly = (target: string, address: number, count: number): Di
     lines.push({
       address: currentAddr,
       bytes,
-      mnemonic: instr.mnemonic,
-      operands,
-      isCurrent: false,
+      disassembly,
     });
 
     currentAddr += instr.bytes;
