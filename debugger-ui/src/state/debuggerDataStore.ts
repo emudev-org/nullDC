@@ -1,25 +1,24 @@
 ﻿import { create } from "zustand";
 import type {
   BreakpointDescriptor,
+  CallstackFrame,
   DebuggerShape,
   DebuggerTick,
   DeviceNodeDescriptor,
-  FrameLogEntry,
+  EventLogEntry,
   RegisterValue,
   RpcError,
   ThreadInfo,
-  WaveformChunk,
+  WatchDescriptor,
 } from "../lib/debuggerSchema";
 import type { DebuggerClient } from "../services/debuggerClient";
 import { useSessionStore } from "./sessionStore";
-const DEFAULT_WATCH_EXPRESSIONS = ["dc.sh4.cpu.pc", "dc.sh4.dmac.dmaor"] as const;
 
 interface DebuggerDataState {
   initialized: boolean;
   client?: DebuggerClient;
   shape?: DebuggerShape;
   latestTick?: DebuggerTick;
-  waveform?: WaveformChunk | null;
   errorMessage?: string;
   breakpointHit?: { breakpoint: BreakpointDescriptor; timestamp: number };
   notificationUnsub?: () => void;
@@ -29,15 +28,17 @@ interface DebuggerDataState {
   availableEvents: string[];
   breakpoints: BreakpointDescriptor[];
   threads: ThreadInfo[];
-  frameLog: FrameLogEntry[];
+  eventLog: EventLogEntry[];
   executionState: { state: "running" | "paused"; breakpointId?: string };
-  watchExpressions: string[];
-  watchValues: Record<string, unknown>;
+  watches: WatchDescriptor[];
+  callstacks: Record<string, CallstackFrame[]>;
   // Methods
   initialize: (client: DebuggerClient) => Promise<void>;
   reset: () => void;
   addWatch: (expression: string) => Promise<void>;
-  removeWatch: (expression: string) => Promise<void>;
+  removeWatch: (watchId: string) => Promise<void>;
+  editWatch: (watchId: string, value: string) => Promise<void>;
+  modifyWatchExpression: (watchId: string, newExpression: string) => Promise<void>;
   addBreakpoint: (location: string, kind?: BreakpointDescriptor["kind"]) => Promise<void>;
   removeBreakpoint: (id: string) => Promise<void>;
   toggleBreakpoint: (id: string, enabled: boolean) => Promise<void>;
@@ -65,11 +66,10 @@ export const useDebuggerDataStore = create<DebuggerDataState>()((set, get) => ({
   availableEvents: [],
   breakpoints: [],
   threads: [],
-  frameLog: [],
+  eventLog: [],
   executionState: { state: "paused" },
-  watchExpressions: [],
-  watchValues: {},
-  waveform: null,
+  watches: [],
+  callstacks: {},
   async initialize(client) {
     const { notificationUnsub } = get();
     notificationUnsub?.();
@@ -81,9 +81,9 @@ export const useDebuggerDataStore = create<DebuggerDataState>()((set, get) => ({
       deviceTree: [],
       breakpoints: [],
       threads: [],
-      frameLog: [],
+      eventLog: [],
       executionState: { state: "paused" },
-      watchExpressions: [],
+      watches: [],
     });
     try {
       // Fetch shape (device tree structure, capabilities, emulator info)
@@ -94,13 +94,6 @@ export const useDebuggerDataStore = create<DebuggerDataState>()((set, get) => ({
         deviceTree: shape.deviceTree,
         availableEvents: events,
       });
-
-      // Add default watches
-      if (DEFAULT_WATCH_EXPRESSIONS.length > 0) {
-        const defaults = Array.from(DEFAULT_WATCH_EXPRESSIONS);
-        await client.watch(defaults);
-        set({ watchExpressions: defaults });
-      }
 
       // Set up tick notification handler
       const unsub = client.onNotification((notification) => {
@@ -113,11 +106,11 @@ export const useDebuggerDataStore = create<DebuggerDataState>()((set, get) => ({
               latestTick: tick,
               registersByPath: tick.registers,
               breakpoints: breakpointList,
-              frameLog: tick.eventLog,
+              eventLog: tick.eventLog,
               executionState: tick.executionState,
               threads: tick.threads ?? [],
-              watchExpressions: tick.watches ? Object.keys(tick.watches) : [],
-              watchValues: tick.watches ?? {},
+              watches: tick.watches ?? [],
+              callstacks: tick.callstacks ?? get().callstacks,
             });
 
             // Update session store execution state
@@ -141,10 +134,6 @@ export const useDebuggerDataStore = create<DebuggerDataState>()((set, get) => ({
             }
             break;
           }
-          case "stream.waveform": {
-            set({ waveform: notification.payload as WaveformChunk });
-            break;
-          }
           default:
             break;
         }
@@ -164,13 +153,12 @@ export const useDebuggerDataStore = create<DebuggerDataState>()((set, get) => ({
         deviceTree: [],
         registersByPath: {},
         availableEvents: [],
-        watchExpressions: [],
-        watchValues: {},
+        watches: [],
         breakpoints: [],
         threads: [],
-        frameLog: [],
+        eventLog: [],
         executionState: { state: "paused" },
-        waveform: null,
+        callstacks: {},
         notificationUnsub: undefined,
         errorMessage: undefined,
       });
@@ -190,8 +178,8 @@ export const useDebuggerDataStore = create<DebuggerDataState>()((set, get) => ({
     if (!trimmed) {
       return;
     }
-    const { client, watchExpressions } = get();
-    if (!client || watchExpressions.includes(trimmed)) {
+    const { client, watches } = get();
+    if (!client || watches.some((w) => w.expression === trimmed)) {
       return;
     }
     try {
@@ -204,19 +192,70 @@ export const useDebuggerDataStore = create<DebuggerDataState>()((set, get) => ({
       get().showError(error instanceof Error ? error.message : "Failed to add watch");
     }
   },
-  async removeWatch(expression) {
-    const { client, watchExpressions } = get();
-    if (!client || !watchExpressions.includes(expression)) {
+  async removeWatch(watchId) {
+    const { client, watches } = get();
+    const watch = watches.find((w) => w.id === watchId);
+    if (!client || !watch) {
       return;
     }
     try {
-      const result = await client.unwatch([expression]) as RpcError;
+      const result = await client.unwatch([watchId]) as RpcError;
       if (result.error) {
         get().showError(result.error.message);
       }
     } catch (error) {
       console.error("Failed to remove watch", error);
       get().showError(error instanceof Error ? error.message : "Failed to remove watch");
+    }
+  },
+  async editWatch(watchId, value) {
+    const { client, watches } = get();
+    if (!client) {
+      const error = new Error("No client connected");
+      get().showError(error.message);
+      throw error;
+    }
+    const watch = watches.find((w) => w.id === watchId);
+    if (!watch) {
+      const error = new Error("Watch not found");
+      get().showError(error.message);
+      throw error;
+    }
+    try {
+      const result = await client.editWatch(watchId, value) as RpcError;
+      if (result.error) {
+        get().showError(result.error.message);
+        throw new Error(result.error.message);
+      }
+    } catch (error) {
+      console.error("Failed to edit watch", error);
+      get().showError(error instanceof Error ? error.message : "Failed to edit watch");
+      throw error;
+    }
+  },
+  async modifyWatchExpression(watchId, newExpression) {
+    const { client, watches } = get();
+    if (!client) {
+      const error = new Error("No client connected");
+      get().showError(error.message);
+      throw error;
+    }
+    const watch = watches.find((w) => w.id === watchId);
+    if (!watch) {
+      const error = new Error("Watch not found");
+      get().showError(error.message);
+      throw error;
+    }
+    try {
+      const result = await client.modifyWatchExpression(watchId, newExpression) as RpcError;
+      if (result.error) {
+        get().showError(result.error.message);
+        throw new Error(result.error.message);
+      }
+    } catch (error) {
+      console.error("Failed to modify watch expression", error);
+      get().showError(error instanceof Error ? error.message : "Failed to modify watch expression");
+      throw error;
     }
   },
   async addBreakpoint(location, kind = "code") {

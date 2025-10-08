@@ -25,7 +25,7 @@ import { CoreInspectorPanel } from "../panels/CoreInspectorPanel";
 import { EventsBreakpointsPanel, Sh4BreakpointsPanel, Arm7BreakpointsPanel, DspBreakpointsPanel } from "../panels/BreakpointsPanel";
 import { Sh4SimPanel } from "../panels/Sh4SimPanel";
 import { DspPlaygroundPanel } from "../panels/DspPlaygroundPanel";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, Link } from "react-router-dom";
 import { AboutDialog } from "./AboutDialog";
 import { useAboutModal } from "./useAboutModal";
 import { TopNav } from "./TopNav";
@@ -85,7 +85,7 @@ const mainTabs = [
 
 const sidePanelTabs = [
   { value: "device-tree", label: "Device Tree", component: <DeviceTreePanel /> },
-  { value: "watches", label: "Watches", component: <WatchesPanel showTitle={false} /> },
+  { value: "watches", label: "Watches", component: <WatchesPanel /> },
   { value: "sh4-callstack", label: "SH4: Callstack", component: <CallstackPanel target="sh4" showTitle={false} /> },
   { value: "arm7-callstack", label: "ARM7: Callstack", component: <CallstackPanel target="arm7" showTitle={false} /> },
 ];
@@ -395,14 +395,19 @@ export const AppLayout = () => {
           </Box>
           <Tabs
             value={currentTab}
-            onChange={(_, value) => navigate(`/${value}`)}
             variant="scrollable"
             scrollButtons
             ref={tabsContainerRef}
             sx={{ border: "1px solid", borderColor: "divider", borderRadius: 1 }}
           >
             {workspaceTabs.map((tab) => (
-              <Tab key={tab.value} value={tab.value} label={tab.label} />
+              <Tab
+                key={tab.value}
+                value={tab.value}
+                label={tab.label}
+                component={Link}
+                to={`/${tab.value}`}
+              />
             ))}
           </Tabs>
         </Box>
@@ -486,7 +491,7 @@ export const AppLayout = () => {
                 width: 340,
               }}
             >
-              <WatchesPanel showTitle={true} />
+              <WatchesPanel />
               <CallstackPanel target="sh4" showTitle={true} />
               <CallstackPanel target="arm7" showTitle={true} />
             </Box>

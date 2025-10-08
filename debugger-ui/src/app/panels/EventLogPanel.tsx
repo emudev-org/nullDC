@@ -1,55 +1,68 @@
 ﻿import { useMemo } from "react";
 import { Panel } from "../layout/Panel";
-import { Chip, List, ListItem, ListItemText, Stack, Typography } from "@mui/material";
+import { Box, List, ListItem, Typography } from "@mui/material";
 import { useDebuggerDataStore } from "../../state/debuggerDataStore";
 
-const severityColor: Record<string, "default" | "primary" | "warning" | "error"> = {
-  trace: "default",
-  info: "primary",
-  warn: "warning",
-  error: "error",
+const severityColor: Record<string, string> = {
+  trace: "text.disabled",
+  info: "text.primary",
+  warn: "warning.main",
+  error: "error.main",
 };
 
 export const EventLogPanel = () => {
-  const entries = useDebuggerDataStore((state) => state.frameLog);
+  const entries = useDebuggerDataStore((state) => state.eventLog);
   const rendered = useMemo(() => (Array.isArray(entries) ? entries.slice().reverse() : []), [entries]);
 
   return (
-    <Panel title="Event Log">
+    <Panel>
       {rendered.length === 0 ? (
         <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
           No runtime events yet.
         </Typography>
       ) : (
-        <List dense disablePadding sx={{ maxHeight: "100%" }}>
-          {rendered.map((entry) => (
-            <ListItem key={entry.eventId} sx={{ alignItems: "flex-start" }}>
-              <ListItemText
-                primary={
-                  <Typography variant="caption" color="text.secondary">
-                    {new Date(entry.timestamp).toLocaleTimeString(undefined, { hour12: false })}
-                  </Typography>
-                }
-                secondary={
-                  <Stack direction="row" spacing={1} alignItems="center" component="span">
-                    <Chip
-                      size="small"
-                      label={entry.subsystem.toUpperCase()}
-                      color={entry.subsystem === "ta" ? "secondary" : "default"}
-                    />
-                    <Typography
-                      component="span"
-                      variant="body2"
-                      color={severityColor[entry.severity] ?? "inherit"}
-                    >
-                      {entry.message}
-                    </Typography>
-                  </Stack>
-                }
-                secondaryTypographyProps={{ component: "div" }}
-              />
-            </ListItem>
-          ))}
+        <List dense disablePadding sx={{ maxHeight: "100%", fontFamily: "monospace" }}>
+          {rendered.map((entry) => {
+            const timestamp = new Date(entry.timestamp).toLocaleTimeString(undefined, {
+              hour12: false,
+              hour: "2-digit",
+              minute: "2-digit",
+              second: "2-digit",
+              fractionalSecondDigits: 3
+            });
+            const tag = entry.subsystem.toUpperCase().padEnd(6, " ");
+
+            return (
+              <ListItem key={entry.eventId} sx={{ py: 0.25, px: 1 }}>
+                <Typography
+                  variant="body2"
+                  sx={{
+                    fontFamily: "monospace",
+                    fontSize: "0.75rem",
+                    color: severityColor[entry.severity] ?? "text.primary",
+                    whiteSpace: "pre",
+                  }}
+                >
+                  {timestamp}{" "}
+                  <Box
+                    component="span"
+                    sx={{
+                      display: "inline-block",
+                      backgroundColor: "action.selected",
+                      borderRadius: 1,
+                      px: 0.75,
+                      py: 0.25,
+                      textAlign: "center",
+                      minWidth: "3.5rem",
+                    }}
+                  >
+                    {tag.trim()}
+                  </Box>{" "}
+                  {entry.message}
+                </Typography>
+              </ListItem>
+            );
+          })}
         </List>
       )}
     </Panel>

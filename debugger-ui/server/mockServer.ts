@@ -20,12 +20,11 @@ import type {
   DebuggerTick,
   DeviceNodeDescriptor,
   DisassemblyLine,
-  FrameLogEntry,
+  EventLogEntry,
   MemorySlice,
   RegisterValue,
   RpcError,
   ThreadInfo,
-  WaveformChunk,
 } from "../src/lib/debuggerSchema";
 
 const PORT = Number(process.env.PORT ?? 5173);
@@ -38,11 +37,23 @@ interface ClientContext {
   watches: Set<string>;
 }
 
-const serverWatches = new Set<string>();
+interface ServerWatch {
+  id: string;
+  expression: string;
+}
+
+const serverWatches = new Map<string, ServerWatch>(); // id -> {id, expression}
 const serverBreakpoints = new Map<string, BreakpointDescriptor>();
 let isRunning = true; // Execution state
 let nextEventId = 1n; // Event ID counter (BigInt for 64-bit)
 let tickId = 0; // Tick counter
+
+// Initialize default watches
+const DEFAULT_WATCH_EXPRESSIONS = ["dc.sh4.cpu.pc", "dc.sh4.dmac.dmaor"];
+for (const expr of DEFAULT_WATCH_EXPRESSIONS) {
+  const id = randomUUID();
+  serverWatches.set(id, { id, expression: expr });
+}
 
 type BreakpointCategory = "events" | "sh4" | "arm7" | "dsp";
 
@@ -142,7 +153,7 @@ const buildDeviceTree = (): DeviceNodeDescriptor[] => [
   {
     path: "dc",
     label: "Dreamcast",
-    kind: "our beloved console",
+    kind: "beloved console",
     description: "Sega Dreamcast system bus",
     registers: [
       { name: "SYSCLK", value: getRegisterValue("dc", "SYSCLK"), width: 0 },
@@ -484,9 +495,9 @@ const sampleThreads: ThreadInfo[] = [
   },
 ];
 
-const FRAME_LOG_LIMIT = 256;
+const EVENT_LOG_LIMIT = 60;
 
-const frameEventGenerators: Array<() => Omit<FrameLogEntry, "timestamp" | "eventId">> = [
+const frameEventGenerators: Array<() => Omit<EventLogEntry, "timestamp" | "eventId">> = [
   () => ({ subsystem: "ta", severity: "info", message: `TA/END_LIST tile ${Math.floor(Math.random() * 32)}` }),
   () => ({ subsystem: "core", severity: "info", message: "CORE/START_RENDER" }),
   () => ({ subsystem: "core", severity: "trace", message: `CORE/QUEUE_SUBMISSION ${Math.floor(Math.random() * 4)}` }),
@@ -496,7 +507,7 @@ const frameEventGenerators: Array<() => Omit<FrameLogEntry, "timestamp" | "event
   () => ({ subsystem: "holly", severity: "info", message: "HOLLY/START_RENDER pass" }),
 ];
 
-const createFrameEvent = (): FrameLogEntry => {
+const createFrameEvent = (): EventLogEntry => {
   const generator = frameEventGenerators[Math.floor(Math.random() * frameEventGenerators.length)];
   const event = generator();
   return {
@@ -506,7 +517,7 @@ const createFrameEvent = (): FrameLogEntry => {
   };
 };
 
-const frameLogEntries: FrameLogEntry[] = Array.from({ length: 6 }, () => createFrameEvent());
+const eventLogEntries: EventLogEntry[] = Array.from({ length: 6 }, () => createFrameEvent());
 
 const clients = new Set<ClientContext>();
 
@@ -523,16 +534,21 @@ const sendNotification = (client: ClientContext, notification: DebuggerNotificat
 const handleRequest = async (client: ClientContext, message: JsonRpcRequest) => {
   try {
     const params = (message.params ?? {}) as Record<string, unknown>;
-    const result = await dispatchMethod(message.method as keyof DebuggerRpcSchema, params, client);
-    respondSuccess(client.socket, message.id, result);
+    const { result, shouldBroadcastTick } = await dispatchMethod(message.method as keyof DebuggerRpcSchema, params, client);
+    await respondSuccess(client.socket, message.id, result);
+    if (shouldBroadcastTick) {
+      broadcastTick();
+    }
   } catch (error) {
     respondError(client.socket, message.id, error);
   }
 };
 
-const respondSuccess = (socket: WebSocket, id: JsonRpcSuccess["id"], result: unknown) => {
+const respondSuccess = async (socket: WebSocket, id: JsonRpcSuccess["id"], result: unknown) => {
   const payload: JsonRpcSuccess = { jsonrpc: JSON_RPC_VERSION, id, result };
   socket.send(JSON.stringify(payload));
+  // Ensure message is sent before resolving
+  await new Promise(resolve => setImmediate(resolve));
 };
 
 const respondError = (socket: WebSocket, id: JsonRpcError["id"], error: unknown) => {
@@ -588,39 +604,51 @@ const dispatchMethod = async (
   method: keyof DebuggerRpcSchema,
   params: Record<string, unknown>,
   client: ClientContext,
-): Promise<unknown> => {
+): Promise<{ result: unknown; shouldBroadcastTick: boolean }> => {
   switch (method) {
     case "debugger.handshake":
       return {
-        sessionId: client.sessionId,
-        capabilities: ["watches", "step", "breakpoints", "frame-log", "waveforms"],
+        result: {
+          sessionId: client.sessionId,
+          capabilities: ["watches", "step", "breakpoints", "frame-log"],
+        },
+        shouldBroadcastTick: false,
       };
     case "debugger.describe":
       return {
-        emulator: { name: "mockServer", version: "unspecified", build: "native" as const },
-        deviceTree: buildDeviceTree(),
-        capabilities: ["watches", "step", "breakpoints", "frame-log", "waveforms"],
-      } as DebuggerShape;
+        result: {
+          emulator: { name: "mockServer", version: "unspecified", build: "native" as const },
+          deviceTree: buildDeviceTree(),
+          capabilities: ["watches", "step", "breakpoints", "frame-log"],
+        } as DebuggerShape,
+        shouldBroadcastTick: true, // Send initial state after describe
+      };
     case "state.getMemorySlice": {
       const target = typeof params.target === "string" ? params.target : "sh4";
       const addressValue = Number(params.address);
       const lengthValue = Number(params.length);
       const encoding = params.encoding as MemorySlice["encoding"] | undefined;
       const wordSize = params.wordSize as MemorySlice["wordSize"] | undefined;
-      return buildMemorySlice({
-        target,
-        address: Number.isFinite(addressValue) ? addressValue : undefined,
-        length: Number.isFinite(lengthValue) && lengthValue > 0 ? lengthValue : undefined,
-        encoding,
-        wordSize,
-      });
+      return {
+        result: buildMemorySlice({
+          target,
+          address: Number.isFinite(addressValue) ? addressValue : undefined,
+          length: Number.isFinite(lengthValue) && lengthValue > 0 ? lengthValue : undefined,
+          encoding,
+          wordSize,
+        }),
+        shouldBroadcastTick: false,
+      };
     }
     case "state.getDisassembly": {
       const target = typeof params.target === "string" ? params.target : "sh4";
       const address = typeof params.address === "number" ? params.address : 0;
       const count = typeof params.count === "number" ? params.count : 128;
       const lines = generateDisassembly(target, address, count);
-      return { lines };
+      return {
+        result: { lines },
+        shouldBroadcastTick: false,
+      };
     }
     case "state.getCallstack": {
       const target = (params.target as string) || "sh4";
@@ -632,62 +660,150 @@ const dispatchMethod = async (
         symbol: `${target.toUpperCase()}_func_${index}`,
         location: `${target}.c:${100 + index}`,
       }));
-      return { target, frames };
+      return {
+        result: { target, frames },
+        shouldBroadcastTick: false,
+      };
     }
     case "state.watch": {
       const expressions = (params.expressions as string[]) ?? [];
       expressions.forEach((expr) => {
-        client.watches.add(expr);
-        serverWatches.add(expr);
+        const id = randomUUID();
+        client.watches.add(id);
+        serverWatches.set(id, { id, expression: expr });
       });
-      // Broadcast tick after adding watches
-      setTimeout(() => broadcastTick(), 0);
-      return {} as RpcError;
+      return {
+        result: {} as RpcError,
+        shouldBroadcastTick: true,
+      };
     }
     case "state.unwatch": {
       const expressions = (params.expressions as string[]) ?? [];
-      expressions.forEach((expr) => {
-        client.watches.delete(expr);
-        serverWatches.delete(expr);
+      // expressions here are actually watch IDs
+      expressions.forEach((watchId) => {
+        client.watches.delete(watchId);
+        serverWatches.delete(watchId);
       });
-      // Broadcast tick after removing watches
-      setTimeout(() => broadcastTick(), 0);
-      return {} as RpcError;
+      return {
+        result: {} as RpcError,
+        shouldBroadcastTick: true,
+      };
+    }
+    case "state.editWatch": {
+      const { watchId, value } = params as { watchId: string; value: string };
+
+      // Validate that the watch exists
+      const watch = serverWatches.get(watchId);
+      if (!watch) {
+        return {
+          result: {
+            error: {
+              code: -32602,
+              message: `Watch "${watchId}" not found`,
+            },
+          } as RpcError,
+          shouldBroadcastTick: false,
+        };
+      }
+
+      // Try to parse and update the value
+      try {
+        // For now, just update the register value directly
+        if (registerValues.has(watch.expression)) {
+          registerValues.set(watch.expression, value);
+        } else {
+          // Return error for non-register watches
+          return {
+            result: {
+              error: {
+                code: -32602,
+                message: `Cannot edit non-register expression "${watch.expression}"`,
+              },
+            } as RpcError,
+            shouldBroadcastTick: false,
+          };
+        }
+
+        return {
+          result: {} as RpcError,
+          shouldBroadcastTick: true,
+        };
+      } catch (error) {
+        return {
+          result: {
+            error: {
+              code: -32603,
+              message: `Failed to set value: ${error instanceof Error ? error.message : "Unknown error"}`,
+            },
+          } as RpcError,
+          shouldBroadcastTick: false,
+        };
+      }
+    }
+    case "state.modifyWatchExpression": {
+      const { watchId, newExpression } = params as { watchId: string; newExpression: string };
+
+      // Find the watch by ID
+      const watch = serverWatches.get(watchId);
+      if (!watch) {
+        return {
+          result: {
+            error: {
+              code: -32602,
+              message: `Watch "${watchId}" not found`,
+            },
+          } as RpcError,
+          shouldBroadcastTick: false,
+        };
+      }
+
+      // Update the expression while keeping the same ID
+      serverWatches.set(watchId, { id: watchId, expression: newExpression });
+
+      return {
+        result: {} as RpcError,
+        shouldBroadcastTick: true,
+      };
     }
     case "control.pause":
       isRunning = false;
-      // Broadcast tick after state change
-      setTimeout(() => broadcastTick(), 0);
-      return {} as RpcError;
+      return {
+        result: {} as RpcError,
+        shouldBroadcastTick: true,
+      };
     case "control.step": {
       isRunning = false;
       const stepTarget = (params.target as string) ?? "sh4";
       incrementProgramCounter(stepTarget);
-      // Broadcast tick after state change
-      setTimeout(() => broadcastTick(), 0);
-      return {} as RpcError;
+      return {
+        result: {} as RpcError,
+        shouldBroadcastTick: true,
+      };
     }
     case "control.stepOver": {
       isRunning = false;
       const stepOverTarget = (params.target as string) ?? "sh4";
       incrementProgramCounter(stepOverTarget);
-      // Broadcast tick after state change
-      setTimeout(() => broadcastTick(), 0);
-      return {} as RpcError;
+      return {
+        result: {} as RpcError,
+        shouldBroadcastTick: true,
+      };
     }
     case "control.stepOut": {
       isRunning = false;
       const stepOutTarget = (params.target as string) ?? "sh4";
       incrementProgramCounter(stepOutTarget);
-      // Broadcast tick after state change
-      setTimeout(() => broadcastTick(), 0);
-      return {} as RpcError;
+      return {
+        result: {} as RpcError,
+        shouldBroadcastTick: true,
+      };
     }
     case "control.runUntil":
       isRunning = true;
-      // Broadcast tick after state change
-      setTimeout(() => broadcastTick(), 0);
-      return {} as RpcError;
+      return {
+        result: {} as RpcError,
+        shouldBroadcastTick: true,
+      };
     case "breakpoints.add": {
       const location = params.location as string;
       const kind = (params.kind as BreakpointDescriptor["kind"]) ?? "code";
@@ -701,32 +817,41 @@ const dispatchMethod = async (
         hitCount: 0,
       };
       serverBreakpoints.set(id, breakpoint);
-      // Broadcast tick after mutation
-      setTimeout(() => broadcastTick(), 0);
-      return {} as RpcError;
+      return {
+        result: {} as RpcError,
+        shouldBroadcastTick: true,
+      };
     }
     case "breakpoints.remove": {
       const id = params.id as string;
       const removed = serverBreakpoints.delete(id);
       if (!removed) {
-        return { error: { code: -32000, message: `Breakpoint ${id} not found` } } as RpcError;
+        return {
+          result: { error: { code: -32000, message: `Breakpoint ${id} not found` } } as RpcError,
+          shouldBroadcastTick: false,
+        };
       }
-      // Broadcast tick after mutation
-      setTimeout(() => broadcastTick(), 0);
-      return {} as RpcError;
+      return {
+        result: {} as RpcError,
+        shouldBroadcastTick: true,
+      };
     }
     case "breakpoints.toggle": {
       const id = params.id as string;
       const enabled = params.enabled as boolean;
       const breakpoint = serverBreakpoints.get(id);
       if (!breakpoint) {
-        return { error: { code: -32000, message: `Breakpoint ${id} not found` } } as RpcError;
+        return {
+          result: { error: { code: -32000, message: `Breakpoint ${id} not found` } } as RpcError,
+          shouldBroadcastTick: false,
+        };
       }
       const updated = { ...breakpoint, enabled };
       serverBreakpoints.set(id, updated);
-      // Broadcast tick after mutation
-      setTimeout(() => broadcastTick(), 0);
-      return {} as RpcError;
+      return {
+        result: {} as RpcError,
+        shouldBroadcastTick: true,
+      };
     }
     case "breakpoints.setCategoryStates": {
       const categories = params.categories as Record<string, { muted: boolean; soloed: boolean }>;
@@ -736,12 +861,11 @@ const dispatchMethod = async (
           categoryStates.set(categoryKey, { muted: state.muted, soloed: state.soloed });
         }
       }
-      // Broadcast tick after mutation
-      setTimeout(() => broadcastTick(), 0);
-      return {} as RpcError;
+      return {
+        result: {} as RpcError,
+        shouldBroadcastTick: true,
+      };
     }
-    case "audio.requestWaveform":
-      return buildWaveform(String(params.channelId ?? "0"), Number(params.window) || 256);
     default:
       throw new Error(`Unhandled JSON-RPC method: ${String(method)}`);
   }
@@ -798,17 +922,6 @@ const buildMemorySlice = ({
   };
 };
 
-const buildWaveform = (channelId: string, window: number): WaveformChunk => {
-  const samples = Array.from({ length: window }).map((_, index) => Math.sin((index / window) * Math.PI * 4));
-  return {
-    channelId,
-    sampleRate: 44_100,
-    format: "pcm_f32",
-    samples,
-    label: `Channel ${channelId}`,
-  };
-};
-
 const collectRegistersFromTree = (tree: DeviceNodeDescriptor[]): Array<{ path: string; registers: RegisterValue[] }> => {
   const result: Array<{ path: string; registers: RegisterValue[] }> = [];
   for (const node of tree) {
@@ -832,7 +945,8 @@ const checkBreakpoint = (path: string, registerName: string, value: number): Bre
   return undefined;
 };
 
-const broadcastTick = () => {
+// Emulation tick - advances the emulator state
+const emulationTick = () => {
   let hitBreakpointId: string | undefined;
 
   // Only mutate registers and generate events when running
@@ -856,8 +970,8 @@ const broadcastTick = () => {
         hitBreakpointId = hitBp.id;
         const message = `SH4 breakpoint hit at 0x${newPc.toString(16).toUpperCase()}`;
 
-        // Add to frame log
-        const logEntry: FrameLogEntry = {
+        // Add to event log
+        const logEntry: EventLogEntry = {
           eventId: (nextEventId++).toString(),
           timestamp: Date.now(),
           subsystem: "sh4",
@@ -865,9 +979,9 @@ const broadcastTick = () => {
           message,
           metadata: { breakpointId: hitBp.id, address: newPc },
         };
-        frameLogEntries.push(logEntry);
-        if (frameLogEntries.length > FRAME_LOG_LIMIT) {
-          frameLogEntries.splice(0, frameLogEntries.length - FRAME_LOG_LIMIT);
+        eventLogEntries.push(logEntry);
+        if (eventLogEntries.length > EVENT_LOG_LIMIT) {
+          eventLogEntries.splice(0, eventLogEntries.length - EVENT_LOG_LIMIT);
         }
       }
     }
@@ -896,8 +1010,8 @@ const broadcastTick = () => {
         hitBreakpointId = hitBp.id;
         const message = `ARM7 breakpoint hit at 0x${newPc.toString(16).toUpperCase()}`;
 
-        // Add to frame log
-        const logEntry: FrameLogEntry = {
+        // Add to event log
+        const logEntry: EventLogEntry = {
           eventId: (nextEventId++).toString(),
           timestamp: Date.now(),
           subsystem: "aica",
@@ -905,9 +1019,9 @@ const broadcastTick = () => {
           message,
           metadata: { breakpointId: hitBp.id, address: newPc },
         };
-        frameLogEntries.push(logEntry);
-        if (frameLogEntries.length > FRAME_LOG_LIMIT) {
-          frameLogEntries.splice(0, frameLogEntries.length - FRAME_LOG_LIMIT);
+        eventLogEntries.push(logEntry);
+        if (eventLogEntries.length > EVENT_LOG_LIMIT) {
+          eventLogEntries.splice(0, eventLogEntries.length - EVENT_LOG_LIMIT);
         }
       }
     }
@@ -927,8 +1041,8 @@ const broadcastTick = () => {
         hitBreakpointId = hitBp.id;
         const message = `DSP breakpoint hit at step ${newStep}`;
 
-        // Add to frame log
-        const logEntry: FrameLogEntry = {
+        // Add to event log
+        const logEntry: EventLogEntry = {
           eventId: (nextEventId++).toString(),
           timestamp: Date.now(),
           subsystem: "dsp",
@@ -936,9 +1050,9 @@ const broadcastTick = () => {
           message,
           metadata: { breakpointId: hitBp.id, step: newStep },
         };
-        frameLogEntries.push(logEntry);
-        if (frameLogEntries.length > FRAME_LOG_LIMIT) {
-          frameLogEntries.splice(0, frameLogEntries.length - FRAME_LOG_LIMIT);
+        eventLogEntries.push(logEntry);
+        if (eventLogEntries.length > EVENT_LOG_LIMIT) {
+          eventLogEntries.splice(0, eventLogEntries.length - EVENT_LOG_LIMIT);
         }
       }
     }
@@ -950,14 +1064,19 @@ const broadcastTick = () => {
       setRegisterValue("dc.aica.channels", "CH0_VOL", `0x${((vol + 1) & 0xFF).toString(16).toUpperCase().padStart(2, "0")}`);
     }
 
-    // Generate frame log event only when running
+    // Generate event log event only when running
     const event = createFrameEvent();
-    frameLogEntries.push(event);
-    if (frameLogEntries.length > FRAME_LOG_LIMIT) {
-      frameLogEntries.splice(0, frameLogEntries.length - FRAME_LOG_LIMIT);
+    eventLogEntries.push(event);
+    if (eventLogEntries.length > EVENT_LOG_LIMIT) {
+      eventLogEntries.splice(0, eventLogEntries.length - EVENT_LOG_LIMIT);
     }
   }
 
+  return hitBreakpointId;
+};
+
+// Build and broadcast tick to all connected clients
+const broadcastTick = (hitBreakpointId?: string) => {
   // Build complete tick with all state
   const deviceTree = buildDeviceTree();
   const allRegisters = collectRegistersFromTree(deviceTree);
@@ -974,11 +1093,42 @@ const broadcastTick = () => {
     breakpointsById[id] = bp;
   }
 
-  // Build watches object
-  const watches: Record<string, unknown> = {};
-  for (const expression of serverWatches) {
-    watches[expression] = registerValues.get(expression) ?? "0x00000000";
+  // Build watches array with WatchDescriptor objects
+  const watches: import("../src/lib/debuggerSchema").WatchDescriptor[] = [];
+  for (const [watchId, watchInfo] of serverWatches.entries()) {
+    watches.push({
+      id: watchId,
+      expression: watchInfo.expression,
+      value: registerValues.get(watchInfo.expression) ?? "0x00000000",
+    });
   }
+
+  // Build callstacks for all targets
+  const callstacks: Record<string, import("../src/lib/debuggerSchema").CallstackFrame[]> = {};
+
+  // SH4 callstack - first frame is current PC
+  const sh4PcValue = registerValues.get("dc.sh4.cpu.pc");
+  const sh4Pc = sh4PcValue && sh4PcValue.startsWith("0x") ? Number.parseInt(sh4PcValue, 16) : 0x8c0000a0;
+  const sh4Frames = Array.from({ length: 16 }).map((_, index) => ({
+    index,
+    pc: index === 0 ? sh4Pc : 0x8c000000 + (index - 1) * 4,
+    sp: 0x0cfe0000 - index * 16,
+    symbol: `SH4_func_${index}`,
+    location: `sh4.c:${100 + index}`,
+  }));
+  callstacks["sh4"] = sh4Frames;
+
+  // ARM7 callstack - first frame is current PC
+  const arm7PcValue = registerValues.get("dc.aica.arm7.pc");
+  const arm7Pc = arm7PcValue && arm7PcValue.startsWith("0x") ? Number.parseInt(arm7PcValue, 16) : 0x00200010;
+  const arm7Frames = Array.from({ length: 16 }).map((_, index) => ({
+    index,
+    pc: index === 0 ? arm7Pc : 0x00200000 + (index - 1) * 4,
+    sp: 0x00280000 - index * 16,
+    symbol: `ARM7_func_${index}`,
+    location: `arm7.c:${100 + index}`,
+  }));
+  callstacks["arm7"] = arm7Frames;
 
   const tick: DebuggerTick = {
     tickId: tickId++,
@@ -989,9 +1139,10 @@ const broadcastTick = () => {
     },
     registers: registersById,
     breakpoints: breakpointsById,
-    eventLog: frameLogEntries.slice(),
+    eventLog: eventLogEntries.slice(),
     watches: serverWatches.size > 0 ? watches : undefined,
     threads: sampleThreads,
+    callstacks,
   };
 
   // Broadcast tick to all clients
@@ -999,12 +1150,6 @@ const broadcastTick = () => {
     sendNotification(client, {
       topic: "tick",
       payload: tick,
-    });
-
-    // Still send waveform separately as it's not part of tick
-    sendNotification(client, {
-      topic: "stream.waveform",
-      payload: buildWaveform("0", 128),
     });
   }
 };
@@ -1065,9 +1210,6 @@ const start = async () => {
 
     clients.add(context);
 
-    // Send initial tick on connection
-    setTimeout(() => broadcastTick(), 100);
-
     socket.on("message", (data) => {
       let message: JsonRpcMessage;
       try {
@@ -1092,7 +1234,14 @@ const start = async () => {
     console.log(`WebSocket endpoint available at ws://localhost:${PORT}${WS_PATH}`);
   });
 
-  const timer = setInterval(broadcastTick, 1_000);
+  // Run emulator loop at ~60fps, but only mutate state when isRunning
+  const timer = setInterval(() => {
+    const hitBreakpointId = emulationTick();
+    // Only broadcast when a breakpoint was hit (which pauses execution)
+    if (hitBreakpointId) {
+      broadcastTick(hitBreakpointId);
+    }
+  }, 16);
 
   const shutdown = async () => {
     clearInterval(timer);

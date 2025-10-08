@@ -17,17 +17,17 @@ export const DeviceTreePanel = () => {
   const deviceTree = useDebuggerDataStore((state) => state.deviceTree);
   const registersByPath = useDebuggerDataStore((state) => state.registersByPath);
   const addWatch = useDebuggerDataStore((state) => state.addWatch);
-  const watchExpressions = useDebuggerDataStore((state) => state.watchExpressions);
+  const watches = useDebuggerDataStore((state) => state.watches);
   const [searchQuery, setSearchQuery] = useState("");
 
   const handleRegisterWatch = useCallback(
     async (expression: string) => {
-      if (watchExpressions.includes(expression)) {
+      if (watches.some((w) => w.expression === expression)) {
         return;
       }
       await addWatch(expression);
     },
-    [addWatch, watchExpressions],
+    [addWatch, watches],
   );
 
   // Filter tree based on search query (hierarchical filtering - each word filters progressively)
@@ -123,7 +123,7 @@ export const DeviceTreePanel = () => {
       const displayValue = liveRegister?.value ?? register.value;
 
       const expression = `${nodePath}.${register.name.toLowerCase()}`;
-      const watched = watchExpressions.includes(expression);
+      const watched = watches.some((w) => w.expression === expression);
       return (
         <TreeItem
           key={`${nodePath}.reg.${register.name}`}
@@ -153,7 +153,7 @@ export const DeviceTreePanel = () => {
         />
       );
     },
-    [handleRegisterWatch, watchExpressions, registersByPath],
+    [handleRegisterWatch, watches, registersByPath],
   );
 
   const renderNode = useCallback(
@@ -197,7 +197,7 @@ export const DeviceTreePanel = () => {
             <TextField
               size="small"
               fullWidth
-              placeholder="Search registers..."
+              placeholder="Search components..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               InputProps={{

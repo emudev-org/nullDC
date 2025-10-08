@@ -62,15 +62,7 @@ export interface BacktraceFrame {
   location?: string;
 }
 
-export interface WaveformChunk {
-  channelId: string;
-  sampleRate: number;
-  format: "pcm_u8" | "pcm_s16" | "pcm_f32";
-  samples: number[];
-  label?: string;
-}
-
-export interface FrameLogEntry {
+export interface EventLogEntry {
   eventId: string;
   timestamp: number;
   subsystem: "sh4" | "holly" | "ta" | "core" | "aica" | "dsp";
@@ -95,7 +87,12 @@ export interface CallstackFrame {
 export interface DebuggerShape {
   emulator: { name: string; version: string; build: "native" | "wasm" };
   deviceTree: DeviceNodeDescriptor[];
-  capabilities: string[];
+}
+
+export interface WatchDescriptor {
+  id: string;
+  expression: string;
+  value: unknown;
 }
 
 export interface DebuggerTick {
@@ -107,9 +104,10 @@ export interface DebuggerTick {
   };
   registers: Record<string, RegisterValue[]>;
   breakpoints: Record<string, BreakpointDescriptor>;
-  eventLog: FrameLogEntry[];
-  watches?: Record<string, unknown>;
+  eventLog: EventLogEntry[];
+  watches?: WatchDescriptor[];
   threads?: ThreadInfo[];
+  callstacks?: Record<string, CallstackFrame[]>;
 }
 
 export interface RpcError {
@@ -119,7 +117,7 @@ export interface RpcError {
 export type DebuggerRpcSchema = RpcSchema & {
   "debugger.handshake": {
     params: { clientName: string; clientVersion: string; transport: TransportSettings };
-    result: { sessionId: string; capabilities: string[] };
+    result: { sessionId: string };
   };
   "state.getCallstack": {
     params: { target: "sh4" | "arm7"; maxFrames?: number };
@@ -142,7 +140,15 @@ export type DebuggerRpcSchema = RpcSchema & {
     result: RpcError;
   };
   "state.unwatch": {
-    params: { expressions: string[] };
+    params: { expressions: string[] }; // Array of watch IDs
+    result: RpcError;
+  };
+  "state.editWatch": {
+    params: { watchId: string; value: string };
+    result: RpcError;
+  };
+  "state.modifyWatchExpression": {
+    params: { watchId: string; newExpression: string };
     result: RpcError;
   };
   "control.step": {
@@ -181,20 +187,11 @@ export type DebuggerRpcSchema = RpcSchema & {
     params: { id: string; enabled: boolean };
     result: RpcError;
   };
-  "audio.requestWaveform": {
-    params: { channelId: string; window: number };
-    result: WaveformChunk;
-  };
 };
 
-export type DebuggerNotification =
-  | {
-      topic: "tick";
-      payload: DebuggerTick;
-    }
-  | {
-      topic: "stream.waveform";
-      payload: WaveformChunk;
-    };
+export type DebuggerNotification = {
+  topic: "tick";
+  payload: DebuggerTick;
+};
 
 
