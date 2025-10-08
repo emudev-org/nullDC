@@ -153,7 +153,7 @@ const buildDeviceTree = (): DeviceNodeDescriptor[] => [
   {
     path: "dc",
     label: "Dreamcast",
-    kind: "our beloved console",
+    kind: "beloved console",
     description: "Sega Dreamcast system bus",
     registers: [
       { name: "SYSCLK", value: getRegisterValue("dc", "SYSCLK"), width: 0 },
@@ -495,7 +495,7 @@ const sampleThreads: ThreadInfo[] = [
   },
 ];
 
-const FRAME_LOG_LIMIT = 256;
+const EVENT_LOG_LIMIT = 60;
 
 const frameEventGenerators: Array<() => Omit<EventLogEntry, "timestamp" | "eventId">> = [
   () => ({ subsystem: "ta", severity: "info", message: `TA/END_LIST tile ${Math.floor(Math.random() * 32)}` }),
@@ -980,8 +980,8 @@ const emulationTick = () => {
           metadata: { breakpointId: hitBp.id, address: newPc },
         };
         eventLogEntries.push(logEntry);
-        if (eventLogEntries.length > FRAME_LOG_LIMIT) {
-          eventLogEntries.splice(0, eventLogEntries.length - FRAME_LOG_LIMIT);
+        if (eventLogEntries.length > EVENT_LOG_LIMIT) {
+          eventLogEntries.splice(0, eventLogEntries.length - EVENT_LOG_LIMIT);
         }
       }
     }
@@ -1020,8 +1020,8 @@ const emulationTick = () => {
           metadata: { breakpointId: hitBp.id, address: newPc },
         };
         eventLogEntries.push(logEntry);
-        if (eventLogEntries.length > FRAME_LOG_LIMIT) {
-          eventLogEntries.splice(0, eventLogEntries.length - FRAME_LOG_LIMIT);
+        if (eventLogEntries.length > EVENT_LOG_LIMIT) {
+          eventLogEntries.splice(0, eventLogEntries.length - EVENT_LOG_LIMIT);
         }
       }
     }
@@ -1051,8 +1051,8 @@ const emulationTick = () => {
           metadata: { breakpointId: hitBp.id, step: newStep },
         };
         eventLogEntries.push(logEntry);
-        if (eventLogEntries.length > FRAME_LOG_LIMIT) {
-          eventLogEntries.splice(0, eventLogEntries.length - FRAME_LOG_LIMIT);
+        if (eventLogEntries.length > EVENT_LOG_LIMIT) {
+          eventLogEntries.splice(0, eventLogEntries.length - EVENT_LOG_LIMIT);
         }
       }
     }
@@ -1067,8 +1067,8 @@ const emulationTick = () => {
     // Generate event log event only when running
     const event = createFrameEvent();
     eventLogEntries.push(event);
-    if (eventLogEntries.length > FRAME_LOG_LIMIT) {
-      eventLogEntries.splice(0, eventLogEntries.length - FRAME_LOG_LIMIT);
+    if (eventLogEntries.length > EVENT_LOG_LIMIT) {
+      eventLogEntries.splice(0, eventLogEntries.length - EVENT_LOG_LIMIT);
     }
   }
 
