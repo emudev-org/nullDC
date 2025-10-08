@@ -200,10 +200,13 @@ export const AppLayout = () => {
   // Add breakpoint hits to notification stack
   useEffect(() => {
     if (breakpointHit) {
+      const bpDisplay = breakpointHit.breakpoint.kind === "event"
+        ? breakpointHit.breakpoint.event
+        : `${breakpointHit.breakpoint.event} == 0x${(breakpointHit.breakpoint.address ?? 0).toString(16).toUpperCase().padStart(8, "0")}`;
       const notification: Notification = {
         id: `breakpoint-${Date.now()}`,
         type: "warning",
-        message: `Breakpoint hit: ${breakpointHit.breakpoint.location}`,
+        message: `Breakpoint hit: ${bpDisplay}`,
         timestamp: Date.now(),
       };
       setNotifications((prev) => [...prev, notification]);

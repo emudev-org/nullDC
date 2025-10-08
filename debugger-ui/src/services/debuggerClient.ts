@@ -89,8 +89,8 @@ export class DebuggerClient {
     return this.rpc.call("state.modifyWatchExpression", { watchId, newExpression });
   }
 
-  async addBreakpoint(location: string, kind: BreakpointDescriptor["kind"] = "code", enabled = true) {
-    return this.rpc.call("breakpoints.add", { location, kind, enabled });
+  async addBreakpoint(event: string, address?: number, kind: BreakpointDescriptor["kind"] = "code", enabled = true) {
+    return this.rpc.call("breakpoints.add", { event, address, kind, enabled });
   }
 
   async removeBreakpoint(id: BreakpointId) {

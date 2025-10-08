@@ -37,7 +37,7 @@ interface DebuggerDataState {
   removeWatch: (watchId: number) => Promise<void>;
   editWatch: (watchId: number, value: string) => Promise<void>;
   modifyWatchExpression: (watchId: number, newExpression: string) => Promise<void>;
-  addBreakpoint: (location: string, kind?: BreakpointDescriptor["kind"]) => Promise<void>;
+  addBreakpoint: (event: string, address?: number, kind?: BreakpointDescriptor["kind"]) => Promise<void>;
   removeBreakpoint: (id: number) => Promise<void>;
   toggleBreakpoint: (id: number, enabled: boolean) => Promise<void>;
   showError: (message: string) => void;
@@ -252,8 +252,8 @@ export const useDebuggerDataStore = create<DebuggerDataState>()((set, get) => ({
       throw error;
     }
   },
-  async addBreakpoint(location, kind = "code") {
-    const trimmed = location.trim();
+  async addBreakpoint(event, address, kind = "code") {
+    const trimmed = event.trim();
     if (!trimmed) {
       return;
     }
@@ -262,7 +262,7 @@ export const useDebuggerDataStore = create<DebuggerDataState>()((set, get) => ({
       return;
     }
     try {
-      const result = await client.addBreakpoint(trimmed, kind) as RpcError;
+      const result = await client.addBreakpoint(trimmed, address, kind) as RpcError;
       if (result.error) {
         get().showError(result.error.message);
       }

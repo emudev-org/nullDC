@@ -79,12 +79,11 @@ const DisassemblyPanel = ({ target, defaultAddress }: DisassemblyPanelProps) => 
     const map = new Map<number, { id: number; enabled: boolean }>();
     const cpuPath = target === "dsp" ? "dc.aica.dsp" : target === "sh4" ? "dc.sh4.cpu" : "dc.aica.arm7";
     const counterName = target === "dsp" ? "step" : "pc";
+    const expectedEvent = `${cpuPath}.${counterName}`;
 
     for (const bp of breakpoints) {
-      const match = bp.location.match(new RegExp(`${cpuPath}\\.${counterName}\\s*==\\s*0x([0-9A-Fa-f]+)`));
-      if (match) {
-        const addr = Number.parseInt(match[1], 16);
-        map.set(addr, { id: bp.id, enabled: bp.enabled });
+      if (bp.kind === "code" && bp.event === expectedEvent && bp.address !== undefined) {
+        map.set(bp.address, { id: bp.id, enabled: bp.enabled });
       }
     }
     return map;
@@ -147,8 +146,8 @@ const DisassemblyPanel = ({ target, defaultAddress }: DisassemblyPanelProps) => 
       onBreakpointAdd: async (address: number) => {
         const cpuPath = target === "dsp" ? "dc.aica.dsp" : target === "sh4" ? "dc.sh4.cpu" : "dc.aica.arm7";
         const counterName = target === "dsp" ? "step" : "pc";
-        const location = `${cpuPath}.${counterName} == ${formatHexAddress(address)}`;
-        await addBreakpoint(location, "code");
+        const event = `${cpuPath}.${counterName}`;
+        await addBreakpoint(event, address, "code");
       },
       onBreakpointRemove: async (id: number) => {
         await removeBreakpoint(id);

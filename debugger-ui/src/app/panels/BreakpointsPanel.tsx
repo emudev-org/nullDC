@@ -33,7 +33,7 @@ const categorizeBreakpoint = (bp: BreakpointDescriptor): BreakpointCategory => {
   }
 
   // Code breakpoints are categorized by processor
-  const lower = bp.location.toLowerCase();
+  const lower = bp.event.toLowerCase();
   if (lower.includes("sh4")) return "sh4";
   if (lower.includes("arm7")) return "arm7";
   if (lower.includes("aica") || lower.includes("dsp")) return "dsp";
@@ -42,9 +42,18 @@ const categorizeBreakpoint = (bp: BreakpointDescriptor): BreakpointCategory => {
   return "events";
 };
 
+const formatBreakpointDisplay = (bp: BreakpointDescriptor): string => {
+  if (bp.kind === "event") {
+    return bp.event;
+  }
+  // For code breakpoints, show event == address
+  const addressStr = bp.address !== undefined ? `0x${bp.address.toString(16).toUpperCase().padStart(8, "0")}` : "?";
+  return `${bp.event} == ${addressStr}`;
+};
+
 interface BreakpointsViewProps {
   title: string;
-  filter?: (location: string) => boolean;
+  filter?: (bp: BreakpointDescriptor) => boolean;
   addMode: "pc-sh4" | "pc-arm7" | "event" | "dsp";
   showCategoryControls?: boolean;
 }
@@ -85,7 +94,7 @@ const BreakpointsView = ({ filter, addMode, showCategoryControls = false }: Brea
   const client = useSessionStore((state) => state.client);
   const [newBreakpoint, setNewBreakpoint] = useState("");
 
-  const filteredBreakpoints = filter ? breakpoints.filter((bp) => filter(bp.location)) : breakpoints;
+  const filteredBreakpoints = filter ? breakpoints.filter(filter) : breakpoints;
 
   // Set the client for the shared category state module
   useEffect(() => {
@@ -140,11 +149,13 @@ const BreakpointsView = ({ filter, addMode, showCategoryControls = false }: Brea
       return;
     }
 
-    let location: string;
+    let event: string;
+    let address: number | undefined;
     let kind: BreakpointDescriptor["kind"];
 
     if (addMode === "event") {
-      location = trimmed;
+      event = trimmed;
+      address = undefined;
       kind = "event";
     } else if (addMode === "dsp") {
       // Parse step value for DSP breakpoints
@@ -153,7 +164,8 @@ const BreakpointsView = ({ filter, addMode, showCategoryControls = false }: Brea
       if (Number.isNaN(parsed)) {
         return;
       }
-      location = `dc.aica.dsp.step == 0x${parsed.toString(16).toUpperCase().padStart(8, "0")}`;
+      event = "dc.aica.dsp.step";
+      address = parsed;
       kind = "code";
     } else {
       // Parse address for PC breakpoints
@@ -163,11 +175,12 @@ const BreakpointsView = ({ filter, addMode, showCategoryControls = false }: Brea
         return;
       }
       const target = addMode === "pc-sh4" ? "dc.sh4.cpu" : addMode === "pc-arm7" ? "dc.aica.arm7" : "dc.sh4.cpu";
-      location = `${target}.pc == 0x${parsed.toString(16).toUpperCase().padStart(8, "0")}`;
+      event = `${target}.pc`;
+      address = parsed;
       kind = "code";
     }
 
-    await addBreakpoint(location, kind);
+    await addBreakpoint(event, address, kind);
     setNewBreakpoint("");
   }, [newBreakpoint, addBreakpoint, addMode]);
 
@@ -314,7 +327,7 @@ const BreakpointsView = ({ filter, addMode, showCategoryControls = false }: Brea
                       <ListItemText
                         primary={
                           <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
-                            {bp.location}
+                            {formatBreakpointDisplay(bp)}
                           </Typography>
                         }
                         secondary={
@@ -371,7 +384,7 @@ const BreakpointsView = ({ filter, addMode, showCategoryControls = false }: Brea
                   <ListItemText
                     primary={
                       <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
-                        {bp.location}
+                        {formatBreakpointDisplay(bp)}
                       </Typography>
                     }
                     secondary={
@@ -400,20 +413,17 @@ const BreakpointsView = ({ filter, addMode, showCategoryControls = false }: Brea
 export const EventsBreakpointsPanel = () => <BreakpointsView title="Events: Breakpoints" addMode="event" showCategoryControls={true} />;
 
 export const Sh4BreakpointsPanel = () => (
-  <BreakpointsView title="SH4: Breakpoints" filter={(loc) => loc.toLowerCase().includes("sh4")} addMode="pc-sh4" />
+  <BreakpointsView title="SH4: Breakpoints" filter={(bp) => bp.event.toLowerCase().includes("sh4")} addMode="pc-sh4" />
 );
 
 export const Arm7BreakpointsPanel = () => (
-  <BreakpointsView title="ARM7: Breakpoints" filter={(loc) => loc.toLowerCase().includes("arm7")} addMode="pc-arm7" />
+  <BreakpointsView title="ARM7: Breakpoints" filter={(bp) => bp.event.toLowerCase().includes("arm7")} addMode="pc-arm7" />
 );
 
 export const DspBreakpointsPanel = () => (
   <BreakpointsView
     title="DSP: Breakpoints"
-    filter={(loc) => {
-      const lower = loc.toLowerCase();
-      return lower.includes("dsp");
-    }}
+    filter={(bp) => bp.event.toLowerCase().includes("dsp")}
     addMode="dsp"
   />
 );

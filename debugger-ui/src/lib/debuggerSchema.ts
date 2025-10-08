@@ -88,7 +88,8 @@ export const DisassemblyLineSchema = z.object({
 
 export const BreakpointDescriptorSchema = z.object({
   id: BreakpointIdSchema,
-  location: z.string(),
+  event: z.string(), // For code: "dc.sh4.cpu.pc", "dc.aica.dsp.step", etc. For events: "dc.holly.ta.list_end", etc.
+  address: z.number().optional(), // For code breakpoints: the PC/step value. Undefined for event breakpoints.
   kind: z.enum(["code", "event"]),
   enabled: z.boolean(),
 });
@@ -286,7 +287,8 @@ export const DebuggerRpcMethodSchemas = {
   },
   "breakpoints.add": {
     params: z.object({
-      location: z.string(),
+      event: z.string(),
+      address: z.number().optional(),
       kind: z.enum(["code", "event"]).optional(),
       enabled: z.boolean().optional(),
     }),
@@ -378,7 +380,7 @@ export type DebuggerRpcSchema = RpcSchema & {
     result: RpcError;
   };
   "breakpoints.add": {
-    params: { location: string; kind?: BreakpointDescriptor["kind"]; enabled?: boolean };
+    params: { event: string; address?: number; kind?: BreakpointDescriptor["kind"]; enabled?: boolean };
     result: RpcError;
   };
   "breakpoints.setCategoryStates": {

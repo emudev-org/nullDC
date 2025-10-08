@@ -82,7 +82,7 @@ const categorizeBreakpoint = (bp: BreakpointDescriptor): BreakpointCategory => {
   }
 
   // Code breakpoints are categorized by processor
-  const lower = bp.location.toLowerCase();
+  const lower = bp.event.toLowerCase();
   if (lower.includes("sh4")) return "sh4";
   if (lower.includes("arm7")) return "arm7";
   if (lower.includes("aica") || lower.includes("dsp")) return "dsp";
@@ -806,13 +806,15 @@ const dispatchMethod = async (
         shouldBroadcastTick: true,
       };
     case "breakpoints.add": {
-      const location = params.location as string;
+      const event = params.event as string;
+      const address = params.address as number | undefined;
       const kind = (params.kind as BreakpointDescriptor["kind"]) ?? "code";
       const enabled = params.enabled !== false;
       const id = nextBreakpointId++;
       const breakpoint: BreakpointDescriptor = {
         id,
-        location,
+        event,
+        address,
         kind,
         enabled,
       };
@@ -925,9 +927,9 @@ const collectRegistersFromTree = (tree: DeviceNodeDescriptor[]): Array<{ path: s
 };
 
 const checkBreakpoint = (path: string, registerName: string, value: number): BreakpointDescriptor | undefined => {
-  const location = `${path}.${registerName.toLowerCase()} == 0x${value.toString(16).toUpperCase().padStart(8, "0")}`;
+  const event = `${path}.${registerName.toLowerCase()}`;
   for (const bp of serverBreakpoints.values()) {
-    if (bp.location === location && bp.enabled && bp.kind === "code" && isBreakpointActive(bp)) {
+    if (bp.event === event && bp.address === value && bp.enabled && bp.kind === "code" && isBreakpointActive(bp)) {
       return bp;
     }
   }
