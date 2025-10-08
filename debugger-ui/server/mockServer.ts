@@ -5,6 +5,7 @@ import { randomUUID, createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { createServer as createViteServer } from "vite";
+import { z } from "zod";
 import {
   JSON_RPC_VERSION,
   type JsonRpcMessage,
@@ -25,6 +26,10 @@ import type {
   RegisterValue,
   RpcError,
   ThreadInfo,
+} from "../src/lib/debuggerSchema";
+import {
+  DebuggerRpcMethodSchemas,
+  DebuggerTickSchema,
 } from "../src/lib/debuggerSchema";
 
 const PORT = Number(process.env.PORT ?? 5173);
@@ -533,8 +538,36 @@ const sendNotification = (client: ClientContext, notification: DebuggerNotificat
 
 const handleRequest = async (client: ClientContext, message: JsonRpcRequest) => {
   try {
-    const params = (message.params ?? {}) as Record<string, unknown>;
-    const { result, shouldBroadcastTick } = await dispatchMethod(message.method as keyof DebuggerRpcSchema, params, client);
+    const method = message.method as keyof DebuggerRpcSchema;
+    const params = message.params ?? {};
+
+    // Validate params using Zod schema
+    const methodSchema = DebuggerRpcMethodSchemas[method as keyof typeof DebuggerRpcMethodSchemas];
+    if (methodSchema?.params) {
+      try {
+        methodSchema.params.parse(params);
+      } catch (error) {
+        if (error instanceof z.ZodError) {
+          throw new Error(`Invalid parameters for ${method}: ${error.message}`);
+        }
+        throw error;
+      }
+    }
+
+    const { result, shouldBroadcastTick } = await dispatchMethod(method, params as Record<string, unknown>, client);
+
+    // Validate result using Zod schema
+    if (methodSchema?.result) {
+      try {
+        methodSchema.result.parse(result);
+      } catch (error) {
+        if (error instanceof z.ZodError) {
+          console.error(`Invalid result for ${method}:`, error.message);
+          // Still send the result, but log the validation error
+        }
+      }
+    }
+
     await respondSuccess(client.socket, message.id, result);
     if (shouldBroadcastTick) {
       broadcastTick();
@@ -1144,6 +1177,16 @@ const broadcastTick = (hitBreakpointId?: string) => {
     threads: sampleThreads,
     callstacks,
   };
+
+  // Validate tick before broadcasting
+  try {
+    DebuggerTickSchema.parse(tick);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      console.error("Invalid tick data:", error.message);
+      // Still broadcast, but log the validation error
+    }
+  }
 
   // Broadcast tick to all clients
   for (const client of clients) {
