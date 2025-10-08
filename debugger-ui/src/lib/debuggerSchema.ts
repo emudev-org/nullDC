@@ -86,6 +86,13 @@ export const DisassemblyLineSchema = z.object({
   disassembly: z.string(),
 });
 
+export const BreakpointCategorySchema = z.enum(["events", "sh4", "arm7", "dsp"]);
+
+export const BreakpointCategoryStateSchema = z.object({
+  muted: z.boolean(),
+  soloed: z.boolean(),
+});
+
 export const BreakpointDescriptorSchema = z.object({
   id: BreakpointIdSchema,
   event: z.string(), // For code: "dc.sh4.cpu.pc", "dc.aica.dsp.step", etc. For events: "dc.holly.ta.list_end", etc.
@@ -176,6 +183,8 @@ export type DeviceNodeDescriptor = {
 };
 export type MemorySlice = z.infer<typeof MemorySliceSchema>;
 export type DisassemblyLine = z.infer<typeof DisassemblyLineSchema>;
+export type BreakpointCategory = z.infer<typeof BreakpointCategorySchema>;
+export type BreakpointCategoryState = z.infer<typeof BreakpointCategoryStateSchema>;
 export type BreakpointDescriptor = z.infer<typeof BreakpointDescriptorSchema>;
 export type BacktraceFrame = z.infer<typeof BacktraceFrameSchema>;
 export type EventLogEntry = z.infer<typeof EventLogEntrySchema>;
@@ -296,10 +305,7 @@ export const DebuggerRpcMethodSchemas = {
   },
   "breakpoints.setCategoryStates": {
     params: z.object({
-      categories: z.record(z.string(), z.object({
-        muted: z.boolean(),
-        soloed: z.boolean(),
-      })),
+      categories: z.record(z.string(), BreakpointCategoryStateSchema),
     }),
     result: RpcErrorSchema,
   },
@@ -322,80 +328,17 @@ export const DebuggerRpcMethodSchemas = {
   },
 } as const;
 
-export type DebuggerRpcSchema = RpcSchema & {
-  "debugger.handshake": {
-    params: { clientName: string; clientVersion: string; transport: TransportSettings };
-    result: { sessionId: string };
-  };
-  "state.getCallstack": {
-    params: { target: "sh4" | "arm7"; maxFrames?: number };
-    result: { target: TargetProcessor; frames: CallstackFrame[] };
-  };
-  "debugger.describe": {
-    params: Record<string, never>;
-    result: DebuggerShape;
-  };
-  "state.getMemorySlice": {
-    params: { target?: TargetProcessor; address: number; length: number };
-    result: MemorySlice;
-  };
-  "state.getDisassembly": {
-    params: { target?: TargetProcessor; address: number; count: number; context?: number };
-    result: { lines: DisassemblyLine[] };
-  };
-  "state.watch": {
-    params: { expressions: string[] };
-    result: RpcError;
-  };
-  "state.unwatch": {
-    params: { watchIds: WatchId[] };
-    result: RpcError;
-  };
-  "state.editWatch": {
-    params: { watchId: WatchId; value: string };
-    result: RpcError;
-  };
-  "state.modifyWatchExpression": {
-    params: { watchId: WatchId; newExpression: string };
-    result: RpcError;
-  };
-  "control.step": {
-    params: { target: TargetProcessor };
-    result: RpcError;
-  };
-  "control.stepOver": {
-    params: { target: TargetProcessor };
-    result: RpcError;
-  };
-  "control.stepOut": {
-    params: { target: TargetProcessor };
-    result: RpcError;
-  };
-  "control.runUntil": {
-    params: Record<string, never>;
-    result: RpcError;
-  };
-  "control.pause": {
-    params: { target?: TargetProcessor };
-    result: RpcError;
-  };
-  "breakpoints.add": {
-    params: { event: string; address?: number; kind?: BreakpointDescriptor["kind"]; enabled?: boolean };
-    result: RpcError;
-  };
-  "breakpoints.setCategoryStates": {
-    params: { categories: Record<string, { muted: boolean; soloed: boolean }> };
-    result: RpcError;
-  };
-  "breakpoints.remove": {
-    params: { id: BreakpointId };
-    result: RpcError;
-  };
-  "breakpoints.toggle": {
-    params: { id: BreakpointId; enabled: boolean };
-    result: RpcError;
-  };
+// Helper type to infer TypeScript types from Zod RPC schemas
+type InferRpcMethod<T extends { params: z.ZodType; result: z.ZodType }> = {
+  params: z.infer<T["params"]>;
+  result: z.infer<T["result"]>;
 };
+
+type InferRpcSchema<T extends Record<string, { params: z.ZodType; result: z.ZodType }>> = {
+  [K in keyof T]: InferRpcMethod<T[K]>;
+};
+
+export type DebuggerRpcSchema = RpcSchema & InferRpcSchema<typeof DebuggerRpcMethodSchemas>;
 
 export const DebuggerNotificationSchema = z.object({
   topic: z.literal("tick"),
