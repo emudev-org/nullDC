@@ -11,7 +11,7 @@ const severityColor: Record<string, "default" | "primary" | "warning" | "error">
 };
 
 export const EventLogPanel = () => {
-  const entries = useDebuggerDataStore((state) => state.frameLog);
+  const entries = useDebuggerDataStore((state) => state.eventLog);
   const rendered = useMemo(() => (Array.isArray(entries) ? entries.slice().reverse() : []), [entries]);
 
   return (

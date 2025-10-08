@@ -5,12 +5,11 @@ import type {
   DebuggerShape,
   DebuggerTick,
   DeviceNodeDescriptor,
-  FrameLogEntry,
+  EventLogEntry,
   RegisterValue,
   RpcError,
   ThreadInfo,
   WatchDescriptor,
-  WaveformChunk,
 } from "../lib/debuggerSchema";
 import type { DebuggerClient } from "../services/debuggerClient";
 import { useSessionStore } from "./sessionStore";
@@ -20,7 +19,6 @@ interface DebuggerDataState {
   client?: DebuggerClient;
   shape?: DebuggerShape;
   latestTick?: DebuggerTick;
-  waveform?: WaveformChunk | null;
   errorMessage?: string;
   breakpointHit?: { breakpoint: BreakpointDescriptor; timestamp: number };
   notificationUnsub?: () => void;
@@ -30,7 +28,7 @@ interface DebuggerDataState {
   availableEvents: string[];
   breakpoints: BreakpointDescriptor[];
   threads: ThreadInfo[];
-  frameLog: FrameLogEntry[];
+  eventLog: EventLogEntry[];
   executionState: { state: "running" | "paused"; breakpointId?: string };
   watches: WatchDescriptor[];
   callstacks: Record<string, CallstackFrame[]>;
@@ -68,10 +66,9 @@ export const useDebuggerDataStore = create<DebuggerDataState>()((set, get) => ({
   availableEvents: [],
   breakpoints: [],
   threads: [],
-  frameLog: [],
+  eventLog: [],
   executionState: { state: "paused" },
   watches: [],
-  waveform: null,
   callstacks: {},
   async initialize(client) {
     const { notificationUnsub } = get();
@@ -84,7 +81,7 @@ export const useDebuggerDataStore = create<DebuggerDataState>()((set, get) => ({
       deviceTree: [],
       breakpoints: [],
       threads: [],
-      frameLog: [],
+      eventLog: [],
       executionState: { state: "paused" },
       watches: [],
     });
@@ -109,7 +106,7 @@ export const useDebuggerDataStore = create<DebuggerDataState>()((set, get) => ({
               latestTick: tick,
               registersByPath: tick.registers,
               breakpoints: breakpointList,
-              frameLog: tick.eventLog,
+              eventLog: tick.eventLog,
               executionState: tick.executionState,
               threads: tick.threads ?? [],
               watches: tick.watches ?? [],
@@ -137,10 +134,6 @@ export const useDebuggerDataStore = create<DebuggerDataState>()((set, get) => ({
             }
             break;
           }
-          case "stream.waveform": {
-            set({ waveform: notification.payload as WaveformChunk });
-            break;
-          }
           default:
             break;
         }
@@ -163,9 +156,8 @@ export const useDebuggerDataStore = create<DebuggerDataState>()((set, get) => ({
         watches: [],
         breakpoints: [],
         threads: [],
-        frameLog: [],
+        eventLog: [],
         executionState: { state: "paused" },
-        waveform: null,
         callstacks: {},
         notificationUnsub: undefined,
         errorMessage: undefined,
