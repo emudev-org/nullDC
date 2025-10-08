@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Panel } from "../layout/Panel";
-import type { MemorySlice, TargetProcessor } from "../../lib/debuggerSchema";
+import type { TargetProcessor } from "../../lib/debuggerSchema";
 import { useSessionStore } from "../../state/sessionStore";
 import { useDebuggerDataStore } from "../../state/debuggerDataStore";
 import { MemoryView, type MemoryViewConfig, type MemoryViewCallbacks } from "../components/MemoryView";
@@ -20,11 +20,9 @@ const parseAddressInput = (input: string) => {
 interface MemoryPanelProps {
   target: TargetProcessor;
   defaultAddress: number;
-  encoding?: MemorySlice["encoding"];
-  wordSize?: MemorySlice["wordSize"];
 }
 
-const MemoryPanel = ({ target, defaultAddress, encoding, wordSize }: MemoryPanelProps) => {
+const MemoryPanel = ({ target, defaultAddress }: MemoryPanelProps) => {
   const [searchParams, setSearchParams] = useSearchParams();
   const client = useSessionStore((state) => state.client);
   const initialized = useDebuggerDataStore((state) => state.initialized);
@@ -45,7 +43,7 @@ const MemoryPanel = ({ target, defaultAddress, encoding, wordSize }: MemoryPanel
   // Build callbacks
   const callbacks: MemoryViewCallbacks = useMemo(
     () => ({
-      onFetchMemory: async (address: number, length: number, encoding?: MemorySlice["encoding"], wordSize?: MemorySlice["wordSize"]) => {
+      onFetchMemory: async (address: number, length: number) => {
         if (!client) {
           throw new Error("Client not connected");
         }
@@ -53,8 +51,6 @@ const MemoryPanel = ({ target, defaultAddress, encoding, wordSize }: MemoryPanel
           target,
           address,
           length,
-          encoding,
-          wordSize,
         });
       },
       onAddressChange: (address: number) => {
@@ -84,8 +80,6 @@ const MemoryPanel = ({ target, defaultAddress, encoding, wordSize }: MemoryPanel
         defaultAddress={defaultAddress}
         initialized={initialized}
         initialUrlAddress={initialUrlAddress}
-        encoding={encoding}
-        wordSize={wordSize}
       />
     </Panel>
   );

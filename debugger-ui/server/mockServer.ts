@@ -633,15 +633,11 @@ const dispatchMethod = async (
       const target = typeof params.target === "string" ? params.target : "sh4";
       const addressValue = Number(params.address);
       const lengthValue = Number(params.length);
-      const encoding = params.encoding as MemorySlice["encoding"] | undefined;
-      const wordSize = params.wordSize as MemorySlice["wordSize"] | undefined;
       return {
         result: buildMemorySlice({
           target,
           address: Number.isFinite(addressValue) ? addressValue : undefined,
           length: Number.isFinite(lengthValue) && lengthValue > 0 ? lengthValue : undefined,
-          encoding,
-          wordSize,
         }),
         shouldBroadcastTick: false,
       };
@@ -880,20 +876,17 @@ const sha256Byte = (input: string): number => {
   return hash[0];
 };
 
-const memoryProfiles: Record<string, { defaultBase: number; wordSize: MemorySlice["wordSize"]; generator: (index: number, base: number) => number }> = {
+const memoryProfiles: Record<string, { defaultBase: number; generator: (index: number, base: number) => number }> = {
   sh4: {
     defaultBase: 0x8c000000,
-    wordSize: 4,
     generator: (index, base) => sha256Byte(`SH4:${(base + index).toString(16)}`),
   },
   arm7: {
     defaultBase: 0x00200000,
-    wordSize: 4,
     generator: (index, base) => sha256Byte(`ARM7:${(base + index).toString(16)}`),
   },
   dsp: {
     defaultBase: 0x00000000,
-    wordSize: 2,
     generator: (index, base) => sha256Byte(`DSP:${(base + index).toString(16)}`),
   },
 };
@@ -902,26 +895,18 @@ const buildMemorySlice = ({
   target,
   address,
   length,
-  encoding,
-  wordSize,
 }: {
   target: string;
   address?: number;
   length?: number;
-  encoding?: MemorySlice["encoding"];
-  wordSize?: MemorySlice["wordSize"];
 }): MemorySlice => {
   const profile = memoryProfiles[target] ?? memoryProfiles.sh4;
   const effectiveLength = length && length > 0 ? length : 64;
   const baseAddress = typeof address === "number" && address >= 0 ? address : profile.defaultBase;
-  const effectiveWordSize = wordSize ?? profile.wordSize;
-  const effectiveEncoding = encoding ?? "hex";
   const bytes = Array.from({ length: effectiveLength }, (_, index) => profile.generator(index, baseAddress) & 0xff);
   return {
     baseAddress,
-    wordSize: effectiveWordSize,
-    encoding: effectiveEncoding,
-    data: Buffer.from(bytes).toString("hex"),
+    data: bytes,
     validity: "ok",
   };
 };

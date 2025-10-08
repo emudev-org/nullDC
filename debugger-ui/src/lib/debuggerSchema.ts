@@ -76,10 +76,8 @@ export const DeviceNodeDescriptorSchema: z.ZodType<DeviceNodeDescriptor> = z.laz
 
 export const MemorySliceSchema = z.object({
   baseAddress: z.number(),
-  wordSize: z.union([z.literal(1), z.literal(2), z.literal(4), z.literal(8)]),
-  encoding: z.enum(["hex", "uint", "float", "ascii"]),
-  data: z.string(),
-  validity: z.enum(["ok", "tlb-miss", "fault"]),
+  data: z.array(z.number()), // Byte array
+  validity: z.enum(["ok", "cache-miss", "tlb-miss", "fault"]),
 });
 
 export const DisassemblyLineSchema = z.object({
@@ -218,8 +216,6 @@ export const DebuggerRpcMethodSchemas = {
       target: TargetProcessorSchema.optional(),
       address: z.number(),
       length: z.number(),
-      encoding: z.enum(["hex", "uint", "float", "ascii"]).optional(),
-      wordSize: z.union([z.literal(1), z.literal(2), z.literal(4), z.literal(8)]).optional(),
     }),
     result: MemorySliceSchema,
   },
@@ -338,7 +334,7 @@ export type DebuggerRpcSchema = RpcSchema & {
     result: DebuggerShape;
   };
   "state.getMemorySlice": {
-    params: { target?: TargetProcessor; address: number; length: number; encoding?: MemorySlice["encoding"]; wordSize?: MemorySlice["wordSize"]; };
+    params: { target?: TargetProcessor; address: number; length: number };
     result: MemorySlice;
   };
   "state.getDisassembly": {

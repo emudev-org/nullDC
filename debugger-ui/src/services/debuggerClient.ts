@@ -5,7 +5,6 @@ import type {
   CallstackFrame,
   DebuggerNotification,
   DebuggerRpcSchema,
-  MemorySlice,
   TargetProcessor,
   WatchId,
 } from "../lib/debuggerSchema";
@@ -130,8 +129,6 @@ export class DebuggerClient {
     target: TargetProcessor;
     address: number;
     length: number;
-    encoding?: MemorySlice["encoding"];
-    wordSize?: MemorySlice["wordSize"];
   }) {
     return this.rpc.call("state.getMemorySlice", params);
   }
