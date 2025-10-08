@@ -4,6 +4,51 @@ import type { RpcSchema } from "./jsonRpc";
 // Common enums
 export const TargetProcessorSchema = z.enum(["sh4", "arm7", "dsp"]);
 
+export const RpcMethodNameSchema = z.enum([
+  "debugger.handshake",
+  "debugger.describe",
+  "state.getCallstack",
+  "state.getMemorySlice",
+  "state.getDisassembly",
+  "state.watch",
+  "state.unwatch",
+  "state.editWatch",
+  "state.modifyWatchExpression",
+  "control.step",
+  "control.stepOver",
+  "control.stepOut",
+  "control.runUntil",
+  "control.pause",
+  "breakpoints.add",
+  "breakpoints.remove",
+  "breakpoints.toggle",
+  "breakpoints.setCategoryStates",
+  "event.tick",
+]);
+
+// Enum-style constants for method names (for better discoverability and refactoring)
+export const RpcMethod = {
+  DEBUGGER_HANDSHAKE: "debugger.handshake",
+  DEBUGGER_DESCRIBE: "debugger.describe",
+  STATE_GET_CALLSTACK: "state.getCallstack",
+  STATE_GET_MEMORY_SLICE: "state.getMemorySlice",
+  STATE_GET_DISASSEMBLY: "state.getDisassembly",
+  STATE_WATCH: "state.watch",
+  STATE_UNWATCH: "state.unwatch",
+  STATE_EDIT_WATCH: "state.editWatch",
+  STATE_MODIFY_WATCH_EXPRESSION: "state.modifyWatchExpression",
+  CONTROL_STEP: "control.step",
+  CONTROL_STEP_OVER: "control.stepOver",
+  CONTROL_STEP_OUT: "control.stepOut",
+  CONTROL_RUN_UNTIL: "control.runUntil",
+  CONTROL_PAUSE: "control.pause",
+  BREAKPOINTS_ADD: "breakpoints.add",
+  BREAKPOINTS_REMOVE: "breakpoints.remove",
+  BREAKPOINTS_TOGGLE: "breakpoints.toggle",
+  BREAKPOINTS_SET_CATEGORY_STATES: "breakpoints.setCategoryStates",
+  EVENT_TICK: "event.tick",
+} as const satisfies Record<string, RpcMethodName>;
+
 // Zod Schemas
 export const RegisterValueSchema = z.object({
   name: z.string(),
@@ -120,6 +165,7 @@ export const RpcErrorSchema = z.object({
 
 // Type exports derived from Zod schemas
 export type TargetProcessor = z.infer<typeof TargetProcessorSchema>;
+export type RpcMethodName = z.infer<typeof RpcMethodNameSchema>;
 export type RegisterValue = z.infer<typeof RegisterValueSchema>;
 export type DeviceNodeDescriptor = {
   path: string;
