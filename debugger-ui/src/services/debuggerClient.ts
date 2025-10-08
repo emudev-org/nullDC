@@ -5,6 +5,7 @@ import type {
   DebuggerNotification,
   DebuggerRpcSchema,
   MemorySlice,
+  TargetProcessor,
 } from "../lib/debuggerSchema";
 import { DebuggerRpcMethodSchemas } from "../lib/debuggerSchema";
 import { JsonRpcClient } from "./jsonRpcClient";
@@ -103,28 +104,28 @@ export class DebuggerClient {
     return this.rpc.call("breakpoints.setCategoryStates", { categories });
   }
 
-  async pause(target?: string) {
+  async pause(target?: TargetProcessor) {
     return this.rpc.call("control.pause", { target });
   }
 
-  async step(target: string) {
+  async step(target: TargetProcessor) {
     return this.rpc.call("control.step", { target });
   }
 
-  async stepOver(target: string) {
+  async stepOver(target: TargetProcessor) {
     return this.rpc.call("control.stepOver", { target });
   }
 
-  async stepOut(target: string) {
+  async stepOut(target: TargetProcessor) {
     return this.rpc.call("control.stepOut", { target });
   }
 
-  async runUntil(target: string, type: "interrupt" | "exception" | "primitive" | "tile" | "vertex" | "list" | "sample", value?: string) {
-    return this.rpc.call("control.runUntil", { target, type, value });
+  async runUntil() {
+    return this.rpc.call("control.runUntil", {});
   }
 
   async fetchMemorySlice(params: {
-    target: string;
+    target: TargetProcessor;
     address: number;
     length: number;
     encoding?: MemorySlice["encoding"];
@@ -133,7 +134,7 @@ export class DebuggerClient {
     return this.rpc.call("state.getMemorySlice", params);
   }
 
-  async fetchDisassembly(params: { target: string; address: number; count: number; context?: number }) {
+  async fetchDisassembly(params: { target: TargetProcessor; address: number; count: number; context?: number }) {
     return this.rpc.call("state.getDisassembly", params);
   }
 

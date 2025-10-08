@@ -271,7 +271,7 @@ export const AppLayout = () => {
       return;
     }
     try {
-      await client.runUntil("sh4", "interrupt");
+      await client.runUntil();
       // State will be updated via notification from server
     } catch (error) {
       console.error("Failed to run", error);
@@ -295,8 +295,8 @@ export const AppLayout = () => {
       return;
     }
     try {
-      // Run until breakpoint - using sh4 as default target
-      await client.runUntil("sh4", "interrupt");
+      // Run until breakpoint
+      await client.runUntil();
       // State will be updated via notification from server
     } catch (error) {
       console.error("Failed to run to breakpoint", error);

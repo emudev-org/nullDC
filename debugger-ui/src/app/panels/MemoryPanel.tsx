@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Panel } from "../layout/Panel";
-import type { MemorySlice } from "../../lib/debuggerSchema";
+import type { MemorySlice, TargetProcessor } from "../../lib/debuggerSchema";
 import { useSessionStore } from "../../state/sessionStore";
 import { useDebuggerDataStore } from "../../state/debuggerDataStore";
 import { MemoryView, type MemoryViewConfig, type MemoryViewCallbacks } from "../components/MemoryView";
@@ -18,7 +18,7 @@ const parseAddressInput = (input: string) => {
 };
 
 interface MemoryPanelProps {
-  target: string;
+  target: TargetProcessor;
   defaultAddress: number;
   encoding?: MemorySlice["encoding"];
   wordSize?: MemorySlice["wordSize"];

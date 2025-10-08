@@ -1,6 +1,9 @@
 ﻿import { z } from "zod";
 import type { RpcSchema } from "./jsonRpc";
 
+// Common enums
+export const TargetProcessorSchema = z.enum(["sh4", "arm7", "dsp"]);
+
 // Zod Schemas
 export const RegisterValueSchema = z.object({
   name: z.string(),
@@ -116,6 +119,7 @@ export const RpcErrorSchema = z.object({
 });
 
 // Type exports derived from Zod schemas
+export type TargetProcessor = z.infer<typeof TargetProcessorSchema>;
 export type RegisterValue = z.infer<typeof RegisterValueSchema>;
 export type DeviceNodeDescriptor = {
   path: string;
@@ -156,7 +160,7 @@ export const DebuggerRpcMethodSchemas = {
       maxFrames: z.number().optional(),
     }),
     result: z.object({
-      target: z.string(),
+      target: TargetProcessorSchema,
       frames: z.array(CallstackFrameSchema),
     }),
   },
@@ -166,7 +170,7 @@ export const DebuggerRpcMethodSchemas = {
   },
   "state.getMemorySlice": {
     params: z.object({
-      target: z.string().optional(),
+      target: TargetProcessorSchema.optional(),
       address: z.number(),
       length: z.number(),
       encoding: z.enum(["hex", "uint", "float", "ascii"]).optional(),
@@ -176,7 +180,7 @@ export const DebuggerRpcMethodSchemas = {
   },
   "state.getDisassembly": {
     params: z.object({
-      target: z.string().optional(),
+      target: TargetProcessorSchema.optional(),
       address: z.number(),
       count: z.number(),
       context: z.number().optional(),
@@ -213,33 +217,29 @@ export const DebuggerRpcMethodSchemas = {
   },
   "control.step": {
     params: z.object({
-      target: z.string(),
+      target: TargetProcessorSchema,
     }),
     result: RpcErrorSchema,
   },
   "control.stepOver": {
     params: z.object({
-      target: z.string(),
+      target: TargetProcessorSchema,
     }),
     result: RpcErrorSchema,
   },
   "control.stepOut": {
     params: z.object({
-      target: z.string(),
+      target: TargetProcessorSchema,
     }),
     result: RpcErrorSchema,
   },
   "control.runUntil": {
-    params: z.object({
-      target: z.string(),
-      type: z.enum(["interrupt", "exception", "primitive", "tile", "vertex", "list", "sample"]),
-      value: z.string().optional(),
-    }),
+    params: z.object({}),
     result: RpcErrorSchema,
   },
   "control.pause": {
     params: z.object({
-      target: z.string().optional(),
+      target: TargetProcessorSchema.optional(),
     }),
     result: RpcErrorSchema,
   },
@@ -286,18 +286,18 @@ export type DebuggerRpcSchema = RpcSchema & {
   };
   "state.getCallstack": {
     params: { target: "sh4" | "arm7"; maxFrames?: number };
-    result: { target: string; frames: CallstackFrame[] };
+    result: { target: TargetProcessor; frames: CallstackFrame[] };
   };
   "debugger.describe": {
     params: Record<string, never>;
     result: DebuggerShape;
   };
   "state.getMemorySlice": {
-    params: { target?: string; address: number; length: number; encoding?: MemorySlice["encoding"]; wordSize?: MemorySlice["wordSize"]; };
+    params: { target?: TargetProcessor; address: number; length: number; encoding?: MemorySlice["encoding"]; wordSize?: MemorySlice["wordSize"]; };
     result: MemorySlice;
   };
   "state.getDisassembly": {
-    params: { target?: string; address: number; count: number; context?: number };
+    params: { target?: TargetProcessor; address: number; count: number; context?: number };
     result: { lines: DisassemblyLine[] };
   };
   "state.watch": {
@@ -317,23 +317,23 @@ export type DebuggerRpcSchema = RpcSchema & {
     result: RpcError;
   };
   "control.step": {
-    params: { target: string };
+    params: { target: TargetProcessor };
     result: RpcError;
   };
   "control.stepOver": {
-    params: { target: string };
+    params: { target: TargetProcessor };
     result: RpcError;
   };
   "control.stepOut": {
-    params: { target: string };
+    params: { target: TargetProcessor };
     result: RpcError;
   };
   "control.runUntil": {
-    params: { target: string; type: "interrupt" | "exception" | "primitive" | "tile" | "vertex" | "list" | "sample"; value?: string };
+    params: Record<string, never>;
     result: RpcError;
   };
   "control.pause": {
-    params: { target?: string };
+    params: { target?: TargetProcessor };
     result: RpcError;
   };
   "breakpoints.add": {
