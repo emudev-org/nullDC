@@ -18,7 +18,6 @@ const parseAddressInput = (input: string) => {
 };
 
 interface MemoryPanelProps {
-  title: string;
   target: string;
   defaultAddress: number;
   encoding?: MemorySlice["encoding"];

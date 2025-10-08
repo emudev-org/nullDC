@@ -5,9 +5,6 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import { useDebuggerDataStore } from "../../state/debuggerDataStore";
 import type { DeviceNodeDescriptor } from "../../lib/debuggerSchema";
 
-interface WatchesPanelProps {
-  showTitle?: boolean;
-}
 
 // Helper to collect all register paths from device tree
 const collectRegisterPaths = (nodes: DeviceNodeDescriptor[]): string[] => {
@@ -28,7 +25,7 @@ const collectRegisterPaths = (nodes: DeviceNodeDescriptor[]): string[] => {
   return paths;
 };
 
-export const WatchesPanel = ({ showTitle = false }: WatchesPanelProps) => {
+export const WatchesPanel = () => {
   const initialized = useDebuggerDataStore((state) => state.initialized);
   const watchExpressions = useDebuggerDataStore((state) => state.watchExpressions);
   const watchValues = useDebuggerDataStore((state) => state.watchValues);
@@ -57,7 +54,7 @@ export const WatchesPanel = ({ showTitle = false }: WatchesPanelProps) => {
   );
 
   return (
-    <Panel title={showTitle ? "Watches" : undefined}>
+    <Panel>
       <Box sx={{ p: 1.5, borderBottom: "1px solid", borderColor: "divider" }}>
         <Stack direction="row" spacing={1}>
           <Autocomplete
@@ -71,7 +68,7 @@ export const WatchesPanel = ({ showTitle = false }: WatchesPanelProps) => {
             renderInput={(params) => (
               <TextField
                 {...params}
-                placeholder="Enter Expression"
+                placeholder="Enter expression"
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     e.preventDefault();
@@ -82,8 +79,8 @@ export const WatchesPanel = ({ showTitle = false }: WatchesPanelProps) => {
               />
             )}
           />
-          <Button size="small" variant="contained" onClick={handleAdd} sx={{ minWidth: 60 }}>
-            Add
+          <Button size="small" variant="contained" onClick={handleAdd} sx={{ minWidth: 85 }}>
+            Add Watch
           </Button>
         </Stack>
       </Box>

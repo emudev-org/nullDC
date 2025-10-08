@@ -85,7 +85,7 @@ const mainTabs = [
 
 const sidePanelTabs = [
   { value: "device-tree", label: "Device Tree", component: <DeviceTreePanel /> },
-  { value: "watches", label: "Watches", component: <WatchesPanel showTitle={false} /> },
+  { value: "watches", label: "Watches", component: <WatchesPanel /> },
   { value: "sh4-callstack", label: "SH4: Callstack", component: <CallstackPanel target="sh4" showTitle={false} /> },
   { value: "arm7-callstack", label: "ARM7: Callstack", component: <CallstackPanel target="arm7" showTitle={false} /> },
 ];
@@ -491,7 +491,7 @@ export const AppLayout = () => {
                 width: 340,
               }}
             >
-              <WatchesPanel showTitle={true} />
+              <WatchesPanel />
               <CallstackPanel target="sh4" showTitle={true} />
               <CallstackPanel target="arm7" showTitle={true} />
             </Box>
