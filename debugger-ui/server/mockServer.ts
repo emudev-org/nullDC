@@ -1184,7 +1184,7 @@ const broadcastTick = (hitBreakpointId?: string) => {
   } catch (error) {
     if (error instanceof z.ZodError) {
       console.error("Invalid tick data:", error.message);
-      // Still broadcast, but log the validation error
+      return; // don't do the broadcast
     }
   }
 
