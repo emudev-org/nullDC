@@ -57,15 +57,6 @@ export const BacktraceFrameSchema = z.object({
   location: z.string().optional(),
 });
 
-export const ThreadInfoSchema = z.object({
-  id: z.string(),
-  name: z.string().optional(),
-  state: z.enum(["running", "stopped", "blocked", "unknown"]),
-  core: z.string().optional(),
-  priority: z.number().optional(),
-  backtrace: z.array(BacktraceFrameSchema).optional(),
-});
-
 export const EventLogEntrySchema = z.object({
   eventId: z.string(),
   timestamp: z.number(),
@@ -114,7 +105,6 @@ export const DebuggerTickSchema = z.object({
   breakpoints: z.record(z.string(), BreakpointDescriptorSchema),
   eventLog: z.array(EventLogEntrySchema),
   watches: z.array(WatchDescriptorSchema).optional(),
-  threads: z.array(ThreadInfoSchema).optional(),
   callstacks: z.record(z.string(), z.array(CallstackFrameSchema)).optional(),
 });
 
@@ -140,7 +130,6 @@ export type MemorySlice = z.infer<typeof MemorySliceSchema>;
 export type DisassemblyLine = z.infer<typeof DisassemblyLineSchema>;
 export type BreakpointDescriptor = z.infer<typeof BreakpointDescriptorSchema>;
 export type BacktraceFrame = z.infer<typeof BacktraceFrameSchema>;
-export type ThreadInfo = z.infer<typeof ThreadInfoSchema>;
 export type EventLogEntry = z.infer<typeof EventLogEntrySchema>;
 export type TransportSettings = z.infer<typeof TransportSettingsSchema>;
 export type CallstackFrame = z.infer<typeof CallstackFrameSchema>;

@@ -25,7 +25,6 @@ import type {
   MemorySlice,
   RegisterValue,
   RpcError,
-  ThreadInfo,
 } from "../src/lib/debuggerSchema";
 import {
   DebuggerRpcMethodSchemas,
@@ -473,32 +472,6 @@ const generateDisassembly = (target: string, address: number, count: number): Di
 
   return lines;
 };
-
-const sampleThreads: ThreadInfo[] = [
-  {
-    id: "thread-main",
-    name: "Main Thread",
-    state: "running",
-    core: "SH4",
-    priority: 0,
-    backtrace: [
-      { index: 0, pc: 0x8c0000a0, symbol: "_start", location: "crt0.S:42" },
-      { index: 1, pc: 0x8c001234, symbol: "kernel_main", location: "kernel.c:120" },
-      { index: 2, pc: 0x8c0100ff, symbol: "game_loop", location: "game.c:240" },
-    ],
-  },
-  {
-    id: "thread-audio",
-    name: "AICA Worker",
-    state: "blocked",
-    core: "AICA",
-    priority: 3,
-    backtrace: [
-      { index: 0, pc: 0x7f000020, symbol: "aica_wait", location: "aica.c:88" },
-      { index: 1, pc: 0x7f000120, symbol: "aica_mix", location: "aica.c:132" },
-    ],
-  },
-];
 
 const EVENT_LOG_LIMIT = 60;
 
@@ -1174,7 +1147,6 @@ const broadcastTick = (hitBreakpointId?: string) => {
     breakpoints: breakpointsById,
     eventLog: eventLogEntries.slice(),
     watches: serverWatches.size > 0 ? watches : undefined,
-    threads: sampleThreads,
     callstacks,
   };
 

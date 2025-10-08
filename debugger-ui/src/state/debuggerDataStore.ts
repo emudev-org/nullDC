@@ -8,7 +8,6 @@ import type {
   EventLogEntry,
   RegisterValue,
   RpcError,
-  ThreadInfo,
   WatchDescriptor,
 } from "../lib/debuggerSchema";
 import type { DebuggerClient } from "../services/debuggerClient";
@@ -27,7 +26,6 @@ interface DebuggerDataState {
   registersByPath: Record<string, RegisterValue[]>;
   availableEvents: string[];
   breakpoints: BreakpointDescriptor[];
-  threads: ThreadInfo[];
   eventLog: EventLogEntry[];
   executionState: { state: "running" | "paused"; breakpointId?: string };
   watches: WatchDescriptor[];
@@ -65,7 +63,6 @@ export const useDebuggerDataStore = create<DebuggerDataState>()((set, get) => ({
   registersByPath: {},
   availableEvents: [],
   breakpoints: [],
-  threads: [],
   eventLog: [],
   executionState: { state: "paused" },
   watches: [],
@@ -80,7 +77,6 @@ export const useDebuggerDataStore = create<DebuggerDataState>()((set, get) => ({
       latestTick: undefined,
       deviceTree: [],
       breakpoints: [],
-      threads: [],
       eventLog: [],
       executionState: { state: "paused" },
       watches: [],
@@ -108,7 +104,6 @@ export const useDebuggerDataStore = create<DebuggerDataState>()((set, get) => ({
               breakpoints: breakpointList,
               eventLog: tick.eventLog,
               executionState: tick.executionState,
-              threads: tick.threads ?? [],
               watches: tick.watches ?? [],
               callstacks: tick.callstacks ?? get().callstacks,
             });
@@ -155,7 +150,6 @@ export const useDebuggerDataStore = create<DebuggerDataState>()((set, get) => ({
         availableEvents: [],
         watches: [],
         breakpoints: [],
-        threads: [],
         eventLog: [],
         executionState: { state: "paused" },
         callstacks: {},
