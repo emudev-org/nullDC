@@ -38,11 +38,23 @@ interface ClientContext {
   watches: Set<string>;
 }
 
-const serverWatches = new Set<string>();
+interface ServerWatch {
+  id: string;
+  expression: string;
+}
+
+const serverWatches = new Map<string, ServerWatch>(); // id -> {id, expression}
 const serverBreakpoints = new Map<string, BreakpointDescriptor>();
 let isRunning = true; // Execution state
 let nextEventId = 1n; // Event ID counter (BigInt for 64-bit)
 let tickId = 0; // Tick counter
+
+// Initialize default watches
+const DEFAULT_WATCH_EXPRESSIONS = ["dc.sh4.cpu.pc", "dc.sh4.dmac.dmaor"];
+for (const expr of DEFAULT_WATCH_EXPRESSIONS) {
+  const id = randomUUID();
+  serverWatches.set(id, { id, expression: expr });
+}
 
 type BreakpointCategory = "events" | "sh4" | "arm7" | "dsp";
 
@@ -637,8 +649,9 @@ const dispatchMethod = async (
     case "state.watch": {
       const expressions = (params.expressions as string[]) ?? [];
       expressions.forEach((expr) => {
-        client.watches.add(expr);
-        serverWatches.add(expr);
+        const id = randomUUID();
+        client.watches.add(id);
+        serverWatches.set(id, { id, expression: expr });
       });
       // Broadcast tick after adding watches
       setTimeout(() => broadcastTick(), 0);
@@ -646,11 +659,74 @@ const dispatchMethod = async (
     }
     case "state.unwatch": {
       const expressions = (params.expressions as string[]) ?? [];
-      expressions.forEach((expr) => {
-        client.watches.delete(expr);
-        serverWatches.delete(expr);
+      // expressions here are actually watch IDs
+      expressions.forEach((watchId) => {
+        client.watches.delete(watchId);
+        serverWatches.delete(watchId);
       });
       // Broadcast tick after removing watches
+      setTimeout(() => broadcastTick(), 0);
+      return {} as RpcError;
+    }
+    case "state.editWatch": {
+      const { watchId, value } = params as { watchId: string; value: string };
+
+      // Validate that the watch exists
+      const watch = serverWatches.get(watchId);
+      if (!watch) {
+        return {
+          error: {
+            code: -32602,
+            message: `Watch "${watchId}" not found`,
+          },
+        } as RpcError;
+      }
+
+      // Try to parse and update the value
+      try {
+        // For now, just update the register value directly
+        if (registerValues.has(watch.expression)) {
+          registerValues.set(watch.expression, value);
+        } else {
+          // Return error for non-register watches
+          return {
+            error: {
+              code: -32602,
+              message: `Cannot edit non-register expression "${watch.expression}"`,
+            },
+          } as RpcError;
+        }
+
+        // Broadcast tick after editing watch
+        setTimeout(() => broadcastTick(), 0);
+        return {} as RpcError;
+      } catch (error) {
+        return {
+          error: {
+            code: -32603,
+            message: `Failed to set value: ${error instanceof Error ? error.message : "Unknown error"}`,
+          },
+        } as RpcError;
+      }
+    }
+    case "state.modifyWatchExpression": {
+      const { watchId, newExpression } = params as { watchId: string; newExpression: string };
+
+      // Find the watch by ID
+      const watch = serverWatches.get(watchId);
+      if (!watch) {
+        return {
+          error: {
+            code: -32602,
+            message: `Watch "${watchId}" not found`,
+          },
+        } as RpcError;
+      }
+
+      // Update the expression while keeping the same ID
+      serverWatches.set(watchId, { id: watchId, expression: newExpression });
+
+      // Broadcast tick after modifying watch expression
       setTimeout(() => broadcastTick(), 0);
       return {} as RpcError;
     }
@@ -974,10 +1050,14 @@ const broadcastTick = () => {
     breakpointsById[id] = bp;
   }
 
-  // Build watches object
-  const watches: Record<string, unknown> = {};
-  for (const expression of serverWatches) {
-    watches[expression] = registerValues.get(expression) ?? "0x00000000";
+  // Build watches array with WatchDescriptor objects
+  const watches: import("../src/lib/debuggerSchema").WatchDescriptor[] = [];
+  for (const [watchId, watchInfo] of serverWatches.entries()) {
+    watches.push({
+      id: watchId,
+      expression: watchInfo.expression,
+      value: registerValues.get(watchInfo.expression) ?? "0x00000000",
+    });
   }
 
   // Build callstacks for all targets

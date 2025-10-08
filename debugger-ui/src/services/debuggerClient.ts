@@ -75,6 +75,14 @@ export class DebuggerClient {
     return this.rpc.call("state.unwatch", { expressions });
   }
 
+  async editWatch(watchId: string, value: string) {
+    return this.rpc.call("state.editWatch", { watchId, value });
+  }
+
+  async modifyWatchExpression(watchId: string, newExpression: string) {
+    return this.rpc.call("state.modifyWatchExpression", { watchId, newExpression });
+  }
+
   async addBreakpoint(location: string, kind: BreakpointDescriptor["kind"] = "code", enabled = true) {
     return this.rpc.call("breakpoints.add", { location, kind, enabled });
   }

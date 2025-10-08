@@ -98,6 +98,12 @@ export interface DebuggerShape {
   capabilities: string[];
 }
 
+export interface WatchDescriptor {
+  id: string;
+  expression: string;
+  value: unknown;
+}
+
 export interface DebuggerTick {
   tickId: number;
   timestamp: number;
@@ -108,7 +114,7 @@ export interface DebuggerTick {
   registers: Record<string, RegisterValue[]>;
   breakpoints: Record<string, BreakpointDescriptor>;
   eventLog: FrameLogEntry[];
-  watches?: Record<string, unknown>;
+  watches?: WatchDescriptor[];
   threads?: ThreadInfo[];
   callstacks?: Record<string, CallstackFrame[]>;
 }
@@ -143,7 +149,15 @@ export type DebuggerRpcSchema = RpcSchema & {
     result: RpcError;
   };
   "state.unwatch": {
-    params: { expressions: string[] };
+    params: { expressions: string[] }; // Array of watch IDs
+    result: RpcError;
+  };
+  "state.editWatch": {
+    params: { watchId: string; value: string };
+    result: RpcError;
+  };
+  "state.modifyWatchExpression": {
+    params: { watchId: string; newExpression: string };
     result: RpcError;
   };
   "control.step": {
