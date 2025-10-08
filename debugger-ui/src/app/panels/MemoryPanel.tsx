@@ -25,7 +25,7 @@ interface MemoryPanelProps {
   wordSize?: MemorySlice["wordSize"];
 }
 
-const MemoryPanel = ({ title, target, defaultAddress, encoding, wordSize }: MemoryPanelProps) => {
+const MemoryPanel = ({ target, defaultAddress, encoding, wordSize }: MemoryPanelProps) => {
   const [searchParams, setSearchParams] = useSearchParams();
   const client = useSessionStore((state) => state.client);
   const initialized = useDebuggerDataStore((state) => state.initialized);
@@ -78,7 +78,7 @@ const MemoryPanel = ({ title, target, defaultAddress, encoding, wordSize }: Memo
   }, [searchParams]);
 
   return (
-    <Panel title={title}>
+    <Panel>
       <MemoryView
         config={config}
         callbacks={callbacks}
@@ -93,9 +93,9 @@ const MemoryPanel = ({ title, target, defaultAddress, encoding, wordSize }: Memo
 };
 
 export const Sh4MemoryPanel = () => (
-  <MemoryPanel title="SH4: Memory" target="sh4" defaultAddress={0x8c000000} />
+  <MemoryPanel target="sh4" defaultAddress={0x8c000000} />
 );
 
 export const Arm7MemoryPanel = () => (
-  <MemoryPanel title="ARM7: Memory" target="arm7" defaultAddress={0x00200000} />
+  <MemoryPanel target="arm7" defaultAddress={0x00200000} />
 );
