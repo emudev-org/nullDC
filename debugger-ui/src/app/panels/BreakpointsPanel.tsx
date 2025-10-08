@@ -327,7 +327,6 @@ const BreakpointsView = ({ filter, addMode, showCategoryControls = false }: Brea
                                 void handleToggle(bp.id, e.target.checked);
                               }}
                             />
-                            <span>Hits: {bp.hitCount}</span>
                           </Typography>
                         }
                       />
@@ -385,7 +384,6 @@ const BreakpointsView = ({ filter, addMode, showCategoryControls = false }: Brea
                             void handleToggle(bp.id, e.target.checked);
                           }}
                         />
-                        <span>Hits: {bp.hitCount}</span>
                       </Typography>
                     }
                   />

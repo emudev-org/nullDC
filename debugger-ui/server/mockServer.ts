@@ -821,7 +821,6 @@ const dispatchMethod = async (
         location,
         kind,
         enabled,
-        hitCount: 0,
       };
       serverBreakpoints.set(id, breakpoint);
       return {
@@ -973,7 +972,6 @@ const emulationTick = () => {
       const hitBp = checkBreakpoint("dc.sh4.cpu", "PC", newPc);
       if (hitBp) {
         isRunning = false;
-        hitBp.hitCount++;
         hitBreakpointId = hitBp.id;
         const message = `SH4 breakpoint hit at 0x${newPc.toString(16).toUpperCase()}`;
 
@@ -1013,7 +1011,6 @@ const emulationTick = () => {
       const hitBp = checkBreakpoint("dc.aica.arm7", "pc", newPc);
       if (hitBp && !hitBreakpointId) {
         isRunning = false;
-        hitBp.hitCount++;
         hitBreakpointId = hitBp.id;
         const message = `ARM7 breakpoint hit at 0x${newPc.toString(16).toUpperCase()}`;
 
@@ -1044,7 +1041,6 @@ const emulationTick = () => {
       const hitBp = checkBreakpoint("dc.aica.dsp", "step", newStep);
       if (hitBp && !hitBreakpointId) {
         isRunning = false;
-        hitBp.hitCount++;
         hitBreakpointId = hitBp.id;
         const message = `DSP breakpoint hit at step ${newStep}`;
 

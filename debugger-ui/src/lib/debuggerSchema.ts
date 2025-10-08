@@ -97,9 +97,6 @@ export const BreakpointDescriptorSchema = z.object({
   location: z.string(),
   kind: z.enum(["code", "event"]),
   enabled: z.boolean(),
-  condition: z.string().optional(),
-  hitCount: z.number(),
-  pending: z.boolean().optional(),
 });
 
 export const BacktraceFrameSchema = z.object({
