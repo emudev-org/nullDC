@@ -15,7 +15,7 @@ export const EventLogPanel = () => {
   const rendered = useMemo(() => (Array.isArray(entries) ? entries.slice().reverse() : []), [entries]);
 
   return (
-    <Panel title="Event Log">
+    <Panel>
       {rendered.length === 0 ? (
         <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
           No runtime events yet.
