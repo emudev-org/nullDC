@@ -25,7 +25,7 @@ import { CoreInspectorPanel } from "../panels/CoreInspectorPanel";
 import { EventsBreakpointsPanel, Sh4BreakpointsPanel, Arm7BreakpointsPanel, DspBreakpointsPanel } from "../panels/BreakpointsPanel";
 import { Sh4SimPanel } from "../panels/Sh4SimPanel";
 import { DspPlaygroundPanel } from "../panels/DspPlaygroundPanel";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, Link } from "react-router-dom";
 import { AboutDialog } from "./AboutDialog";
 import { useAboutModal } from "./useAboutModal";
 import { TopNav } from "./TopNav";
@@ -395,14 +395,19 @@ export const AppLayout = () => {
           </Box>
           <Tabs
             value={currentTab}
-            onChange={(_, value) => navigate(`/${value}`)}
             variant="scrollable"
             scrollButtons
             ref={tabsContainerRef}
             sx={{ border: "1px solid", borderColor: "divider", borderRadius: 1 }}
           >
             {workspaceTabs.map((tab) => (
-              <Tab key={tab.value} value={tab.value} label={tab.label} />
+              <Tab
+                key={tab.value}
+                value={tab.value}
+                label={tab.label}
+                component={Link}
+                to={`/${tab.value}`}
+              />
             ))}
           </Tabs>
         </Box>
