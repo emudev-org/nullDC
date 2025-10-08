@@ -129,8 +129,8 @@ export const DeviceTreePanel = () => {
           key={`${nodePath}.reg.${register.name}`}
           itemId={`${nodePath}.reg.${register.name}`}
           label={
-            <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
-              <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
+            <Stack direction="row" spacing={0.5} alignItems="center" justifyContent="space-between" sx={{ py: 0 }}>
+              <Typography variant="body2" sx={{ fontFamily: "monospace", fontSize: "0.813rem", lineHeight: 1.4 }}>
                 {register.name} = {displayValue}
               </Typography>
               <Tooltip title={watched ? "Already in watch" : "Add to watch"}>
@@ -143,13 +143,20 @@ export const DeviceTreePanel = () => {
                       event.stopPropagation();
                       void handleRegisterWatch(expression);
                     }}
+                    sx={{ padding: "2px" }}
                   >
-                    <AddIcon fontSize="inherit" />
+                    <AddIcon sx={{ fontSize: "0.875rem" }} />
                   </IconButton>
                 </span>
               </Tooltip>
             </Stack>
           }
+          sx={{
+            "& .MuiTreeItem-content": {
+              py: 0,
+              minHeight: "24px",
+            },
+          }}
         />
       );
     },
@@ -162,15 +169,21 @@ export const DeviceTreePanel = () => {
         key={node.path}
         itemId={node.path}
         label={
-          <Stack direction="row" spacing={1} alignItems="center">
-            <Typography variant="body2" fontWeight={500}>
+          <Stack direction="row" spacing={0.5} alignItems="center" sx={{ py: 0 }}>
+            <Typography variant="body2" fontWeight={500} sx={{ fontSize: "0.813rem", lineHeight: 1.4 }}>
               {node.label}
             </Typography>
-            <Typography variant="caption" color="text.secondary">
+            <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.688rem", lineHeight: 1.4 }}>
               {node.kind}
             </Typography>
           </Stack>
         }
+        sx={{
+          "& .MuiTreeItem-content": {
+            py: 0,
+            minHeight: "24px",
+          },
+        }}
       >
         {node.registers?.map((register) => renderRegister(node.path, register))}
         {node.children?.map((child) => renderNode(child))}
@@ -212,7 +225,19 @@ export const DeviceTreePanel = () => {
             defaultExpandedItems={expandedItems}
             slots={{ collapseIcon: ExpandMoreIcon, expandIcon: ChevronRightIcon }}
             multiSelect
-            sx={{ px: 1, py: 1, flex: 1, overflowY: "auto" }}
+            sx={{
+              px: 1,
+              py: 0.5,
+              flex: 1,
+              overflowY: "auto",
+              "& .MuiTreeItem-group": {
+                marginLeft: "12px",
+                marginTop: 0,
+              },
+              "& .MuiTreeItem-content": {
+                marginBottom: 0,
+              },
+            }}
           >
             {filteredTree.map((node) => renderNode(node))}
           </SimpleTreeView>

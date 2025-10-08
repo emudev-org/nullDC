@@ -220,11 +220,15 @@ export const DisassemblyView = ({
   const lineRefsMap = useRef<Map<number, HTMLDivElement>>(new Map());
   const [, forceUpdate] = useState(0);
 
+  // Track previous execution state for detecting pauses
+  const prevExecutionStateRef = useRef(executionState);
+
   // Update DOM directly when PC or execution state changes
   useEffect(() => {
     const isPaused = executionState === "paused";
     const oldPc = currentPcRef.current;
     const newPc = currentPc;
+    const wasRunning = prevExecutionStateRef.current === "running";
 
     if (oldPc !== newPc) {
       // Remove current styling from old PC
@@ -256,7 +260,18 @@ export const DisassemblyView = ({
         }
       }
     }
-  }, [currentPc, executionState]);
+
+    // Auto-scroll to current PC when transitioning from running to paused
+    if (isPaused && wasRunning && newPc !== undefined) {
+      const contextOffset = config.instructionSize * 10;
+      const targetAddress = Math.max(0, newPc - contextOffset);
+      const normalizedTarget = normalizeAddress(targetAddress, config.maxAddress, config.instructionSize);
+      setAddress(normalizedTarget);
+    }
+
+    // Update previous execution state
+    prevExecutionStateRef.current = executionState;
+  }, [currentPc, executionState, config.instructionSize, config.maxAddress]);
 
   const fetchDisassembly = useCallback(
     async (addr: number) => {

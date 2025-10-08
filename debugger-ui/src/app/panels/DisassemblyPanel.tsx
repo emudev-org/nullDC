@@ -217,7 +217,7 @@ export const Sh4DisassemblyPanel = () => {
   const registers = registersByPath["dc.sh4.cpu"];
   const pcReg = registers?.find((r) => r.name === "PC");
 
-  let defaultAddress = 0x8c0000a0;
+  let defaultAddress = 0x8c010000;
   if (pcReg?.value) {
     const pc = Number.parseInt(pcReg.value.replace(/^0x/i, ""), 16);
     if (!Number.isNaN(pc)) {

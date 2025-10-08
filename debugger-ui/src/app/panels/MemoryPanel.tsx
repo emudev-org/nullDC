@@ -86,7 +86,7 @@ const MemoryPanel = ({ target, defaultAddress }: MemoryPanelProps) => {
 };
 
 export const Sh4MemoryPanel = () => (
-  <MemoryPanel target="sh4" defaultAddress={0x8c000000} />
+  <MemoryPanel target="sh4" defaultAddress={0x8c010000} />
 );
 
 export const Arm7MemoryPanel = () => (
