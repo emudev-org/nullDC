@@ -1,8 +1,12 @@
 ﻿import { z } from "zod";
 import type { RpcSchema } from "./jsonRpc";
 
-// Common enums
+// Common enums and ID types
 export const TargetProcessorSchema = z.enum(["sh4", "arm7", "dsp"]);
+
+// ID schemas - using integers for efficiency
+export const BreakpointIdSchema = z.number().int().nonnegative();
+export const WatchIdSchema = z.number().int().nonnegative();
 
 export const RpcMethodNameSchema = z.enum([
   "debugger.handshake",
@@ -89,7 +93,7 @@ export const DisassemblyLineSchema = z.object({
 });
 
 export const BreakpointDescriptorSchema = z.object({
-  id: z.string(),
+  id: BreakpointIdSchema,
   location: z.string(),
   kind: z.enum(["code", "event"]),
   enabled: z.boolean(),
@@ -137,7 +141,7 @@ export const DebuggerShapeSchema = z.object({
 });
 
 export const WatchDescriptorSchema = z.object({
-  id: z.string(),
+  id: WatchIdSchema,
   expression: z.string(),
   value: z.unknown(),
 });
@@ -147,7 +151,7 @@ export const DebuggerTickSchema = z.object({
   timestamp: z.number(),
   executionState: z.object({
     state: z.enum(["running", "paused"]),
-    breakpointId: z.string().optional(),
+    breakpointId: BreakpointIdSchema.optional(),
   }),
   registers: z.record(z.string(), z.array(RegisterValueSchema)),
   breakpoints: z.record(z.string(), BreakpointDescriptorSchema),
@@ -166,6 +170,8 @@ export const RpcErrorSchema = z.object({
 // Type exports derived from Zod schemas
 export type TargetProcessor = z.infer<typeof TargetProcessorSchema>;
 export type RpcMethodName = z.infer<typeof RpcMethodNameSchema>;
+export type BreakpointId = z.infer<typeof BreakpointIdSchema>;
+export type WatchId = z.infer<typeof WatchIdSchema>;
 export type RegisterValue = z.infer<typeof RegisterValueSchema>;
 export type DeviceNodeDescriptor = {
   path: string;
@@ -243,20 +249,20 @@ export const DebuggerRpcMethodSchemas = {
   },
   "state.unwatch": {
     params: z.object({
-      expressions: z.array(z.string()),
+      watchIds: z.array(WatchIdSchema),
     }),
     result: RpcErrorSchema,
   },
   "state.editWatch": {
     params: z.object({
-      watchId: z.string(),
+      watchId: WatchIdSchema,
       value: z.string(),
     }),
     result: RpcErrorSchema,
   },
   "state.modifyWatchExpression": {
     params: z.object({
-      watchId: z.string(),
+      watchId: WatchIdSchema,
       newExpression: z.string(),
     }),
     result: RpcErrorSchema,
@@ -308,13 +314,13 @@ export const DebuggerRpcMethodSchemas = {
   },
   "breakpoints.remove": {
     params: z.object({
-      id: z.string(),
+      id: BreakpointIdSchema,
     }),
     result: RpcErrorSchema,
   },
   "breakpoints.toggle": {
     params: z.object({
-      id: z.string(),
+      id: BreakpointIdSchema,
       enabled: z.boolean(),
     }),
     result: RpcErrorSchema,
@@ -351,15 +357,15 @@ export type DebuggerRpcSchema = RpcSchema & {
     result: RpcError;
   };
   "state.unwatch": {
-    params: { expressions: string[] }; // Array of watch IDs
+    params: { watchIds: WatchId[] };
     result: RpcError;
   };
   "state.editWatch": {
-    params: { watchId: string; value: string };
+    params: { watchId: WatchId; value: string };
     result: RpcError;
   };
   "state.modifyWatchExpression": {
-    params: { watchId: string; newExpression: string };
+    params: { watchId: WatchId; newExpression: string };
     result: RpcError;
   };
   "control.step": {
@@ -391,11 +397,11 @@ export type DebuggerRpcSchema = RpcSchema & {
     result: RpcError;
   };
   "breakpoints.remove": {
-    params: { id: string };
+    params: { id: BreakpointId };
     result: RpcError;
   };
   "breakpoints.toggle": {
-    params: { id: string; enabled: boolean };
+    params: { id: BreakpointId; enabled: boolean };
     result: RpcError;
   };
 };

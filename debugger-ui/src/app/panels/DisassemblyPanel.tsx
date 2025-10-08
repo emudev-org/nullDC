@@ -76,7 +76,7 @@ const DisassemblyPanel = ({ target, defaultAddress }: DisassemblyPanelProps) => 
 
   // Map addresses to breakpoints
   const breakpointsByAddress = useMemo(() => {
-    const map = new Map<number, { id: string; enabled: boolean }>();
+    const map = new Map<number, { id: number; enabled: boolean }>();
     const cpuPath = target === "dsp" ? "dc.aica.dsp" : target === "sh4" ? "dc.sh4.cpu" : "dc.aica.arm7";
     const counterName = target === "dsp" ? "step" : "pc";
 
@@ -150,10 +150,10 @@ const DisassemblyPanel = ({ target, defaultAddress }: DisassemblyPanelProps) => 
         const location = `${cpuPath}.${counterName} == ${formatHexAddress(address)}`;
         await addBreakpoint(location, "code");
       },
-      onBreakpointRemove: async (id: string) => {
+      onBreakpointRemove: async (id: number) => {
         await removeBreakpoint(id);
       },
-      onBreakpointToggle: async (id: string, enabled: boolean) => {
+      onBreakpointToggle: async (id: number, enabled: boolean) => {
         await toggleBreakpoint(id, enabled);
       },
       onMuteToggle: () => {

@@ -93,14 +93,14 @@ const BreakpointsView = ({ filter, addMode, showCategoryControls = false }: Brea
   }, [client]);
 
   const handleRemove = useCallback(
-    async (id: string) => {
+    async (id: number) => {
       await removeBreakpoint(id);
     },
     [removeBreakpoint],
   );
 
   const handleToggle = useCallback(
-    async (id: string, enabled: boolean) => {
+    async (id: number, enabled: boolean) => {
       await toggleBreakpoint(id, enabled);
     },
     [toggleBreakpoint],

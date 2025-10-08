@@ -50,9 +50,9 @@ export interface DisassemblyViewCallbacks {
   /** Add a breakpoint at the given address */
   onBreakpointAdd: (address: number) => Promise<void>;
   /** Remove a breakpoint by ID */
-  onBreakpointRemove: (id: string) => Promise<void>;
+  onBreakpointRemove: (id: number) => Promise<void>;
   /** Toggle a breakpoint's enabled state */
-  onBreakpointToggle: (id: string, enabled: boolean) => Promise<void>;
+  onBreakpointToggle: (id: number, enabled: boolean) => Promise<void>;
   /** Handle mute toggle for this view's category */
   onMuteToggle: () => void;
   /** Handle solo toggle for this view's category */
@@ -69,7 +69,7 @@ export interface DisassemblyViewProps {
   /** Current program counter value */
   currentPc?: number;
   /** Map of addresses to breakpoint info */
-  breakpointsByAddress: Map<number, { id: string; enabled: boolean }>;
+  breakpointsByAddress: Map<number, { id: number; enabled: boolean }>;
   /** Whether the debugger is initialized */
   initialized: boolean;
   /** Current execution state */
@@ -92,7 +92,7 @@ interface DisassemblyLineItemProps {
   line: DisassemblyLine;
   currentPc?: number;
   executionState: "running" | "paused";
-  breakpoint?: { id: string; enabled: boolean };
+  breakpoint?: { id: number; enabled: boolean };
   config: DisassemblyViewConfig;
   onBreakpointClick: (address: number) => void;
   onBreakpointToggle: (address: number, event: React.MouseEvent) => void;

@@ -1,11 +1,13 @@
 ﻿import type { JsonRpcNotification } from "../lib/jsonRpc";
 import type {
   BreakpointDescriptor,
+  BreakpointId,
   CallstackFrame,
   DebuggerNotification,
   DebuggerRpcSchema,
   MemorySlice,
   TargetProcessor,
+  WatchId,
 } from "../lib/debuggerSchema";
 import { DebuggerRpcMethodSchemas } from "../lib/debuggerSchema";
 import { JsonRpcClient } from "./jsonRpcClient";
@@ -73,18 +75,18 @@ export class DebuggerClient {
     return this.rpc.call("state.watch", { expressions });
   }
 
-  async unwatch(expressions: string[]) {
-    if (!expressions.length) {
+  async unwatch(watchIds: WatchId[]) {
+    if (!watchIds.length) {
       return {};
     }
-    return this.rpc.call("state.unwatch", { expressions });
+    return this.rpc.call("state.unwatch", { watchIds });
   }
 
-  async editWatch(watchId: string, value: string) {
+  async editWatch(watchId: WatchId, value: string) {
     return this.rpc.call("state.editWatch", { watchId, value });
   }
 
-  async modifyWatchExpression(watchId: string, newExpression: string) {
+  async modifyWatchExpression(watchId: WatchId, newExpression: string) {
     return this.rpc.call("state.modifyWatchExpression", { watchId, newExpression });
   }
 
@@ -92,11 +94,11 @@ export class DebuggerClient {
     return this.rpc.call("breakpoints.add", { location, kind, enabled });
   }
 
-  async removeBreakpoint(id: string) {
+  async removeBreakpoint(id: BreakpointId) {
     return this.rpc.call("breakpoints.remove", { id });
   }
 
-  async toggleBreakpoint(id: string, enabled: boolean) {
+  async toggleBreakpoint(id: BreakpointId, enabled: boolean) {
     return this.rpc.call("breakpoints.toggle", { id, enabled });
   }
 

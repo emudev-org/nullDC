@@ -251,21 +251,21 @@ export const WatchesPanel = () => {
   }, [newWatch, addWatch]);
 
   const handleRemove = useCallback(
-    async (watchId: string) => {
+    async (watchId: number) => {
       await removeWatch(watchId);
     },
     [removeWatch],
   );
 
   const handleEdit = useCallback(
-    async (watchId: string, value: string): Promise<void> => {
+    async (watchId: number, value: string): Promise<void> => {
       await editWatch(watchId, value);
     },
     [editWatch],
   );
 
   const handleModifyExpression = useCallback(
-    async (watchId: string, newExpression: string): Promise<void> => {
+    async (watchId: number, newExpression: string): Promise<void> => {
       await modifyWatchExpression(watchId, newExpression);
     },
     [modifyWatchExpression],

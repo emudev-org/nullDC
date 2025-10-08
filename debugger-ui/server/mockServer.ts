@@ -42,20 +42,22 @@ interface ClientContext {
 }
 
 interface ServerWatch {
-  id: string;
+  id: number;
   expression: string;
 }
 
-const serverWatches = new Map<string, ServerWatch>(); // id -> {id, expression}
-const serverBreakpoints = new Map<string, BreakpointDescriptor>();
+const serverWatches = new Map<number, ServerWatch>(); // id -> {id, expression}
+const serverBreakpoints = new Map<number, BreakpointDescriptor>();
 let isRunning = true; // Execution state
 let nextEventId = 1n; // Event ID counter (BigInt for 64-bit)
 let tickId = 0; // Tick counter
+let nextWatchId = 1; // Watch ID counter
+let nextBreakpointId = 1; // Breakpoint ID counter
 
 // Initialize default watches
 const DEFAULT_WATCH_EXPRESSIONS = ["dc.sh4.cpu.pc", "dc.sh4.dmac.dmaor"];
 for (const expr of DEFAULT_WATCH_EXPRESSIONS) {
-  const id = randomUUID();
+  const id = nextWatchId++;
   serverWatches.set(id, { id, expression: expr });
 }
 
@@ -674,8 +676,8 @@ const dispatchMethod = async (
     case "state.watch": {
       const expressions = (params.expressions as string[]) ?? [];
       expressions.forEach((expr) => {
-        const id = randomUUID();
-        client.watches.add(id);
+        const id = nextWatchId++;
+        client.watches.add(id.toString());
         serverWatches.set(id, { id, expression: expr });
       });
       return {
@@ -684,10 +686,9 @@ const dispatchMethod = async (
       };
     }
     case "state.unwatch": {
-      const expressions = (params.expressions as string[]) ?? [];
-      // expressions here are actually watch IDs
-      expressions.forEach((watchId) => {
-        client.watches.delete(watchId);
+      const watchIds = (params.watchIds as number[]) ?? [];
+      watchIds.forEach((watchId) => {
+        client.watches.delete(watchId.toString());
         serverWatches.delete(watchId);
       });
       return {
@@ -696,7 +697,7 @@ const dispatchMethod = async (
       };
     }
     case "state.editWatch": {
-      const { watchId, value } = params as { watchId: string; value: string };
+      const { watchId, value } = params as { watchId: number; value: string };
 
       // Validate that the watch exists
       const watch = serverWatches.get(watchId);
@@ -747,7 +748,7 @@ const dispatchMethod = async (
       }
     }
     case "state.modifyWatchExpression": {
-      const { watchId, newExpression } = params as { watchId: string; newExpression: string };
+      const { watchId, newExpression } = params as { watchId: number; newExpression: string };
 
       // Find the watch by ID
       const watch = serverWatches.get(watchId);
@@ -756,7 +757,7 @@ const dispatchMethod = async (
           result: {
             error: {
               code: -32602,
-              message: `Watch "${watchId}" not found`,
+              message: `Watch ${watchId} not found`,
             },
           } as RpcError,
           shouldBroadcastTick: false,
@@ -814,7 +815,7 @@ const dispatchMethod = async (
       const location = params.location as string;
       const kind = (params.kind as BreakpointDescriptor["kind"]) ?? "code";
       const enabled = params.enabled !== false;
-      const id = `bp-${randomUUID().slice(0, 8)}`;
+      const id = nextBreakpointId++;
       const breakpoint: BreakpointDescriptor = {
         id,
         location,
@@ -829,7 +830,7 @@ const dispatchMethod = async (
       };
     }
     case "breakpoints.remove": {
-      const id = params.id as string;
+      const id = params.id as number;
       const removed = serverBreakpoints.delete(id);
       if (!removed) {
         return {
@@ -843,7 +844,7 @@ const dispatchMethod = async (
       };
     }
     case "breakpoints.toggle": {
-      const id = params.id as string;
+      const id = params.id as number;
       const enabled = params.enabled as boolean;
       const breakpoint = serverBreakpoints.get(id);
       if (!breakpoint) {
@@ -953,7 +954,7 @@ const checkBreakpoint = (path: string, registerName: string, value: number): Bre
 
 // Emulation tick - advances the emulator state
 const emulationTick = () => {
-  let hitBreakpointId: string | undefined;
+  let hitBreakpointId: number | undefined;
 
   // Only mutate registers and generate events when running
   if (isRunning) {
@@ -1082,7 +1083,7 @@ const emulationTick = () => {
 };
 
 // Build and broadcast tick to all connected clients
-const broadcastTick = (hitBreakpointId?: string) => {
+const broadcastTick = (hitBreakpointId?: number) => {
   // Build complete tick with all state
   const deviceTree = buildDeviceTree();
   const allRegisters = collectRegistersFromTree(deviceTree);
