@@ -1,6 +1,7 @@
 ﻿import { create } from "zustand";
 import type {
   BreakpointDescriptor,
+  CallstackFrame,
   DebuggerShape,
   DebuggerTick,
   DeviceNodeDescriptor,
@@ -33,6 +34,7 @@ interface DebuggerDataState {
   executionState: { state: "running" | "paused"; breakpointId?: string };
   watchExpressions: string[];
   watchValues: Record<string, unknown>;
+  callstacks: Record<string, CallstackFrame[]>;
   // Methods
   initialize: (client: DebuggerClient) => Promise<void>;
   reset: () => void;
@@ -70,6 +72,7 @@ export const useDebuggerDataStore = create<DebuggerDataState>()((set, get) => ({
   watchExpressions: [],
   watchValues: {},
   waveform: null,
+  callstacks: {},
   async initialize(client) {
     const { notificationUnsub } = get();
     notificationUnsub?.();
@@ -118,6 +121,7 @@ export const useDebuggerDataStore = create<DebuggerDataState>()((set, get) => ({
               threads: tick.threads ?? [],
               watchExpressions: tick.watches ? Object.keys(tick.watches) : [],
               watchValues: tick.watches ?? {},
+              callstacks: tick.callstacks ?? get().callstacks,
             });
 
             // Update session store execution state
@@ -171,6 +175,7 @@ export const useDebuggerDataStore = create<DebuggerDataState>()((set, get) => ({
         frameLog: [],
         executionState: { state: "paused" },
         waveform: null,
+        callstacks: {},
         notificationUnsub: undefined,
         errorMessage: undefined,
       });

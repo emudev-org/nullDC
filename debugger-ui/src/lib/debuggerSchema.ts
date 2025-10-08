@@ -110,6 +110,7 @@ export interface DebuggerTick {
   eventLog: FrameLogEntry[];
   watches?: Record<string, unknown>;
   threads?: ThreadInfo[];
+  callstacks?: Record<string, CallstackFrame[]>;
 }
 
 export interface RpcError {

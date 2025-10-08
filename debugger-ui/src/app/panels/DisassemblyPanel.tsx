@@ -50,7 +50,7 @@ interface DisassemblyPanelProps {
 }
 
 const DisassemblyPanel = ({ target, defaultAddress }: DisassemblyPanelProps) => {
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const client = useSessionStore((state) => state.client);
   const executionState = useSessionStore((state) => state.executionState);
   const initialized = useDebuggerDataStore((state) => state.initialized);
@@ -182,11 +182,8 @@ const DisassemblyPanel = ({ target, defaultAddress }: DisassemblyPanelProps) => 
           syncCategoryStatesToServer();
         }
       },
-      onAddressChange: (address: number) => {
-        setSearchParams({ [config.urlParamName]: formatAddressInput(target, address) });
-      },
     }),
-    [client, target, executionState, addBreakpoint, removeBreakpoint, toggleBreakpoint, category, config.urlParamName, setSearchParams],
+    [client, target, executionState, addBreakpoint, removeBreakpoint, toggleBreakpoint, category],
   );
 
   // Get initial URL address

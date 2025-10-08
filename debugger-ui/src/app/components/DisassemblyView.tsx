@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Box, Button, CircularProgress, IconButton, InputAdornment, Paper, Stack, TextField, Tooltip, Typography } from "@mui/material";
 import CircleIcon from "@mui/icons-material/Circle";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
@@ -57,8 +57,6 @@ export interface DisassemblyViewCallbacks {
   onMuteToggle: () => void;
   /** Handle solo toggle for this view's category */
   onSoloToggle: () => void;
-  /** Handle address change (for URL sync) */
-  onAddressChange?: (address: number) => void;
 }
 
 export interface DisassemblyViewProps {
@@ -90,6 +88,101 @@ const normalizeAddress = (value: number, max: number, step: number) => {
   return clamped - (clamped % step);
 };
 
+interface DisassemblyLineItemProps {
+  line: DisassemblyLine;
+  currentPc?: number;
+  executionState: "running" | "paused";
+  breakpoint?: { id: string; enabled: boolean };
+  config: DisassemblyViewConfig;
+  onBreakpointClick: (address: number) => void;
+  onBreakpointToggle: (address: number, event: React.MouseEvent) => void;
+  lineRef: (address: number, el: HTMLDivElement | null) => void;
+}
+
+const DisassemblyLineItem = memo(({
+  line,
+  currentPc: _currentPc,
+  executionState: _executionState,
+  breakpoint,
+  config,
+  onBreakpointClick,
+  onBreakpointToggle,
+  lineRef,
+}: DisassemblyLineItemProps) => {
+  const commentText = line.comment ? `; ${line.comment}` : "";
+  const mnemonicSegment = line.operands ? `${line.mnemonic} ${line.operands}` : line.mnemonic;
+  const hasBreakpoint = !!breakpoint;
+  const breakpointEnabled = breakpoint?.enabled ?? false;
+
+  return (
+    <Box
+      ref={(el: HTMLDivElement | null) => lineRef(line.address, el)}
+      sx={{
+        display: "grid",
+        gridTemplateColumns: config.gridColumns,
+        gap: 1,
+        alignItems: "stretch",
+        px: 0.5,
+        py: 0,
+        border: "2px solid transparent",
+        borderRadius: 1,
+        "&:hover": {
+          borderBottomColor: "primary.main",
+        },
+        "&:hover .breakpoint-gutter": {
+          opacity: 1,
+        },
+      }}
+    >
+      <Box
+        className="breakpoint-gutter"
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          opacity: hasBreakpoint ? 1 : 0,
+          cursor: "pointer",
+          transition: "opacity 0.1s",
+          alignSelf: "stretch",
+        }}
+        onClick={(e) => {
+          if ((e.shiftKey || e.ctrlKey || e.metaKey) && hasBreakpoint) {
+            onBreakpointToggle(line.address, e);
+          } else {
+            onBreakpointClick(line.address);
+          }
+        }}
+      >
+        {hasBreakpoint ? (
+          breakpointEnabled ? (
+            <CircleIcon sx={{ fontSize: 16, color: "error.main" }} />
+          ) : (
+            <RadioButtonUncheckedIcon sx={{ fontSize: 16, color: "error.main" }} />
+          )
+        ) : (
+          <RadioButtonUncheckedIcon sx={{ fontSize: 16, color: "text.disabled", opacity: 0.3 }} />
+        )}
+      </Box>
+      <Typography component="span" sx={{ color: "text.secondary" }}>
+        {config.formatAddressDisplay(line.address)}
+      </Typography>
+      <Typography component="span" sx={{ color: "text.secondary" }}>
+        {line.bytes}
+      </Typography>
+      <Typography component="span" sx={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+        {mnemonicSegment}
+        {commentText && (
+          <Box component="span" sx={{ color: "text.secondary", ml: 1, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+            {commentText}
+          </Box>
+        )}
+      </Typography>
+    </Box>
+  );
+});
+
+DisassemblyLineItem.displayName = "DisassemblyLineItem";
+
 export const DisassemblyView = ({
   config,
   callbacks,
@@ -110,6 +203,20 @@ export const DisassemblyView = ({
   const [address, setAddress] = useState(initialAddress);
   const [addressInput, setAddressInput] = useState(config.formatAddressInput(initialAddress));
 
+  // Update address when URL changes (only on navigation, not on every render)
+  useEffect(() => {
+    if (initialUrlAddress?.fromUrl) {
+      const contextOffset = config.instructionSize * 10;
+      const targetAddress = Math.max(0, initialUrlAddress.address - contextOffset);
+      const normalizedTarget = normalizeAddress(targetAddress, config.maxAddress, config.instructionSize);
+      setAddress(normalizedTarget);
+
+      // Set target for highlighting
+      targetAddressRef.current = initialUrlAddress.address;
+      targetTimestampRef.current = Date.now();
+    }
+  }, [initialUrlAddress?.address, initialUrlAddress?.fromUrl, config.instructionSize, config.maxAddress]);
+
   const requestIdRef = useRef(0);
   const wheelRemainder = useRef(0);
   const pendingScrollSteps = useRef(0);
@@ -118,7 +225,6 @@ export const DisassemblyView = ({
   const targetAddressRef = useRef<number | undefined>(undefined);
   const targetTimestampRef = useRef<number | undefined>(undefined);
   const lineRefsMap = useRef<Map<number, HTMLDivElement>>(new Map());
-  const urlHighlightTriggeredRef = useRef(false);
   const [, forceUpdate] = useState(0);
 
   // Update DOM directly when PC or execution state changes
@@ -199,49 +305,59 @@ export const DisassemblyView = ({
     }
   }, [address, fetchDisassembly, config, initialized]);
 
-  // Trigger highlight effect when loaded from URL
+  // Trigger highlight effect when URL address changes (or action_guid changes for re-clicks)
   useEffect(() => {
-    if (!initialUrlAddress?.fromUrl || !initialized || lines.length === 0 || urlHighlightTriggeredRef.current) {
+    if (!initialUrlAddress?.fromUrl || !initialized) {
       return;
     }
 
-    // Mark as triggered immediately to prevent re-triggering on scroll
-    urlHighlightTriggeredRef.current = true;
+    const targetAddr = initialUrlAddress.address;
 
-    // Set target address for animation trigger
-    targetAddressRef.current = initialUrlAddress.address;
-    targetTimestampRef.current = Date.now();
+    // Helper to apply highlight with auto-removal
+    const applyHighlight = (el: HTMLDivElement) => {
+      el.classList.remove("target-address");
+      // Force reflow to restart animation
+      void el.offsetWidth;
+      el.classList.add("target-address");
 
-    // Update DOM when lines are available
-    setTimeout(() => {
-      const element = lineRefsMap.current.get(initialUrlAddress.address);
-      if (element) {
-        element.classList.remove("target-address");
-        // Force reflow to restart animation
-        void element.offsetWidth;
-        element.classList.add("target-address");
-      }
-    }, 0);
-  }, [initialUrlAddress, initialized, lines]);
+      // Remove class after animation completes (2s animation duration)
+      setTimeout(() => {
+        el.classList.remove("target-address");
+      }, 2000);
+    };
+
+    // Check if element is already in DOM
+    const element = lineRefsMap.current.get(targetAddr);
+    if (element) {
+      applyHighlight(element);
+    } else {
+      // Address not visible yet, try again when it loads
+      setTimeout(() => {
+        const el = lineRefsMap.current.get(targetAddr);
+        if (el) {
+          applyHighlight(el);
+        }
+      }, 100);
+    }
+  }, [initialUrlAddress, initialized]);
 
   // Process pending scroll steps after loading completes
   useEffect(() => {
     if (!loading && pendingScrollSteps.current !== 0) {
       const steps = pendingScrollSteps.current;
       pendingScrollSteps.current = 0;
-      setAddress((prev) => normalizeAddress(prev + steps * config.instructionSize, config.maxAddress, config.instructionSize));
+      setAddress((prev: number) => normalizeAddress(prev + steps * config.instructionSize, config.maxAddress, config.instructionSize));
     }
   }, [loading, config.instructionSize, config.maxAddress]);
 
   const adjustAddress = useCallback(
     (steps: number) => {
-      setAddress((prev) => {
+      setAddress((prev: number) => {
         const newAddr = normalizeAddress(prev + steps * config.instructionSize, config.maxAddress, config.instructionSize);
-        callbacks.onAddressChange?.(newAddr);
         return newAddr;
       });
     },
-    [config.instructionSize, config.maxAddress, callbacks],
+    [config.instructionSize, config.maxAddress],
   );
 
   const handleWheel = useCallback(
@@ -294,7 +410,6 @@ export const DisassemblyView = ({
     const normalizedTarget = normalizeAddress(targetAddress, config.maxAddress, config.instructionSize);
 
     setAddress(normalizedTarget);
-    callbacks.onAddressChange?.(parsed);
 
     // Set target address and timestamp for animation trigger
     targetAddressRef.current = parsed;
@@ -310,7 +425,7 @@ export const DisassemblyView = ({
         element.classList.add("target-address");
       }
     }, 0);
-  }, [addressInput, config, callbacks]);
+  }, [addressInput, config]);
 
   const handleRefresh = useCallback(() => {
     void fetchDisassembly(address);
@@ -337,6 +452,21 @@ export const DisassemblyView = ({
       }
     },
     [breakpointsByAddress, callbacks],
+  );
+
+  const handleLineRef = useCallback(
+    (address: number, el: HTMLDivElement | null) => {
+      if (el) {
+        lineRefsMap.current.set(address, el);
+        // Apply current styling if this line is the current PC and we're paused
+        if (currentPc === address && executionState === "paused") {
+          el.classList.add("current-instruction");
+        }
+      } else {
+        lineRefsMap.current.delete(address);
+      }
+    },
+    [currentPc, executionState],
   );
 
   const handleGotoPC = useCallback(() => {
@@ -565,90 +695,19 @@ export const DisassemblyView = ({
                   },
                 }}
               >
-                {lines.map((line) => {
-                  const commentText = line.comment ? `; ${line.comment}` : "";
-                  const mnemonicSegment = line.operands ? `${line.mnemonic} ${line.operands}` : line.mnemonic;
-                  const breakpoint = breakpointsByAddress.get(line.address);
-                  const hasBreakpoint = !!breakpoint;
-                  const breakpointEnabled = breakpoint?.enabled ?? false;
-
-                  return (
-                    <Box
-                      key={`${line.address}-${hasBreakpoint}-${breakpointEnabled}`}
-                      ref={(el: HTMLDivElement | null) => {
-                        if (el) {
-                          lineRefsMap.current.set(line.address, el);
-                          // Apply current styling if this line is the current PC and we're paused
-                          if (currentPc === line.address && executionState === "paused") {
-                            el.classList.add("current-instruction");
-                          }
-                        } else {
-                          lineRefsMap.current.delete(line.address);
-                        }
-                      }}
-                      sx={{
-                        display: "grid",
-                        gridTemplateColumns: config.gridColumns,
-                        gap: 1,
-                        alignItems: "stretch",
-                        px: 0.5,
-                        py: 0,
-                        border: "2px solid transparent",
-                        borderRadius: 1,
-                        "&:hover": {
-                          borderBottomColor: "primary.main",
-                        },
-                        "&:hover .breakpoint-gutter": {
-                          opacity: 1,
-                        },
-                      }}
-                    >
-                      <Box
-                        className="breakpoint-gutter"
-                        sx={{
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          opacity: hasBreakpoint ? 1 : 0,
-                          cursor: "pointer",
-                          transition: "opacity 0.1s",
-                          alignSelf: "stretch",
-                        }}
-                        onClick={(e) => {
-                          if ((e.shiftKey || e.ctrlKey || e.metaKey) && hasBreakpoint) {
-                            void handleBreakpointToggle(line.address, e);
-                          } else {
-                            void handleBreakpointClick(line.address);
-                          }
-                        }}
-                      >
-                        {hasBreakpoint ? (
-                          breakpointEnabled ? (
-                            <CircleIcon sx={{ fontSize: 16, color: "error.main" }} />
-                          ) : (
-                            <RadioButtonUncheckedIcon sx={{ fontSize: 16, color: "error.main" }} />
-                          )
-                        ) : (
-                          <RadioButtonUncheckedIcon sx={{ fontSize: 16, color: "text.disabled", opacity: 0.3 }} />
-                        )}
-                      </Box>
-                      <Typography component="span" sx={{ color: "text.secondary" }}>
-                        {config.formatAddressDisplay(line.address)}
-                      </Typography>
-                      <Typography component="span" sx={{ color: "text.secondary" }}>
-                        {line.bytes}
-                      </Typography>
-                      <Typography component="span" sx={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-                        {mnemonicSegment}
-                        {commentText && (
-                          <Box component="span" sx={{ color: "text.secondary", ml: 1, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-                            {commentText}
-                          </Box>
-                        )}
-                      </Typography>
-                    </Box>
-                  );
-                })}
+                {lines.map((line) => (
+                  <DisassemblyLineItem
+                    key={line.address}
+                    line={line}
+                    currentPc={currentPc}
+                    executionState={executionState}
+                    breakpoint={breakpointsByAddress.get(line.address)}
+                    config={config}
+                    onBreakpointClick={handleBreakpointClick}
+                    onBreakpointToggle={handleBreakpointToggle}
+                    lineRef={handleLineRef}
+                  />
+                ))}
               </Stack>
             )}
           </Box>

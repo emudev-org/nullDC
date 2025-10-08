@@ -980,6 +980,33 @@ const broadcastTick = () => {
     watches[expression] = registerValues.get(expression) ?? "0x00000000";
   }
 
+  // Build callstacks for all targets
+  const callstacks: Record<string, import("../src/lib/debuggerSchema").CallstackFrame[]> = {};
+
+  // SH4 callstack - first frame is current PC
+  const sh4PcValue = registerValues.get("dc.sh4.cpu.pc");
+  const sh4Pc = sh4PcValue && sh4PcValue.startsWith("0x") ? Number.parseInt(sh4PcValue, 16) : 0x8c0000a0;
+  const sh4Frames = Array.from({ length: 16 }).map((_, index) => ({
+    index,
+    pc: index === 0 ? sh4Pc : 0x8c000000 + (index - 1) * 4,
+    sp: 0x0cfe0000 - index * 16,
+    symbol: `SH4_func_${index}`,
+    location: `sh4.c:${100 + index}`,
+  }));
+  callstacks["sh4"] = sh4Frames;
+
+  // ARM7 callstack - first frame is current PC
+  const arm7PcValue = registerValues.get("dc.aica.arm7.pc");
+  const arm7Pc = arm7PcValue && arm7PcValue.startsWith("0x") ? Number.parseInt(arm7PcValue, 16) : 0x00200010;
+  const arm7Frames = Array.from({ length: 16 }).map((_, index) => ({
+    index,
+    pc: index === 0 ? arm7Pc : 0x00200000 + (index - 1) * 4,
+    sp: 0x00280000 - index * 16,
+    symbol: `ARM7_func_${index}`,
+    location: `arm7.c:${100 + index}`,
+  }));
+  callstacks["arm7"] = arm7Frames;
+
   const tick: DebuggerTick = {
     tickId: tickId++,
     timestamp: Date.now(),
@@ -992,6 +1019,7 @@ const broadcastTick = () => {
     eventLog: frameLogEntries.slice(),
     watches: serverWatches.size > 0 ? watches : undefined,
     threads: sampleThreads,
+    callstacks,
   };
 
   // Broadcast tick to all clients
