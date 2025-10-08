@@ -51,14 +51,6 @@ export class DebuggerClient {
     this.rpc.disconnect();
   }
 
-  async handshake(clientName: string, clientVersion: string, transportBuild: "native" | "wasm") {
-    return this.rpc.call("debugger.handshake", {
-      clientName,
-      clientVersion,
-      transport: { build: transportBuild },
-    });
-  }
-
   async describe() {
     return this.rpc.call("debugger.describe", {});
   }

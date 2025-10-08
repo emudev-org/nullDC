@@ -109,7 +109,6 @@ export const AppLayout = () => {
   const disconnect = useSessionStore((state) => state.disconnect);
   const connectionState = useSessionStore((state) => state.connectionState);
   const connectionError = useSessionStore((state) => state.connectionError);
-  const session = useSessionStore((state) => state.session);
   const endpoint = useSessionStore((state) => state.endpoint);
   const client = useSessionStore((state) => state.client);
   const executionState = useSessionStore((state) => state.executionState);
@@ -515,12 +514,6 @@ export const AppLayout = () => {
         }}
       >
         <Typography variant="caption">Connection: {connectionState}</Typography>
-        {session && (
-          <Typography variant="caption" sx={{ display: "flex", gap: 1 }}>
-            <span>Session ID:</span>
-            <span>{session.sessionId}</span>
-          </Typography>
-        )}
         <Divider orientation="vertical" flexItem />
         <Typography variant="caption">Endpoint: {endpoint ?? "-"}</Typography>
         <Box sx={{ flexGrow: 1 }} />

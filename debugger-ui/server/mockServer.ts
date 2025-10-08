@@ -612,14 +612,6 @@ const dispatchMethod = async (
   client: ClientContext,
 ): Promise<{ result: unknown; shouldBroadcastTick: boolean }> => {
   switch (method) {
-    case "debugger.handshake":
-      return {
-        result: {
-          sessionId: client.sessionId,
-          capabilities: ["watches", "step", "breakpoints", "frame-log"],
-        },
-        shouldBroadcastTick: false,
-      };
     case "debugger.describe":
       return {
         result: {

@@ -9,7 +9,6 @@ export const BreakpointIdSchema = z.number().int().nonnegative();
 export const WatchIdSchema = z.number().int().nonnegative();
 
 export const RpcMethodNameSchema = z.enum([
-  "debugger.handshake",
   "debugger.describe",
   "state.getCallstack",
   "state.getMemorySlice",
@@ -32,7 +31,6 @@ export const RpcMethodNameSchema = z.enum([
 
 // Enum-style constants for method names (for better discoverability and refactoring)
 export const RpcMethod = {
-  DEBUGGER_HANDSHAKE: "debugger.handshake",
   DEBUGGER_DESCRIBE: "debugger.describe",
   STATE_GET_CALLSTACK: "state.getCallstack",
   STATE_GET_MEMORY_SLICE: "state.getMemorySlice",
@@ -197,16 +195,6 @@ export type RpcError = z.infer<typeof RpcErrorSchema>;
 
 // RPC Method Schemas for validation
 export const DebuggerRpcMethodSchemas = {
-  "debugger.handshake": {
-    params: z.object({
-      clientName: z.string(),
-      clientVersion: z.string(),
-      transport: TransportSettingsSchema,
-    }),
-    result: z.object({
-      sessionId: z.string(),
-    }),
-  },
   "state.getCallstack": {
     params: z.object({
       target: z.enum(["sh4", "arm7"]),

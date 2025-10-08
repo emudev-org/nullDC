@@ -5,17 +5,12 @@ import { DebuggerClient } from "../services/debuggerClient";
 export type ConnectionState = "idle" | "connecting" | "connected" | "error";
 export type ExecutionState = "running" | "paused";
 
-export interface SessionInfo {
-  sessionId: string;
-}
-
 interface SessionStore {
   client?: DebuggerClient;
   mode: "native" | "wasm";
   endpoint?: string;
   connectionState: ConnectionState;
   connectionError?: string;
-  session?: SessionInfo;
   executionState: ExecutionState;
   setExecutionState: (state: ExecutionState) => void;
   connect: (options?: { force?: boolean }) => Promise<void>;
@@ -51,14 +46,11 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
       connectionError: undefined,
       endpoint,
       client,
-      session: undefined,
     });
 
     try {
       await client.connect();
-      const handshake = await client.handshake(appConfig.clientName, appConfig.clientVersion, appConfig.mode);
       set({
-        session: handshake,
         connectionState: "connected",
       });
     } catch (error) {
@@ -80,7 +72,6 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
       connectionState: "idle",
       connectionError: undefined,
       client: undefined,
-      session: undefined,
     });
   },
 }));
