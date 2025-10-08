@@ -197,7 +197,7 @@ export const DeviceTreePanel = () => {
             <TextField
               size="small"
               fullWidth
-              placeholder="Search registers..."
+              placeholder="Search components..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               InputProps={{

@@ -1,28 +1,53 @@
-﻿import { useCallback } from "react";
+﻿import { useCallback, useMemo, useState } from "react";
 import { Panel } from "../layout/Panel";
-import { Box, IconButton, List, ListItem, ListItemText, Tooltip, Typography } from "@mui/material";
+import { Autocomplete, Box, Button, IconButton, List, ListItem, ListItemText, Stack, TextField, Typography } from "@mui/material";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
-import AddIcon from "@mui/icons-material/Add";
 import { useDebuggerDataStore } from "../../state/debuggerDataStore";
+import type { DeviceNodeDescriptor } from "../../lib/debuggerSchema";
 
 interface WatchesPanelProps {
   showTitle?: boolean;
 }
 
+// Helper to collect all register paths from device tree
+const collectRegisterPaths = (nodes: DeviceNodeDescriptor[]): string[] => {
+  const paths: string[] = [];
+  for (const node of nodes) {
+    // Add register paths - node.path already contains the full path
+    if (node.registers) {
+      for (const reg of node.registers) {
+        paths.push(`${node.path}.${reg.name}`);
+      }
+    }
+
+    // Recursively collect from children
+    if (node.children) {
+      paths.push(...collectRegisterPaths(node.children));
+    }
+  }
+  return paths;
+};
+
 export const WatchesPanel = ({ showTitle = false }: WatchesPanelProps) => {
   const initialized = useDebuggerDataStore((state) => state.initialized);
   const watchExpressions = useDebuggerDataStore((state) => state.watchExpressions);
   const watchValues = useDebuggerDataStore((state) => state.watchValues);
+  const deviceTree = useDebuggerDataStore((state) => state.deviceTree);
   const addWatch = useDebuggerDataStore((state) => state.addWatch);
   const removeWatch = useDebuggerDataStore((state) => state.removeWatch);
+  const [newWatch, setNewWatch] = useState("");
+
+  // Collect all available register paths from device tree
+  const availablePaths = useMemo(() => collectRegisterPaths(deviceTree), [deviceTree]);
 
   const handleAdd = useCallback(async () => {
-    const expression = window.prompt("Add watch expression", "dc.sh4.cpu.pc");
-    if (!expression) {
+    const trimmed = newWatch.trim();
+    if (!trimmed) {
       return;
     }
-    await addWatch(expression);
-  }, [addWatch]);
+    await addWatch(trimmed);
+    setNewWatch("");
+  }, [newWatch, addWatch]);
 
   const handleRemove = useCallback(
     async (expression: string) => {
@@ -32,16 +57,36 @@ export const WatchesPanel = ({ showTitle = false }: WatchesPanelProps) => {
   );
 
   return (
-    <Panel
-      title={showTitle ? "Watches" : undefined}
-      action={
-        <Tooltip title="Add watch">
-          <IconButton size="small" color="primary" onClick={handleAdd}>
-            <AddIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
-      }
-    >
+    <Panel title={showTitle ? "Watches" : undefined}>
+      <Box sx={{ p: 1.5, borderBottom: "1px solid", borderColor: "divider" }}>
+        <Stack direction="row" spacing={1}>
+          <Autocomplete
+            size="small"
+            fullWidth
+            freeSolo
+            options={availablePaths}
+            value={newWatch}
+            onChange={(_, newValue) => setNewWatch(newValue ?? "")}
+            onInputChange={(_, newValue) => setNewWatch(newValue)}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                placeholder="Enter Expression"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void handleAdd();
+                  }
+                }}
+                sx={{ "& .MuiOutlinedInput-root": { fontSize: "0.875rem", fontFamily: "monospace" } }}
+              />
+            )}
+          />
+          <Button size="small" variant="contained" onClick={handleAdd} sx={{ minWidth: 60 }}>
+            Add
+          </Button>
+        </Stack>
+      </Box>
       {!initialized ? (
         <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}>
           <Typography variant="body2" color="text.secondary">
