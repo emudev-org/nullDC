@@ -43,7 +43,7 @@ export const DisassemblyLineSchema = z.object({
 export const BreakpointDescriptorSchema = z.object({
   id: z.string(),
   location: z.string(),
-  kind: z.enum(["code", "data", "event"]),
+  kind: z.enum(["code", "event"]),
   enabled: z.boolean(),
   condition: z.string().optional(),
   hitCount: z.number(),
@@ -257,7 +257,7 @@ export const DebuggerRpcMethodSchemas = {
   "breakpoints.add": {
     params: z.object({
       location: z.string(),
-      kind: z.enum(["code", "data", "event"]).optional(),
+      kind: z.enum(["code", "event"]).optional(),
       enabled: z.boolean().optional(),
     }),
     result: RpcErrorSchema,
