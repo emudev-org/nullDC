@@ -38,4 +38,4 @@ COPY --from=build /app/src ./src
 COPY --from=build /app/tsconfig.server.json ./
 
 EXPOSE 8080
-CMD ["npm", "run", "mock:start"]
+CMD ["npm", "run", "mock:serve"]
