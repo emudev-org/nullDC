@@ -1,4 +1,4 @@
-import init, { ReadReg, WriteReg, Step, Step128, Step128Start, Step128End } from "../wasm/aica-dsp/aica_dsp.js";
+import init, { read_reg, write_reg, step, step128, step128_start, step128_end } from "../wasm/aica-dsp/aica_dsp.js";
 
 class AicaDsp {
   private initialized = false;
@@ -21,42 +21,42 @@ class AicaDsp {
     if (!this.initialized) {
       throw new Error("AICA DSP WASM module not initialized");
     }
-    return ReadReg(addr);
+    return read_reg(addr);
   }
 
   writeReg(addr: number, data: number): void {
     if (!this.initialized) {
       throw new Error("AICA DSP WASM module not initialized");
     }
-    WriteReg(addr, data);
+    write_reg(addr, data);
   }
 
   step(stepNum: number): void {
     if (!this.initialized) {
       throw new Error("AICA DSP WASM module not initialized");
     }
-    Step(stepNum);
+    step(stepNum);
   }
 
   step128(): void {
     if (!this.initialized) {
       throw new Error("AICA DSP WASM module not initialized");
     }
-    Step128();
+    step128();
   }
 
   step128Start(): void {
     if (!this.initialized) {
       throw new Error("AICA DSP WASM module not initialized");
     }
-    Step128Start();
+    step128_start();
   }
 
   step128End(): void {
     if (!this.initialized) {
       throw new Error("AICA DSP WASM module not initialized");
     }
-    Step128End();
+    step128_end();
   }
 
   isInitialized(): boolean {

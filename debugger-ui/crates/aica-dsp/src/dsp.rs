@@ -60,39 +60,6 @@ pub fn unpack(val: u16) -> i32 {
     uval
 }
 
-// Decode instruction from 4 u32 words
-pub fn decode_inst(iptr: &[u32]) -> Inst {
-    Inst {
-        tra: (iptr[0] >> 9) & 0x7F,
-        twt: (iptr[0] >> 8) & 0x01,
-        twa: (iptr[0] >> 1) & 0x7F,
-
-        xsel: (iptr[1] >> 15) & 0x01,
-        ysel: (iptr[1] >> 13) & 0x03,
-        ira: (iptr[1] >> 7) & 0x3F,
-        iwt: (iptr[1] >> 6) & 0x01,
-        iwa: (iptr[1] >> 1) & 0x1F,
-
-        table: (iptr[2] >> 15) & 0x01,
-        mwt: (iptr[2] >> 14) & 0x01,
-        mrd: (iptr[2] >> 13) & 0x01,
-        ewt: (iptr[2] >> 12) & 0x01,
-        ewa: (iptr[2] >> 8) & 0x0F,
-        adrl: (iptr[2] >> 7) & 0x01,
-        frcl: (iptr[2] >> 6) & 0x01,
-        shift: (iptr[2] >> 4) & 0x03,
-        yrl: (iptr[2] >> 3) & 0x01,
-        negb: (iptr[2] >> 2) & 0x01,
-        zero: (iptr[2] >> 1) & 0x01,
-        bsel: (iptr[2] >> 0) & 0x01,
-
-        nofl: (iptr[3] >> 15) & 0x01,
-        masa: (iptr[3] >> 9) & 0x3F,
-        adreb: (iptr[3] >> 8) & 0x01,
-        nxadr: (iptr[3] >> 7) & 0x01,
-    }
-}
-
 // Main DSP step function
 pub fn step(step_num: i32) {
     let step = step_num as usize;

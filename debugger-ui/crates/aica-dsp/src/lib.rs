@@ -106,11 +106,17 @@ pub struct Inst {
 
 // Helper functions to access DSPData
 fn get_dsp_data() -> &'static mut DSPData {
-    unsafe { &mut *(AICA_REG.as_mut_ptr().add(0x3000) as *mut DSPData) }
+    unsafe {
+        let ptr = (&raw mut AICA_REG).cast::<u8>().add(0x3000).cast::<DSPData>();
+        &mut *ptr
+    }
 }
 
 fn get_common_data() -> &'static CommonData {
-    unsafe { &*(AICA_REG.as_ptr().add(0x2800) as *const CommonData) }
+    unsafe {
+        let ptr = (&raw const AICA_REG).cast::<u8>().add(0x2800).cast::<CommonData>();
+        &*ptr
+    }
 }
 
 pub fn get_mems(idx: usize) -> i32 {
@@ -142,15 +148,17 @@ pub fn set_temp(idx: usize, val: i32) {
 
 // WASM exports
 #[wasm_bindgen]
-pub fn ReadReg(addr: u32) -> u32 {
+pub fn read_reg(addr: u32) -> u32 {
+    const AICA_REG_SIZE: usize = 0x8000;
     unsafe {
         let offset = (addr as usize) & 0x7FFF;
-        if offset + 4 <= AICA_REG.len() {
+        let ptr = (&raw const AICA_REG).cast::<u8>();
+        if offset + 4 <= AICA_REG_SIZE {
             u32::from_le_bytes([
-                AICA_REG[offset],
-                AICA_REG[offset + 1],
-                AICA_REG[offset + 2],
-                AICA_REG[offset + 3],
+                *ptr.add(offset),
+                *ptr.add(offset + 1),
+                *ptr.add(offset + 2),
+                *ptr.add(offset + 3),
             ])
         } else {
             0
@@ -159,42 +167,47 @@ pub fn ReadReg(addr: u32) -> u32 {
 }
 
 #[wasm_bindgen]
-pub fn WriteReg(addr: u32, data: u32) {
+pub fn write_reg(addr: u32, data: u32) {
+    const AICA_REG_SIZE: usize = 0x8000;
     unsafe {
         let offset = (addr as usize) & 0x7FFF;
-        if offset + 4 <= AICA_REG.len() {
+        let ptr = (&raw mut AICA_REG).cast::<u8>();
+        if offset + 4 <= AICA_REG_SIZE {
             let bytes = data.to_le_bytes();
-            AICA_REG[offset] = bytes[0];
-            AICA_REG[offset + 1] = bytes[1];
-            AICA_REG[offset + 2] = bytes[2];
-            AICA_REG[offset + 3] = bytes[3];
+            *ptr.add(offset) = bytes[0];
+            *ptr.add(offset + 1) = bytes[1];
+            *ptr.add(offset + 2) = bytes[2];
+            *ptr.add(offset + 3) = bytes[3];
         }
     }
 }
 
 #[wasm_bindgen]
-pub fn Step(step: i32) {
+pub fn step(step: i32) {
     dsp::step(step);
 }
 
 #[wasm_bindgen]
-pub fn Step128Start() {
+pub fn step128_start() {
     dsp::step_128_start();
 }
 
 #[wasm_bindgen]
-pub fn Step128End() {
+pub fn step128_end() {
     dsp::step_128_end();
 }
 
 #[wasm_bindgen]
-pub fn Step128() {
+pub fn step128() {
     dsp::step_128();
 }
 
 // Export memory access for debugging
 pub fn get_aica_ram() -> &'static mut [u8] {
-    unsafe { &mut AICA_RAM }
+    unsafe {
+        let ptr = (&raw mut AICA_RAM).cast::<u8>();
+        std::slice::from_raw_parts_mut(ptr, 2 * 1024 * 1024)
+    }
 }
 
 pub fn get_aram_mask() -> u32 {
