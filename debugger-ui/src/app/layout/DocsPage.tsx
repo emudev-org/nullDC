@@ -111,7 +111,7 @@ const documentationSections = [
         level: 2 as const,
         items: [
           "Audio panel visualizes oscillator channels, DSP accumulators, and waveform streams.",
-          "DSP Playground (coming soon) will allow authoring effect chains with live previews.",
+          "DSP Playground is a standalone tool accessible from the home page for authoring effect chains with live previews.",
           "Breakpoint filters highlight AICA- and DSP-related events to understand audio frame scheduling.",
         ],
       },
@@ -137,6 +137,7 @@ const documentationSections = [
         title: "SH4 Simulator",
         level: 2 as const,
         items: [
+          "SH4 Simulator is a standalone tool accessible from the home page.",
           "Visualize execution hazards by feeding assembly directly into the simulator.",
           "Hovering over cells reveals stall explanations and dependency highlights.",
           "Horizontal scroll container keeps the editor static while exploring wide tables.",
@@ -195,6 +196,7 @@ export const DocsPage = () => {
           onHomeClick={() => navigate("/")}
           onDocsClick={() => navigate("/docs")}
           onAboutClick={showAbout}
+          title="Documentation"
           active="docs"
         />
       </AppBar>

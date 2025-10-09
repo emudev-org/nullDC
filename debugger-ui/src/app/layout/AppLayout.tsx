@@ -23,8 +23,6 @@ import { AudioPanel } from "../panels/AudioPanel";
 import { TaInspectorPanel } from "../panels/TaInspectorPanel";
 import { CoreInspectorPanel } from "../panels/CoreInspectorPanel";
 import { EventsBreakpointsPanel, Sh4BreakpointsPanel, Arm7BreakpointsPanel, DspBreakpointsPanel } from "../panels/BreakpointsPanel";
-import { Sh4SimPanel } from "../panels/Sh4SimPanel";
-import { DspPlaygroundPanel } from "../panels/DspPlaygroundPanel";
 import { useNavigate, useParams, Link } from "react-router-dom";
 import { AboutDialog } from "./AboutDialog";
 import { useAboutModal } from "./useAboutModal";
@@ -79,8 +77,6 @@ const mainTabs = [
   { value: "aica", label: "AICA", component: <AudioPanel /> },
   { value: "dsp-disassembly", label: "DSP: Disassembly", component: <DspDisassemblyPanel /> },
   { value: "dsp-breakpoints", label: "DSP: Breakpoints", component: <DspBreakpointsPanel /> },
-  { value: "dsp-playground", label: "DSP: Playground", component: <DspPlaygroundPanel /> },
-  { value: "sh4-sim", label: "SH4: Sim", component: <Sh4SimPanel /> },
 ];
 
 const sidePanelTabs = [
@@ -133,11 +129,10 @@ export const AppLayout = () => {
 
   const validValues = useMemo(() => new Set(workspaceTabs.map(t => t.value)), [workspaceTabs]);
   const currentTab = validValues.has(tab ?? "") ? (tab as string) : workspaceTabs[0].value;
-  const sidePanelsLocked = currentTab === "sh4-sim" || currentTab === "dsp-playground";
-  const showLeftPanel = !isNarrow && !sidePanelsLocked && leftPanelOpen;
-  const showRightPanel = !isNarrow && !sidePanelsLocked && rightPanelOpen;
-  const showLeftToggle = !isNarrow && !sidePanelsLocked;
-  const showRightToggle = !isNarrow && !sidePanelsLocked;
+  const showLeftPanel = !isNarrow && leftPanelOpen;
+  const showRightPanel = !isNarrow && rightPanelOpen;
+  const showLeftToggle = !isNarrow;
+  const showRightToggle = !isNarrow;
 
   useEffect(() => {
     const handleResize = () => {
@@ -313,6 +308,7 @@ export const AppLayout = () => {
           onDocsClick={() => navigate("/docs")}
           onAboutClick={showAbout}
           onResetLayout={handleResetLayout}
+          title="Debugger"
           rightSection={
             <Stack direction="row" spacing={1.5} alignItems="center">
               <Stack direction="row" spacing={0.5} alignItems="center">
@@ -517,7 +513,7 @@ export const AppLayout = () => {
         <Divider orientation="vertical" flexItem />
         <Typography variant="caption">Endpoint: {endpoint ?? "-"}</Typography>
         <Box sx={{ flexGrow: 1 }} />
-        <Typography variant="caption">{DEBUGGER_VERSION}</Typography>
+        <Typography variant="caption">nullDC Debugger {DEBUGGER_VERSION}</Typography>
       </Box>
       <AboutDialog open={aboutOpen} onClose={hideAbout} />
       <Box

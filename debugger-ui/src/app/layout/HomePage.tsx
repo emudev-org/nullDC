@@ -8,7 +8,7 @@ export const HomePage = () => {
   const navigate = useNavigate();
   const { open: aboutOpen, show: showAbout, hide: hideAbout } = useAboutModal();
 
-  const quickActions = useMemo(
+  const debuggerActions = useMemo(
     () => [
       {
         title: "Debug SH4 Code",
@@ -31,20 +31,37 @@ export const HomePage = () => {
         action: () => navigate("/core"),
       },
       {
-        title: "Debug AICA & DSP",
-        description: "Monitor AICA channels, DSP state, and waveforms to diagnose audio paths.",
+        title: "Debug AICA",
+        description: "Monitor AICA channels and waveforms to diagnose audio paths.",
         action: () => navigate("/aica"),
       },
       {
-        title: "Simulate SH4 Pipeline",
+        title: "Debug DSP",
+        description: "Inspect DSP state, disassembly, and breakpoints for audio processing.",
+        action: () => navigate("/dsp-disassembly"),
+      },
+    ],
+    [navigate],
+  );
+
+  const toolsActions = useMemo(
+    () => [
+      {
+        title: "SH4 Simulator",
         description: "Experiment with scheduling patterns and visualize pipeline hazards.",
         action: () => navigate("/sh4-sim"),
       },
       {
         title: "DSP Playground",
-        description: "Author and preview DSP effects with real-time waveform inspection.",
+        description: "Author, debug and preview DSP effects with real-time waveform inspection.",
         action: () => navigate("/dsp-playground"),
       },
+    ],
+    [navigate],
+  );
+
+  const othersActions = useMemo(
+    () => [
       {
         title: "Documentation",
         description: "Learn the debugger workflows, mocked APIs, and sharing features in detail.",
@@ -76,10 +93,10 @@ export const HomePage = () => {
         <Stack spacing={6} alignItems="center">
           <Stack spacing={2} alignItems="center" textAlign="center">
             <Typography variant="h3" fontWeight={700} sx={{ color: "text.primary" }}>
-              Welcome to the nullDC Debugger
+              Welcome to the nullDC DevTools
             </Typography>
             <Typography variant="h6" sx={{ color: "text.secondary", maxWidth: 720 }}>
-              Dive into Dreamcast debugging with curated entry points for CPU, GPU, and audio analysis.
+              Dive into Dreamcast with curated entry points for CPU, GPU, and audio analysis, as well as sh4 simulator and dsp authoring tools.
               Choose a task to get started.
             </Typography>
             <Stack direction={{ xs: "column", sm: "row" }} spacing={2} sx={{ mt: 2 }}>
@@ -88,40 +105,124 @@ export const HomePage = () => {
             </Stack>
           </Stack>
 
-          <Box
-            sx={{
-              width: "100%",
-              display: "grid",
-              gap: 3,
-              gridTemplateColumns: {
-                xs: "1fr",
-                sm: "repeat(2, minmax(0, 1fr))",
-                md: "repeat(3, minmax(0, 1fr))",
-              },
-            }}
-          >
-            {quickActions.map((action) => (
-              <Card elevation={4} sx={{ borderRadius: 3, height: "100%" }} key={action.title}>
-                <CardActionArea
-                  onClick={action.action}
-                  sx={{ height: "100%", display: "flex", alignItems: "stretch" }}
-                >
-                  <CardContent sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
-                    <Typography variant="h6" fontWeight={600}>
-                      {action.title}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {action.description}
-                    </Typography>
-                    <Box sx={{ flexGrow: 1 }} />
-                    <Typography variant="button" sx={{ color: "primary.main" }}>
-                      Open →
-                    </Typography>
-                  </CardContent>
-                </CardActionArea>
-              </Card>
-            ))}
-          </Box>
+          <Stack spacing={4} sx={{ width: "100%" }}>
+            <Stack spacing={2}>
+              <Typography variant="h5" fontWeight={700} sx={{ color: "text.primary", textAlign: "center" }}>
+                Debugger
+              </Typography>
+              <Box
+                sx={{
+                  display: "grid",
+                  gap: 3,
+                  gridTemplateColumns: {
+                    xs: "1fr",
+                    sm: "repeat(2, minmax(0, 1fr))",
+                    md: "repeat(3, minmax(0, 1fr))",
+                  },
+                }}
+              >
+                {debuggerActions.map((action) => (
+                  <Card elevation={4} sx={{ borderRadius: 3, height: "100%" }} key={action.title}>
+                    <CardActionArea
+                      onClick={action.action}
+                      sx={{ height: "100%", display: "flex", alignItems: "stretch" }}
+                    >
+                      <CardContent sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
+                        <Typography variant="h6" fontWeight={600}>
+                          {action.title}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          {action.description}
+                        </Typography>
+                        <Box sx={{ flexGrow: 1 }} />
+                        <Typography variant="button" sx={{ color: "primary.main" }}>
+                          Open →
+                        </Typography>
+                      </CardContent>
+                    </CardActionArea>
+                  </Card>
+                ))}
+              </Box>
+            </Stack>
+
+            <Stack spacing={2}>
+              <Typography variant="h5" fontWeight={700} sx={{ color: "text.primary", textAlign: "center" }}>
+                Tools
+              </Typography>
+              <Box
+                sx={{
+                  display: "grid",
+                  gap: 3,
+                  gridTemplateColumns: {
+                    xs: "1fr",
+                    sm: "repeat(2, minmax(0, 1fr))",
+                    md: "repeat(3, minmax(0, 1fr))",
+                  },
+                }}
+              >
+                {toolsActions.map((action) => (
+                  <Card elevation={4} sx={{ borderRadius: 3, height: "100%" }} key={action.title}>
+                    <CardActionArea
+                      onClick={action.action}
+                      sx={{ height: "100%", display: "flex", alignItems: "stretch" }}
+                    >
+                      <CardContent sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
+                        <Typography variant="h6" fontWeight={600}>
+                          {action.title}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          {action.description}
+                        </Typography>
+                        <Box sx={{ flexGrow: 1 }} />
+                        <Typography variant="button" sx={{ color: "primary.main" }}>
+                          Open →
+                        </Typography>
+                      </CardContent>
+                    </CardActionArea>
+                  </Card>
+                ))}
+              </Box>
+            </Stack>
+
+            <Stack spacing={2}>
+              <Typography variant="h5" fontWeight={700} sx={{ color: "text.primary", textAlign: "center" }}>
+                Others
+              </Typography>
+              <Box
+                sx={{
+                  display: "grid",
+                  gap: 3,
+                  gridTemplateColumns: {
+                    xs: "1fr",
+                    sm: "repeat(2, minmax(0, 1fr))",
+                    md: "repeat(3, minmax(0, 1fr))",
+                  },
+                }}
+              >
+                {othersActions.map((action) => (
+                  <Card elevation={4} sx={{ borderRadius: 3, height: "100%" }} key={action.title}>
+                    <CardActionArea
+                      onClick={action.action}
+                      sx={{ height: "100%", display: "flex", alignItems: "stretch" }}
+                    >
+                      <CardContent sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
+                        <Typography variant="h6" fontWeight={600}>
+                          {action.title}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          {action.description}
+                        </Typography>
+                        <Box sx={{ flexGrow: 1 }} />
+                        <Typography variant="button" sx={{ color: "primary.main" }}>
+                          Open →
+                        </Typography>
+                      </CardContent>
+                    </CardActionArea>
+                  </Card>
+                ))}
+              </Box>
+            </Stack>
+          </Stack>
         </Stack>
       </Container>
       <AboutDialog open={aboutOpen} onClose={hideAbout} />

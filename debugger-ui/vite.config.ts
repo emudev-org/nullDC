@@ -4,7 +4,7 @@ import { execSync } from 'node:child_process';
 
 function resolveVersion(): string {
   try {
-    return execSync('git describe', { stdio: 'pipe' }).toString().trim() || "unknown";
+    return execSync('git describe', { stdio: 'pipe' }).toString().trim() || "(unknown version)";
   } catch {
     return "unknown";
   }

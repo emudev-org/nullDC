@@ -8,6 +8,7 @@ interface TopNavProps {
   onResetLayout?: () => void;
   rightSection?: ReactNode;
   active?: "home" | "docs" | "workspace";
+  title?: string;
 }
 
 export const TopNav = ({
@@ -17,6 +18,7 @@ export const TopNav = ({
   onResetLayout,
   rightSection,
   active,
+  title = "nullDC Debugger",
 }: TopNavProps) => {
   const homeVariant = active === "home" ? "contained" : "text";
   const docsVariant = active === "docs" ? "contained" : "text";
@@ -24,7 +26,7 @@ export const TopNav = ({
   return (
     <Toolbar sx={{ gap: 2 }}>
       <Stack direction="row" spacing={1.5} alignItems="center" sx={{ flexShrink: 0 }}>
-        <Typography variant="h6">nullDC Debugger</Typography>
+        <Typography variant="h6">{title}</Typography>
         <Divider orientation="vertical" flexItem />
         <Button variant={homeVariant} color="primary" onClick={onHomeClick}>
           Home
