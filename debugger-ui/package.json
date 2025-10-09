@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "tsx watch --tsconfig tsconfig.server.json server/mockServer.ts",
     "mock:start": "tsx --tsconfig tsconfig.server.json server/mockServer.ts",
-    "build": "tsc -b && vite build",
+    "build": "npm run build:wasm && tsc -b && vite build",
+    "build:wasm": "cd crates/aica-dsp && wasm-pack build --target web --out-dir ../../experiments/aica_dsp_playground_rust/pkg",
     "lint": "eslint ."
   },
   "dependencies": {
