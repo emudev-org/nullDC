@@ -3,13 +3,30 @@ import {
   Alert,
   Box,
   Button,
+  CircularProgress,
+  IconButton,
+  MenuItem,
+  Paper,
+  Select,
   Stack,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import PlayArrowIcon from "@mui/icons-material/PlayArrow";
+import StopIcon from "@mui/icons-material/Stop";
+import DeleteIcon from "@mui/icons-material/Delete";
+import HearingIcon from "@mui/icons-material/Hearing";
+import VolumeOffIcon from "@mui/icons-material/VolumeOff";
+import VolumeUpIcon from "@mui/icons-material/VolumeUp";
+import RadioButtonCheckedIcon from "@mui/icons-material/RadioButtonChecked";
+import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
+import KeyboardArrowUpIcon from "@mui/icons-material/KeyboardArrowUp";
+import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import { deflate, inflate } from "pako";
 import { Panel } from "../layout/Panel";
 import { DspAssemblyEditor } from "../components/DspAssemblyEditor";
+import type { DspAssemblyEditorRef } from "../components/DspAssemblyEditor";
 import { WaveformPlotter } from "../components/WaveformPlotter";
 import type { WaveformPlotterRef } from "../components/WaveformPlotter";
 import { aicaDsp } from "../../lib/aicaDsp";
@@ -103,6 +120,16 @@ const KEY_TO_NOTE: Record<string, string> = {
   "'": "F5",
 };
 
+type InputSource = "none" | "keyboard" | { type: "file"; fileId: string };
+
+interface AudioFile {
+  id: string;
+  name: string;
+  audioBuffer: AudioBuffer | null;
+  loading?: boolean;
+  error?: string;
+}
+
 export const DspPlaygroundPanel = () => {
   const [source, setSource] = useState(resolveInitialSource);
   const [error, setError] = useState<string | null>(null);
@@ -111,19 +138,50 @@ export const DspPlaygroundPanel = () => {
   const [wavBuffer, setWavBuffer] = useState<DataView | null>(null);
   const [shareToken, setShareToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [audioFiles, setAudioFiles] = useState<AudioFile[]>([]);
+  const [playingFileId, setPlayingFileId] = useState<string | null>(null);
+  const [loadingChannels, setLoadingChannels] = useState<Set<number>>(new Set());
+  const [inputSources, setInputSources] = useState<InputSource[]>(() => {
+    const sources: InputSource[] = Array(16).fill("none");
+    sources[0] = "keyboard"; // Channel 0 defaults to keyboard
+    return sources;
+  });
+  const inputSourcesRef = useRef<InputSource[]>(inputSources);
+  const audioFilesRef = useRef<AudioFile[]>(audioFiles);
+  const dspStepCounter = useRef(0);
   const frequency = useRef(0);
   const keysPressed = useRef(new Set<string>());
   const wavIndex = useRef(0);
   const phase = useRef(0);
   const amplitude = 0.5;
+  const lastKeyboardSample = useRef(0); // For smoothing keyboard input
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const scriptNodeRef = useRef<ScriptProcessorNode | null>(null);
+  const filePlaybackContextRef = useRef<AudioContext | null>(null);
+  const filePlaybackSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const tappedChannelRef = useRef<number | null>(null);
+  const tapButtonRefs = useRef<Array<HTMLButtonElement | null>>(Array(16).fill(null));
+  const mutedChannelsRef = useRef<Set<number>>(new Set());
+  const soloedChannelRef = useRef<number | null>(null);
+  const muteButtonRefs = useRef<Array<HTMLButtonElement | null>>(Array(16).fill(null));
+  const soloButtonRefs = useRef<Array<HTMLButtonElement | null>>(Array(16).fill(null));
 
-  const inputPlotterRef = useRef<WaveformPlotterRef>(null);
+  const editorRef = useRef<DspAssemblyEditorRef | null>(null);
+  const editorContainerRef = useRef<HTMLDivElement | null>(null);
+  const editorInnerContainerRef = useRef<HTMLDivElement | null>(null);
+  const dspSectionRef = useRef<HTMLDivElement | null>(null);
+  const editorFullscreenRef = useRef(false);
+  const editorToggleButtonRef = useRef<HTMLButtonElement | null>(null);
+  const inputPlotterRefs = useRef<Array<WaveformPlotterRef | null>>(
+    Array(16).fill(null)
+  );
   const outputPlotterRefs = useRef<Array<WaveformPlotterRef | null>>(
     Array(16).fill(null)
   );
+  const mixPlotterRef = useRef<WaveformPlotterRef | null>(null);
+  const inputContainerRefs = useRef<Array<HTMLElement | null>>(Array(16).fill(null));
+  const outputContainerRefs = useRef<Array<HTMLElement | null>>(Array(16).fill(null));
 
   // Initialize WASM
   useEffect(() => {
@@ -294,6 +352,9 @@ export const DspPlaygroundPanel = () => {
   const handleStartAudio = useCallback(() => {
     if (!wasmInitialized) return;
 
+    // Reset DSP step counter
+    dspStepCounter.current = 0;
+
     const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({
       sampleRate: 44100,
     });
@@ -305,8 +366,8 @@ export const DspPlaygroundPanel = () => {
       const TWO_PI = Math.PI * 2;
 
       for (let i = 0; i < outputBuffer.length; i++) {
-        // Generate sine wave sample
-        let sample = amplitude * Math.sin(phase.current);
+        // Generate sine wave sample only if frequency > 0
+        let sample = frequency.current > 0 ? amplitude * Math.sin(phase.current) : 0;
 
         if (wavBuffer) {
           const idx = wavIndex.current;
@@ -316,33 +377,113 @@ export const DspPlaygroundPanel = () => {
           }
         }
 
-        const sampleInt = Math.round(sample * 32767);
+        const rawKeyboardSample = Math.round(sample * 32767);
 
-        inputPlotterRef.current?.appendSample(sampleInt);
+        // Apply smoothing: smoothed = old * 0.2 + new * 0.8
+        const smoothedKeyboardSample = Math.round(lastKeyboardSample.current * 0.97 + rawKeyboardSample * 0.02);
+        lastKeyboardSample.current = smoothedKeyboardSample;
 
-        // Write input to DSP
-        for (let j = 0; j < 2; j++) {
-          aicaDsp.writeReg(0x3000 + 0x1500 + 0 + j * 8, (sampleInt >> 0) & 0xf);
-          aicaDsp.writeReg(0x3000 + 0x1500 + 4 + j * 8, (sampleInt >> 4) & 0xffff);
+        // Write input to DSP channels based on input source
+        for (let j = 0; j < 16; j++) {
+          let channelSample = 0;
+
+          // Route based on input source (use ref to get current value)
+          const source = inputSourcesRef.current[j];
+          if (typeof source === "object" && source.type === "file") {
+            // File source
+            const file = audioFilesRef.current.find(f => f.id === source.fileId);
+            if (file && file.audioBuffer) {
+              const channelData = file.audioBuffer.getChannelData(0);
+              const pos = dspStepCounter.current;
+
+              // Read sample if within bounds, otherwise silent
+              if (pos < channelData.length) {
+                channelSample = Math.round(channelData[pos] * 32767);
+              }
+            }
+          } else {
+            // String sources
+            switch (source) {
+              case "keyboard":
+                channelSample = smoothedKeyboardSample;
+                break;
+              case "none":
+              default:
+                channelSample = 0;
+                break;
+            }
+          }
+
+          aicaDsp.writeReg(0x3000 + 0x1500 + 0 + j * 8, (channelSample >> 0) & 0xf);
+          aicaDsp.writeReg(0x3000 + 0x1500 + 4 + j * 8, (channelSample >> 4) & 0xffff);
+          inputPlotterRefs.current[j]?.appendSample(channelSample);
         }
 
         aicaDsp.step128();
 
         // Read DSP outputs
         let audioOut = 0;
+        let mixSampleInt = 0;
+        const soloed = soloedChannelRef.current;
+        const muted = mutedChannelsRef.current;
+
         for (let j = 0; j < 16; j++) {
           let fxSampleInt = aicaDsp.readReg(0x3000 + 0x1580 + j * 4);
           fxSampleInt = fxSampleInt & 0xffff;
           if (fxSampleInt & 0x8000) {
             fxSampleInt |= 0xffff0000;
           }
+
+          // Apply solo/mute logic
+          let channelEnabled = true;
+          if (soloed !== null) {
+            channelEnabled = j === soloed;
+          } else if (muted.has(j)) {
+            channelEnabled = false;
+          }
+
           const fxSample = fxSampleInt / 32767;
-          audioOut += fxSample;
+          if (channelEnabled) {
+            audioOut += fxSample;
+            mixSampleInt += fxSampleInt;
+          }
 
           outputPlotterRefs.current[j]?.appendSample(fxSampleInt);
         }
 
-        outputBuffer[i] = audioOut;
+        // Update mix plotter with combined output
+        mixPlotterRef.current?.appendSample(mixSampleInt);
+
+        // If a channel is tapped, output only the input of that channel
+        const tapped = tappedChannelRef.current;
+        if (tapped !== null) {
+          const source = inputSourcesRef.current[tapped];
+          if (source === "keyboard") {
+            outputBuffer[i] = smoothedKeyboardSample / 32767;
+          } else if (typeof source === "object" && source.type === "file") {
+            const file = audioFilesRef.current.find(f => f.id === source.fileId);
+            if (file && file.audioBuffer) {
+              const channelData = file.audioBuffer.getChannelData(0);
+              const pos = dspStepCounter.current;
+
+              // Read sample if within bounds, otherwise silent
+              if (pos < channelData.length) {
+                outputBuffer[i] = channelData[pos];
+              } else {
+                outputBuffer[i] = 0;
+              }
+            } else {
+              outputBuffer[i] = 0;
+            }
+          } else {
+            outputBuffer[i] = 0;
+          }
+        } else {
+          outputBuffer[i] = audioOut;
+        }
+
+        // Increment DSP step counter
+        dspStepCounter.current++;
 
         // Update the phase
         phase.current += (TWO_PI * frequency.current) / sampleRate;
@@ -430,6 +571,541 @@ export const DspPlaygroundPanel = () => {
     }
   }, [shareToken]);
 
+  // Sync inputSources state to ref for audio callback
+  useEffect(() => {
+    inputSourcesRef.current = inputSources;
+  }, [inputSources]);
+
+  // Sync audioFiles state to ref for audio callback
+  useEffect(() => {
+    audioFilesRef.current = audioFiles;
+  }, [audioFiles]);
+
+
+  const handleTapToggle = useCallback((channel: number) => {
+    const newTapped = tappedChannelRef.current === channel ? null : channel;
+    tappedChannelRef.current = newTapped;
+
+    // Update button classes directly without re-render
+    tapButtonRefs.current.forEach((btn, idx) => {
+      if (btn) {
+        if (idx === newTapped) {
+          btn.classList.add('tap-active');
+        } else {
+          btn.classList.remove('tap-active');
+        }
+      }
+    });
+
+    // Apply grayscale to all containers except the tapped one
+    inputContainerRefs.current.forEach((container, idx) => {
+      if (container) {
+        if (newTapped !== null && idx !== newTapped) {
+          container.style.filter = 'grayscale(100%)';
+          container.style.opacity = '0.5';
+        } else {
+          container.style.filter = '';
+          container.style.opacity = '';
+        }
+      }
+    });
+
+    // Apply grayscale to all outputs when input is tapped
+    outputContainerRefs.current.forEach((container) => {
+      if (container) {
+        if (newTapped !== null) {
+          container.style.filter = 'grayscale(100%)';
+          container.style.opacity = '0.5';
+        } else {
+          container.style.filter = '';
+          container.style.opacity = '';
+        }
+      }
+    });
+  }, []);
+
+  const handleMuteToggle = useCallback((channel: number) => {
+    const muted = mutedChannelsRef.current;
+
+    // If channel is currently soloed, clear solo first
+    if (soloedChannelRef.current === channel) {
+      soloedChannelRef.current = null;
+      soloButtonRefs.current.forEach((btn) => {
+        if (btn) btn.classList.remove('solo-active');
+      });
+    }
+
+    if (muted.has(channel)) {
+      muted.delete(channel);
+    } else {
+      muted.add(channel);
+    }
+
+    // Update button class and icon
+    const btn = muteButtonRefs.current[channel];
+    if (btn) {
+      const icon = btn.querySelector('svg');
+      if (muted.has(channel)) {
+        btn.classList.add('mute-active');
+        if (icon) {
+          icon.innerHTML = '<path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"></path>';
+        }
+      } else {
+        btn.classList.remove('mute-active');
+        if (icon) {
+          icon.innerHTML = '<path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"></path>';
+        }
+      }
+    }
+
+    // Apply grayscale to the muted channel's container
+    const container = outputContainerRefs.current[channel];
+    if (container) {
+      if (muted.has(channel)) {
+        container.style.filter = 'grayscale(100%)';
+        container.style.opacity = '0.5';
+      } else {
+        container.style.filter = '';
+        container.style.opacity = '';
+      }
+    }
+  }, []);
+
+  const handleEditorFullscreenToggle = useCallback(() => {
+    editorFullscreenRef.current = !editorFullscreenRef.current;
+    const isFullscreen = editorFullscreenRef.current;
+
+    // Toggle CSS on containers
+    if (editorContainerRef.current) {
+      if (isFullscreen) {
+        editorContainerRef.current.style.flex = '1';
+        editorContainerRef.current.style.minHeight = '0';
+      } else {
+        editorContainerRef.current.style.flex = '';
+        editorContainerRef.current.style.minHeight = '';
+      }
+    }
+
+    if (editorInnerContainerRef.current) {
+      if (isFullscreen) {
+        editorInnerContainerRef.current.style.flex = '1';
+        editorInnerContainerRef.current.style.minHeight = '0';
+        editorInnerContainerRef.current.style.height = '100%';
+      } else {
+        editorInnerContainerRef.current.style.flex = '';
+        editorInnerContainerRef.current.style.minHeight = '';
+        editorInnerContainerRef.current.style.height = '';
+      }
+    }
+
+    if (dspSectionRef.current) {
+      dspSectionRef.current.style.display = isFullscreen ? 'none' : 'flex';
+    }
+
+    // Toggle button icon
+    if (editorToggleButtonRef.current) {
+      const icon = editorToggleButtonRef.current.querySelector('svg');
+      if (icon) {
+        if (isFullscreen) {
+          icon.innerHTML = '<path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"></path>';
+        } else {
+          icon.innerHTML = '<path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"></path>';
+        }
+      }
+    }
+
+    // Trigger editor layout after DOM updates
+    setTimeout(() => {
+      editorRef.current?.layout();
+    }, 10);
+  }, []);
+
+  const handleSoloToggle = useCallback((channel: number) => {
+    const newSoloed = soloedChannelRef.current === channel ? null : channel;
+    soloedChannelRef.current = newSoloed;
+
+    // If soloing, clear mute for this channel
+    if (newSoloed !== null) {
+      mutedChannelsRef.current.delete(channel);
+      const muteBtn = muteButtonRefs.current[channel];
+      if (muteBtn) {
+        muteBtn.classList.remove('mute-active');
+        const icon = muteBtn.querySelector('svg');
+        if (icon) {
+          icon.innerHTML = '<path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"></path>';
+        }
+      }
+    }
+
+    // Update all solo button classes and icons
+    soloButtonRefs.current.forEach((btn, idx) => {
+      if (btn) {
+        const icon = btn.querySelector('svg');
+        if (idx === newSoloed) {
+          btn.classList.add('solo-active');
+          if (icon) {
+            icon.innerHTML = '<path d="M12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zm0-5C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"></path>';
+          }
+        } else {
+          btn.classList.remove('solo-active');
+          if (icon) {
+            icon.innerHTML = '<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"></path>';
+          }
+        }
+      }
+    });
+
+    // Apply grayscale to all output containers except the soloed one
+    outputContainerRefs.current.forEach((container, idx) => {
+      if (container) {
+        if (newSoloed !== null && idx !== newSoloed) {
+          container.style.filter = 'grayscale(100%)';
+          container.style.opacity = '0.5';
+        } else {
+          container.style.filter = '';
+          container.style.opacity = '';
+        }
+      }
+    });
+  }, []);
+
+  const handleInputSourceChange = useCallback((channel: number, source: InputSource) => {
+    setInputSources((prev) => {
+      const updated = [...prev];
+      updated[channel] = source;
+      return updated;
+    });
+  }, []);
+
+  const handleAddAudioFileForChannel = useCallback((channel: number, previousSource: InputSource) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.pcm,.wav,.mp3,.ogg,.flac,.aac,.m4a';
+    input.multiple = false;
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+
+      // Mark channel as loading
+      setLoadingChannels((prev) => new Set(prev).add(channel));
+
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const fileId = `${Date.now()}-${Math.random()}`;
+
+      // Add file immediately with loading state
+      setAudioFiles((prev) => [...prev, {
+        id: fileId,
+        name: file.name,
+        audioBuffer: null,
+        loading: true,
+      }]);
+
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+
+        if (file.name.toLowerCase().endsWith('.pcm')) {
+          const dataView = new DataView(arrayBuffer);
+          const sampleCount = arrayBuffer.byteLength / 2;
+          const audioBuffer = audioContext.createBuffer(1, sampleCount, 44100);
+          const channelData = audioBuffer.getChannelData(0);
+
+          for (let i = 0; i < sampleCount; i++) {
+            const sample = dataView.getUint16(i * 2, true);
+            channelData[i] = (sample - 32768) / 32768;
+          }
+
+          // Update file with decoded buffer
+          setAudioFiles((prev) => prev.map((f) =>
+            f.id === fileId ? { ...f, audioBuffer, loading: false } : f
+          ));
+
+          // Set input source to this file
+          handleInputSourceChange(channel, { type: "file", fileId });
+
+          // Mark channel as not loading
+          setLoadingChannels((prev) => {
+            const next = new Set(prev);
+            next.delete(channel);
+            return next;
+          });
+        } else {
+          const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+          // Remove the loading placeholder
+          setAudioFiles((prev) => prev.filter((f) => f.id !== fileId));
+
+          // Get first channel
+          const baseId = `${Date.now()}-${Math.random()}`;
+          const firstChannelId = `${baseId}#0`;
+
+          // Add all channels
+          for (let channelIndex = 0; channelIndex < audioBuffer.numberOfChannels; channelIndex++) {
+            const singleChannelBuffer = audioContext.createBuffer(
+              1,
+              audioBuffer.length,
+              audioBuffer.sampleRate
+            );
+            const sourceChannelData = audioBuffer.getChannelData(channelIndex);
+            const destChannelData = singleChannelBuffer.getChannelData(0);
+            destChannelData.set(sourceChannelData);
+
+            setAudioFiles((prev) => [...prev, {
+              id: `${baseId}#${channelIndex}`,
+              name: audioBuffer.numberOfChannels > 1 ? `${file.name}#${channelIndex}` : file.name,
+              audioBuffer: singleChannelBuffer,
+              loading: false,
+            }]);
+          }
+
+          // Set input source to first channel
+          handleInputSourceChange(channel, { type: "file", fileId: firstChannelId });
+
+          // Mark channel as not loading
+          setLoadingChannels((prev) => {
+            const next = new Set(prev);
+            next.delete(channel);
+            return next;
+          });
+        }
+      } catch (error) {
+        console.error(`Failed to load audio file ${file.name}:`, error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+
+        // Update file with error state
+        setAudioFiles((prev) => prev.map((f) =>
+          f.id === fileId ? { ...f, loading: false, error: errorMessage } : f
+        ));
+
+        // Revert to previous source
+        handleInputSourceChange(channel, previousSource);
+
+        // Mark channel as not loading
+        setLoadingChannels((prev) => {
+          const next = new Set(prev);
+          next.delete(channel);
+          return next;
+        });
+      }
+    };
+    input.click();
+  }, [handleInputSourceChange]);
+
+  const handleFileDrop = useCallback(async (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+
+    const files = Array.from(event.dataTransfer.files);
+    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+
+    for (const file of files) {
+      const fileId = `${Date.now()}-${Math.random()}`;
+
+      // Add file immediately with loading state
+      setAudioFiles((prev) => [...prev, {
+        id: fileId,
+        name: file.name,
+        audioBuffer: null,
+        loading: true,
+      }]);
+
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+
+        // Handle .pcm files (raw 44100 u16 little endian)
+        if (file.name.toLowerCase().endsWith('.pcm')) {
+          // Create AudioBuffer manually for PCM
+          const dataView = new DataView(arrayBuffer);
+          const sampleCount = arrayBuffer.byteLength / 2; // u16 = 2 bytes per sample
+          const audioBuffer = audioContext.createBuffer(1, sampleCount, 44100);
+          const channelData = audioBuffer.getChannelData(0);
+
+          for (let i = 0; i < sampleCount; i++) {
+            const sample = dataView.getUint16(i * 2, true); // little endian
+            channelData[i] = (sample - 32768) / 32768; // Convert u16 to float [-1, 1]
+          }
+
+          // Update file with decoded buffer
+          setAudioFiles((prev) => prev.map((f) =>
+            f.id === fileId ? { ...f, audioBuffer, loading: false } : f
+          ));
+        } else {
+          // Handle other audio formats (.wav, .mp3, .ogg, etc.)
+          // TODO: Currently assuming stereo for non-.pcm files
+          const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+          // Remove the loading placeholder
+          setAudioFiles((prev) => prev.filter((f) => f.id !== fileId));
+
+          // Split multi-channel files into separate AudioFile entries
+          const baseId = `${Date.now()}-${Math.random()}`;
+          for (let channelIndex = 0; channelIndex < audioBuffer.numberOfChannels; channelIndex++) {
+            // Create single-channel AudioBuffer
+            const singleChannelBuffer = audioContext.createBuffer(
+              1,
+              audioBuffer.length,
+              audioBuffer.sampleRate
+            );
+            const sourceChannelData = audioBuffer.getChannelData(channelIndex);
+            const destChannelData = singleChannelBuffer.getChannelData(0);
+            destChannelData.set(sourceChannelData);
+
+            setAudioFiles((prev) => [...prev, {
+              id: `${baseId}#${channelIndex}`,
+              name: audioBuffer.numberOfChannels > 1 ? `${file.name}#${channelIndex}` : file.name,
+              audioBuffer: singleChannelBuffer,
+              loading: false,
+            }]);
+          }
+        }
+      } catch (error) {
+        console.error(`Failed to load audio file ${file.name}:`, error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        // Update file with error state
+        setAudioFiles((prev) => prev.map((f) =>
+          f.id === fileId ? { ...f, loading: false, error: errorMessage } : f
+        ));
+      }
+    }
+  }, []);
+
+  const handleDragOver = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+  }, []);
+
+  const handlePlayFile = useCallback((fileId: string) => {
+    // Stop any currently playing file
+    if (filePlaybackSourceRef.current) {
+      filePlaybackSourceRef.current.stop();
+      filePlaybackSourceRef.current.disconnect();
+      filePlaybackSourceRef.current = null;
+    }
+    if (filePlaybackContextRef.current) {
+      void filePlaybackContextRef.current.close();
+      filePlaybackContextRef.current = null;
+    }
+
+    const file = audioFiles.find((f) => f.id === fileId);
+    if (!file) return;
+
+    // Create new audio context and play the file
+    const context = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const source = context.createBufferSource();
+    source.buffer = file.audioBuffer;
+    source.connect(context.destination);
+    source.onended = () => {
+      setPlayingFileId(null);
+      filePlaybackSourceRef.current = null;
+      void context.close();
+      filePlaybackContextRef.current = null;
+    };
+    source.start(0);
+
+    filePlaybackContextRef.current = context;
+    filePlaybackSourceRef.current = source;
+    setPlayingFileId(fileId);
+  }, [audioFiles]);
+
+  const handleStopFile = useCallback(() => {
+    if (filePlaybackSourceRef.current) {
+      filePlaybackSourceRef.current.stop();
+      filePlaybackSourceRef.current.disconnect();
+      filePlaybackSourceRef.current = null;
+    }
+    if (filePlaybackContextRef.current) {
+      void filePlaybackContextRef.current.close();
+      filePlaybackContextRef.current = null;
+    }
+    setPlayingFileId(null);
+  }, []);
+
+  const handleDeleteFile = useCallback((fileId: string) => {
+    setAudioFiles((prev) => prev.filter((f) => f.id !== fileId));
+
+    // Also reset any input sources using this file to "none"
+    setInputSources((prev) =>
+      prev.map((source) =>
+        typeof source === "object" && source.fileId === fileId ? "none" : source
+      )
+    );
+  }, []);
+
+  const handleDropZoneClick = useCallback(() => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.pcm,.wav,.mp3,.ogg,.flac,.aac,.m4a';
+    input.multiple = true;
+    input.onchange = async (e) => {
+      const files = Array.from((e.target as HTMLInputElement).files || []);
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+
+      for (const file of files) {
+        const fileId = `${Date.now()}-${Math.random()}`;
+
+        // Add file immediately with loading state
+        setAudioFiles((prev) => [...prev, {
+          id: fileId,
+          name: file.name,
+          audioBuffer: null,
+          loading: true,
+        }]);
+
+        try {
+          const arrayBuffer = await file.arrayBuffer();
+
+          if (file.name.toLowerCase().endsWith('.pcm')) {
+            const dataView = new DataView(arrayBuffer);
+            const sampleCount = arrayBuffer.byteLength / 2;
+            const audioBuffer = audioContext.createBuffer(1, sampleCount, 44100);
+            const channelData = audioBuffer.getChannelData(0);
+
+            for (let i = 0; i < sampleCount; i++) {
+              const sample = dataView.getUint16(i * 2, true);
+              channelData[i] = (sample - 32768) / 32768;
+            }
+
+            // Update file with decoded buffer
+            setAudioFiles((prev) => prev.map((f) =>
+              f.id === fileId ? { ...f, audioBuffer, loading: false } : f
+            ));
+          } else {
+            // TODO: Currently assuming stereo for non-.pcm files
+            const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+            // Remove the loading placeholder
+            setAudioFiles((prev) => prev.filter((f) => f.id !== fileId));
+
+            // Split multi-channel files into separate AudioFile entries
+            const baseId = `${Date.now()}-${Math.random()}`;
+            for (let channelIndex = 0; channelIndex < audioBuffer.numberOfChannels; channelIndex++) {
+              const singleChannelBuffer = audioContext.createBuffer(
+                1,
+                audioBuffer.length,
+                audioBuffer.sampleRate
+              );
+              const sourceChannelData = audioBuffer.getChannelData(channelIndex);
+              const destChannelData = singleChannelBuffer.getChannelData(0);
+              destChannelData.set(sourceChannelData);
+
+              setAudioFiles((prev) => [...prev, {
+                id: `${baseId}#${channelIndex}`,
+                name: audioBuffer.numberOfChannels > 1 ? `${file.name}#${channelIndex}` : file.name,
+                audioBuffer: singleChannelBuffer,
+                loading: false,
+              }]);
+            }
+          }
+        } catch (error) {
+          console.error(`Failed to load audio file ${file.name}:`, error);
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          // Update file with error state
+          setAudioFiles((prev) => prev.map((f) =>
+            f.id === fileId ? { ...f, loading: false, error: errorMessage } : f
+          ));
+        }
+      }
+    };
+    input.click();
+  }, []);
+
   if (!wasmInitialized) {
     return (
       <Panel>
@@ -499,7 +1175,42 @@ export const DspPlaygroundPanel = () => {
         )}
 
         {/* Assembly Editor */}
-        <DspAssemblyEditor value={source} onChange={handleSourceChange} error={error} height={250} />
+        <Box
+          ref={editorContainerRef}
+          sx={{
+            position: 'relative',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+          }}
+        >
+          <Box ref={editorInnerContainerRef} sx={{ width: '100%', height: 250 }}>
+            <DspAssemblyEditor
+              ref={editorRef}
+              value={source}
+              onChange={handleSourceChange}
+              error={error}
+              height="100%"
+            />
+          </Box>
+          <IconButton
+            ref={editorToggleButtonRef}
+            size="small"
+            onClick={handleEditorFullscreenToggle}
+            sx={{
+              mt: 1,
+              backgroundColor: 'background.paper',
+              opacity: 0.7,
+              flexShrink: 0,
+              '&:hover': {
+                opacity: 1,
+                backgroundColor: 'background.paper',
+              },
+            }}
+          >
+            <KeyboardArrowDownIcon />
+          </IconButton>
+        </Box>
 
         {/* Error display */}
         {error && (
@@ -509,12 +1220,133 @@ export const DspPlaygroundPanel = () => {
         )}
 
         {/* Waveform visualizations */}
-        <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-          <Typography variant="subtitle2">Input</Typography>
-          <WaveformPlotter ref={inputPlotterRef} width={800} height={150} />
+        <Box ref={dspSectionRef} sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+          <Typography variant="subtitle2">DSP Inputs</Typography>
+          <Box
+            sx={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+              gap: 1,
+            }}
+          >
+            {Array.from({ length: 16 }, (_, i) => (
+              <Box
+                key={i}
+                ref={(el) => {
+                  inputContainerRefs.current[i] = el as HTMLElement | null;
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "copy";
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const fileId = e.dataTransfer.getData("application/x-audio-file-id");
+                  if (fileId) {
+                    handleInputSourceChange(i, { type: "file", fileId });
+                  }
+                }}
+              >
+                <Stack direction="row" spacing={0.5} alignItems="center" justifyContent="space-between" sx={{ mb: 0.5 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
+                      In {i.toString().padStart(2, '0')}
+                    </Typography>
+                    <Tooltip title="Tap to listen to this input only">
+                      <IconButton
+                        ref={(el) => {
+                          tapButtonRefs.current[i] = el;
+                        }}
+                        size="small"
+                        onClick={() => handleTapToggle(i)}
+                        sx={{
+                          width: 16,
+                          height: 16,
+                          minWidth: 16,
+                          minHeight: 16,
+                          p: 0.25,
+                          mx: '0.25em',
+                          '&.tap-active': {
+                            color: 'primary.main',
+                          },
+                        }}
+                      >
+                        <HearingIcon sx={{ fontSize: 12 }} />
+                      </IconButton>
+                    </Tooltip>
+                  </Box>
+                  {loadingChannels.has(i) && (
+                    <CircularProgress size={12} sx={{ mr: 0.5 }} />
+                  )}
+                  <Tooltip
+                    title={
+                      typeof inputSources[i] === "object" && inputSources[i].type === "file"
+                        ? `File: ${audioFiles.find((f) => f.id === inputSources[i].fileId)?.name || ""}`
+                        : ""
+                    }
+                    disableInteractive
+                  >
+                    <Box component="span">
+                      <Select
+                        size="small"
+                        disabled={loadingChannels.has(i)}
+                        value={
+                          typeof inputSources[i] === "object"
+                            ? `file:${inputSources[i].fileId}`
+                            : inputSources[i]
+                        }
+                        onChange={(e) => {
+                          const val = e.target.value as string;
+                          if (val === "add-file") {
+                            handleAddAudioFileForChannel(i, inputSources[i]);
+                            // Don't change the selection
+                            return;
+                          } else if (val.startsWith("file:")) {
+                            const fileId = val.substring(5);
+                            handleInputSourceChange(i, { type: "file", fileId });
+                          } else {
+                            handleInputSourceChange(i, val as "none" | "keyboard");
+                          }
+                        }}
+                        sx={{
+                          fontSize: "0.75rem",
+                          height: "20px",
+                          maxWidth: "120px",
+                          "& .MuiSelect-select": {
+                            py: 0,
+                            px: 0.5,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          },
+                        }}
+                      >
+                        <MenuItem value="none">None</MenuItem>
+                        <MenuItem value="keyboard">Keyboard</MenuItem>
+                        {audioFiles.map((file) => (
+                          <MenuItem key={file.id} value={`file:${file.id}`}>
+                            File: {file.name}
+                          </MenuItem>
+                        ))}
+                        <MenuItem value="add-file">Add audio file...</MenuItem>
+                      </Select>
+                    </Box>
+                  </Tooltip>
+                </Stack>
+                <WaveformPlotter
+                  ref={(el) => {
+                    inputPlotterRefs.current[i] = el;
+                  }}
+                  height={100}
+                  maxSamples={180}
+                  fillWidth={true}
+                />
+              </Box>
+            ))}
+          </Box>
 
           <Typography variant="subtitle2" sx={{ mt: 2 }}>
-            DSP Outputs (Channels 0-15)
+            DSP Outputs
           </Typography>
           <Box
             sx={{
@@ -524,21 +1356,238 @@ export const DspPlaygroundPanel = () => {
             }}
           >
             {Array.from({ length: 16 }, (_, i) => (
-              <Box key={i}>
-                <Typography variant="caption" color="text.secondary">
-                  Ch {i}
-                </Typography>
+              <Box
+                key={i}
+                ref={(el) => {
+                  outputContainerRefs.current[i] = el as HTMLElement | null;
+                }}
+              >
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25, mb: 0.5 }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
+                    Out {i.toString().padStart(2, '0')}
+                  </Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mx: '0.25em' }}>
+                    <Tooltip title="Mute/Unmute this output channel">
+                      <IconButton
+                        ref={(el) => {
+                          muteButtonRefs.current[i] = el;
+                        }}
+                        size="small"
+                        onClick={() => handleMuteToggle(i)}
+                        sx={{
+                          width: 16,
+                          height: 16,
+                          minWidth: 16,
+                          minHeight: 16,
+                          p: 0.25,
+                          '&.mute-active': {
+                            color: 'error.main',
+                          },
+                        }}
+                      >
+                        <VolumeUpIcon sx={{ fontSize: 12 }} />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Solo this output channel">
+                      <IconButton
+                        ref={(el) => {
+                          soloButtonRefs.current[i] = el;
+                        }}
+                        size="small"
+                        onClick={() => handleSoloToggle(i)}
+                        sx={{
+                          width: 16,
+                          height: 16,
+                          minWidth: 16,
+                          minHeight: 16,
+                          p: 0.25,
+                          '&.solo-active': {
+                            color: 'warning.main',
+                          },
+                        }}
+                      >
+                        <RadioButtonUncheckedIcon sx={{ fontSize: 12 }} />
+                      </IconButton>
+                    </Tooltip>
+                  </Box>
+                </Box>
                 <WaveformPlotter
                   ref={(el) => {
                     outputPlotterRefs.current[i] = el;
                   }}
-                  width={180}
                   height={100}
                   maxSamples={180}
+                  fillWidth={true}
                 />
               </Box>
             ))}
           </Box>
+
+          <Typography variant="subtitle2" sx={{ mt: 2 }}>
+            DSP Mix
+          </Typography>
+          <Box>
+            <WaveformPlotter
+              ref={(el) => {
+                mixPlotterRef.current = el;
+              }}
+              height={100}
+              maxSamples={800}
+              fillWidth={true}
+            />
+          </Box>
+
+          {/* Audio Files Section */}
+          <Typography variant="subtitle2" sx={{ mt: 3 }}>
+            Audio Files
+          </Typography>
+
+          {/* File List */}
+          {audioFiles.length > 0 && (
+            <Box
+              sx={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
+                gap: 1,
+                mb: 1,
+              }}
+            >
+              {audioFiles.map((file) => (
+                <Paper
+                  key={file.id}
+                  variant="outlined"
+                  draggable={!file.loading && !file.error}
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData("application/x-audio-file-id", file.id);
+                    e.dataTransfer.effectAllowed = "copy";
+                  }}
+                  sx={{
+                    p: 1,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 1,
+                    overflow: "hidden",
+                    position: "relative",
+                    cursor: file.loading || file.error ? "default" : "grab",
+                    "&:active": {
+                      cursor: file.loading || file.error ? "default" : "grabbing",
+                    },
+                  }}
+                >
+                  {file.loading && (
+                    <Box
+                      sx={{
+                        position: "absolute",
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        backgroundColor: "rgba(0, 0, 0, 0.5)",
+                        zIndex: 1,
+                      }}
+                    >
+                      <CircularProgress size={24} />
+                    </Box>
+                  )}
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <Box
+                      sx={{
+                        overflow: "hidden",
+                        position: "relative",
+                        "&:hover .filename-wrapper": {
+                          animation: "scroll 10s linear infinite",
+                        },
+                        "@keyframes scroll": {
+                          "0%": { transform: "translateX(0%)" },
+                          "100%": { transform: "translateX(-100%)" },
+                        },
+                      }}
+                    >
+                      <Box
+                        className="filename-wrapper"
+                        sx={{
+                          display: "inline-flex",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        <Typography
+                          variant="body2"
+                          component="span"
+                          sx={{ display: "inline-block", pr: 4 }}
+                        >
+                          {file.name}
+                        </Typography>
+                        <Typography
+                          variant="body2"
+                          component="span"
+                          sx={{ display: "inline-block", pr: 4 }}
+                        >
+                          {file.name}
+                        </Typography>
+                      </Box>
+                    </Box>
+                    {file.error ? (
+                      <Typography variant="caption" color="error">
+                        Error: {file.error}
+                      </Typography>
+                    ) : file.audioBuffer ? (
+                      <Typography variant="caption" color="text.secondary">
+                        {file.audioBuffer.duration.toFixed(2)}s, {file.audioBuffer.sampleRate}Hz, {((file.audioBuffer.length * 2) / (1024 * 1024)).toFixed(2)}MB
+                      </Typography>
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">
+                        Loading...
+                      </Typography>
+                    )}
+                  </Box>
+                  <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
+                    {playingFileId === file.id ? (
+                      <IconButton size="small" onClick={handleStopFile} disabled={file.loading || !!file.error}>
+                        <StopIcon fontSize="small" />
+                      </IconButton>
+                    ) : (
+                      <IconButton size="small" onClick={() => handlePlayFile(file.id)} disabled={file.loading || !!file.error}>
+                        <PlayArrowIcon fontSize="small" />
+                      </IconButton>
+                    )}
+                    <IconButton size="small" onClick={() => handleDeleteFile(file.id)} disabled={file.loading}>
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  </Box>
+                </Paper>
+              ))}
+            </Box>
+          )}
+
+          {/* Drop Zone */}
+          <Paper
+            variant="outlined"
+            onDrop={handleFileDrop}
+            onDragOver={handleDragOver}
+            onClick={handleDropZoneClick}
+            sx={{
+              p: 3,
+              textAlign: "center",
+              border: "2px dashed",
+              borderColor: "divider",
+              backgroundColor: "action.hover",
+              cursor: "pointer",
+              "&:hover": {
+                borderColor: "primary.main",
+                backgroundColor: "action.selected",
+              },
+            }}
+          >
+            <Typography variant="body2" color="text.secondary">
+              Drop sound files here
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              Supports: .pcm, .wav, .mp3, .ogg, and other common audio formats
+            </Typography>
+          </Paper>
         </Box>
       </Box>
     </Panel>

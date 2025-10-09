@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { Box } from "@mui/material";
 
 export interface WaveformPlotterProps {
@@ -6,6 +6,7 @@ export interface WaveformPlotterProps {
   height?: number;
   maxSamples?: number;
   maxAmplitude?: number;
+  fillWidth?: boolean;
 }
 
 export interface WaveformPlotterRef {
@@ -14,11 +15,13 @@ export interface WaveformPlotterRef {
 }
 
 export const WaveformPlotter = forwardRef<WaveformPlotterRef, WaveformPlotterProps>(
-  ({ width = 800, height = 400, maxSamples = 800, maxAmplitude = 32767 }, ref) => {
+  ({ width = 800, height = 400, maxSamples = 800, maxAmplitude = 32767, fillWidth = false }, ref) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
     const samplesRef = useRef<number[]>(Array(maxSamples).fill(0));
     const currentXRef = useRef(0);
     const animationFrameRef = useRef<number | null>(null);
+    const [actualWidth, setActualWidth] = useState(width);
 
     const draw = () => {
       const canvas = canvasRef.current;
@@ -28,21 +31,25 @@ export const WaveformPlotter = forwardRef<WaveformPlotterRef, WaveformPlotterPro
       if (!ctx) return;
 
       const midY = height / 2;
+      const drawWidth = fillWidth ? actualWidth : width;
 
       // Clear canvas
-      ctx.clearRect(0, 0, width, height);
+      ctx.clearRect(0, 0, drawWidth, height);
 
       // Draw blue waveform
       ctx.beginPath();
       ctx.strokeStyle = "#2196f3";
       ctx.lineWidth = 2;
 
+      const scaleX = fillWidth ? drawWidth / maxSamples : 1;
+
       for (let x = 0; x < maxSamples; x++) {
         const y = midY - (samplesRef.current[x] / maxAmplitude) * (height / 2);
+        const scaledX = x * scaleX;
         if (x === 0) {
-          ctx.moveTo(x, y);
+          ctx.moveTo(scaledX, y);
         } else {
-          ctx.lineTo(x, y);
+          ctx.lineTo(scaledX, y);
         }
       }
 
@@ -72,18 +79,40 @@ export const WaveformPlotter = forwardRef<WaveformPlotterRef, WaveformPlotterPro
           cancelAnimationFrame(animationFrameRef.current);
         }
       };
-    }, [height, maxAmplitude, maxSamples, width]);
+    }, [height, maxAmplitude, maxSamples, width, actualWidth, fillWidth]);
+
+    useEffect(() => {
+      if (!fillWidth) return;
+
+      const handleResize = () => {
+        if (containerRef.current) {
+          const newWidth = containerRef.current.offsetWidth;
+          setActualWidth(newWidth);
+        }
+      };
+
+      handleResize(); // Initial size
+      window.addEventListener("resize", handleResize);
+
+      return () => {
+        window.removeEventListener("resize", handleResize);
+      };
+    }, [fillWidth]);
+
+    const canvasWidth = fillWidth ? actualWidth : width;
 
     return (
       <Box
+        ref={containerRef}
         sx={{
           border: 1,
           borderColor: "divider",
           borderRadius: 1,
           overflow: "hidden",
+          width: fillWidth ? "100%" : "auto",
         }}
       >
-        <canvas ref={canvasRef} width={width} height={height} />
+        <canvas ref={canvasRef} width={canvasWidth} height={height} />
       </Box>
     );
   }

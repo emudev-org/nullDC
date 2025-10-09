@@ -1,7 +1,8 @@
-import { memo, useCallback } from "react";
+import { memo, useCallback, useRef, useImperativeHandle, forwardRef } from "react";
 import { Box, Typography } from "@mui/material";
 import Editor from "@monaco-editor/react";
 import type { Monaco } from "@monaco-editor/react";
+import type { editor } from "monaco-editor";
 import { useThemeMode } from "../../theme/ThemeModeProvider";
 
 export interface DspAssemblyEditorProps {
@@ -9,6 +10,10 @@ export interface DspAssemblyEditorProps {
   onChange: (value: string) => void;
   error?: string | null;
   height?: number | string;
+}
+
+export interface DspAssemblyEditorRef {
+  layout: () => void;
 }
 
 const registerDspLanguage = (monaco: Monaco) => {
@@ -69,54 +74,77 @@ const registerDspLanguage = (monaco: Monaco) => {
   });
 };
 
-export const DspAssemblyEditor = memo(({ value, onChange, error, height = 250 }: DspAssemblyEditorProps) => {
-  const { mode } = useThemeMode();
+export const DspAssemblyEditor = memo(
+  forwardRef<DspAssemblyEditorRef, DspAssemblyEditorProps>(
+    ({ value, onChange, error, height = 250 }, ref) => {
+      const { mode } = useThemeMode();
+      const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
 
-  const handleEditorWillMount = useCallback((monaco: Monaco) => {
-    registerDspLanguage(monaco);
-  }, []);
+      useImperativeHandle(ref, () => ({
+        layout: () => {
+          editorRef.current?.layout();
+        },
+      }));
 
-  const handleEditorChange = useCallback(
-    (newValue: string | undefined) => {
-      onChange(newValue ?? "");
-    },
-    [onChange]
-  );
+      const handleEditorDidMount = useCallback((editor: editor.IStandaloneCodeEditor) => {
+        editorRef.current = editor;
+        // Trigger initial layout after mount
+        setTimeout(() => {
+          editor.layout();
+        }, 0);
+      }, []);
 
-  return (
-    <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-      <Typography variant="subtitle2" color="text.secondary">
-        DSP Assembly
-      </Typography>
-      <Box
-        sx={{
-          border: 1,
-          borderColor: error ? "error.main" : "divider",
-          borderRadius: 1,
-          overflow: "hidden",
-        }}
-      >
-        <Editor
-          height={height}
-          language="aica-dsp-asm"
-          theme={mode === "dark" ? "aica-dsp-asm-dark" : "aica-dsp-asm-light"}
-          value={value}
-          onChange={handleEditorChange}
-          beforeMount={handleEditorWillMount}
-          options={{
-            minimap: { enabled: false },
-            scrollBeyondLastLine: false,
-            fontSize: 13,
-            lineNumbers: "on",
-            renderWhitespace: "selection",
-            tabSize: 2,
-            insertSpaces: true,
-            automaticLayout: true,
-          }}
-        />
-      </Box>
-    </Box>
-  );
-});
+      const handleEditorWillMount = useCallback((monaco: Monaco) => {
+        registerDspLanguage(monaco);
+      }, []);
+
+      const handleEditorChange = useCallback(
+        (newValue: string | undefined) => {
+          onChange(newValue ?? "");
+        },
+        [onChange]
+      );
+
+      return (
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 1, height: "100%" }}>
+          <Typography variant="subtitle2" color="text.secondary">
+            DSP Assembly
+          </Typography>
+          <Box
+            sx={{
+              border: 1,
+              borderColor: error ? "error.main" : "divider",
+              borderRadius: 1,
+              overflow: "hidden",
+              ...(typeof height === "string" && height === "100%"
+                ? { flex: 1, minHeight: 0 }
+                : { height }),
+            }}
+          >
+            <Editor
+              height="100%"
+              language="aica-dsp-asm"
+              theme={mode === "dark" ? "aica-dsp-asm-dark" : "aica-dsp-asm-light"}
+              value={value}
+              onChange={handleEditorChange}
+              beforeMount={handleEditorWillMount}
+              onMount={handleEditorDidMount}
+              options={{
+                minimap: { enabled: false },
+                scrollBeyondLastLine: false,
+                fontSize: 13,
+                lineNumbers: "on",
+                renderWhitespace: "selection",
+                tabSize: 2,
+                insertSpaces: true,
+                automaticLayout: false,
+              }}
+            />
+          </Box>
+        </Box>
+      );
+    }
+  )
+);
 
 DspAssemblyEditor.displayName = "DspAssemblyEditor";
