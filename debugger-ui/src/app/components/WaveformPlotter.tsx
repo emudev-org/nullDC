@@ -12,6 +12,7 @@ export interface WaveformPlotterProps {
 export interface WaveformPlotterRef {
   appendSample: (sample: number) => void;
   clear: () => void;
+  setMaxAmplitude: (amplitude: number) => void;
 }
 
 export const WaveformPlotter = forwardRef<WaveformPlotterRef, WaveformPlotterProps>(
@@ -22,6 +23,7 @@ export const WaveformPlotter = forwardRef<WaveformPlotterRef, WaveformPlotterPro
     const currentXRef = useRef(0);
     const animationFrameRef = useRef<number | null>(null);
     const [actualWidth, setActualWidth] = useState(width);
+    const maxAmplitudeRef = useRef(maxAmplitude);
 
     const draw = () => {
       const canvas = canvasRef.current;
@@ -44,7 +46,7 @@ export const WaveformPlotter = forwardRef<WaveformPlotterRef, WaveformPlotterPro
       const scaleX = fillWidth ? drawWidth / maxSamples : 1;
 
       for (let x = 0; x < maxSamples; x++) {
-        const y = midY - (samplesRef.current[x] / maxAmplitude) * (height / 2);
+        const y = midY - (samplesRef.current[x] / maxAmplitudeRef.current) * (height / 2);
         const scaledX = x * scaleX;
         if (x === 0) {
           ctx.moveTo(scaledX, y);
@@ -66,7 +68,15 @@ export const WaveformPlotter = forwardRef<WaveformPlotterRef, WaveformPlotterPro
         currentXRef.current = 0;
         draw();
       },
+      setMaxAmplitude: (amplitude: number) => {
+        maxAmplitudeRef.current = amplitude;
+      },
     }));
+
+    // Sync prop changes to ref
+    useEffect(() => {
+      maxAmplitudeRef.current = maxAmplitude;
+    }, [maxAmplitude]);
 
     useEffect(() => {
       const interval = setInterval(() => {
@@ -79,7 +89,7 @@ export const WaveformPlotter = forwardRef<WaveformPlotterRef, WaveformPlotterPro
           cancelAnimationFrame(animationFrameRef.current);
         }
       };
-    }, [height, maxAmplitude, maxSamples, width, actualWidth, fillWidth]);
+    }, [height, maxSamples, width, actualWidth, fillWidth]);
 
     useEffect(() => {
       if (!fillWidth) return;

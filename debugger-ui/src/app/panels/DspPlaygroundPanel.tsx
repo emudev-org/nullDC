@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Box,
@@ -16,12 +16,16 @@ import {
 } from "@mui/material";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
+import PauseIcon from "@mui/icons-material/Pause";
 import StopIcon from "@mui/icons-material/Stop";
+import FastForwardIcon from "@mui/icons-material/FastForward";
 import DeleteIcon from "@mui/icons-material/Delete";
 import HearingIcon from "@mui/icons-material/Hearing";
 import VolumeUpIcon from "@mui/icons-material/VolumeUp";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
+import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
+import ZoomInIcon from "@mui/icons-material/ZoomIn";
 import { deflate, inflate } from "pako";
 import { Panel } from "../layout/Panel";
 import { DspAssemblyEditor } from "../components/DspAssemblyEditor";
@@ -30,6 +34,8 @@ import { DspSourceEditor } from "../components/DspSourceEditor";
 import type { DspSourceEditorRef } from "../components/DspSourceEditor";
 import { WaveformPlotter } from "../components/WaveformPlotter";
 import type { WaveformPlotterRef } from "../components/WaveformPlotter";
+import { DisassemblyView, type DisassemblyViewConfig, type DisassemblyViewCallbacks } from "../components/DisassemblyView";
+import type { DisassemblyLine } from "../../lib/debuggerSchema";
 import { aicaDsp } from "../../lib/aicaDsp";
 import { assembleSource, assembleSourceWithPreprocessing, writeRegisters, decodeInst, disassembleDesc } from "../dsp/dspUtils";
 import { compileDspSource, CompilationError } from "../dsp/dspCompiler";
@@ -172,6 +178,8 @@ export const DspPlaygroundPanel = () => {
   const assemblySourceRef = useRef(resolveInitialSource());
   const compiledEditorRef = useRef<DspAssemblyEditorRef | null>(null);
   const [audioPlaying, setAudioPlaying] = useState(false);
+  const [audioPaused, setAudioPaused] = useState(false);
+  const outputScale10xRef = useRef<Set<number>>(new Set());
   const [wasmInitialized, setWasmInitialized] = useState(false);
   const [editorsReady, setEditorsReady] = useState(false);
   const [shareToken, setShareToken] = useState<string | null>(null);
@@ -207,6 +215,7 @@ export const DspPlaygroundPanel = () => {
 
   const muteButtonRefs = useRef<Array<HTMLButtonElement | null>>(Array(16).fill(null));
   const soloButtonRefs = useRef<Array<HTMLButtonElement | null>>(Array(16).fill(null));
+  const zoomButtonRefs = useRef<Array<HTMLButtonElement | null>>(Array(16).fill(null));
 
   const sourceEditorRef = useRef<DspSourceEditorRef | null>(null);
   const editorRef = useRef<DspAssemblyEditorRef | null>(null);
@@ -684,11 +693,23 @@ export const DspPlaygroundPanel = () => {
     audioContextRef.current = null;
     scriptNodeRef.current = null;
     setAudioPlaying(false);
+    setAudioPaused(false);
   }, []);
+
+  // Handle audio context suspend/resume when paused
+  useEffect(() => {
+    if (!audioContextRef.current || !audioPlaying) return;
+
+    if (audioPaused) {
+      void audioContextRef.current.suspend();
+    } else {
+      void audioContextRef.current.resume();
+    }
+  }, [audioPlaying, audioPaused]);
 
   // Keyboard input handling
   useEffect(() => {
-    if (!audioPlaying) return;
+    if (!audioPlaying || audioPaused) return;
 
     const handleKeyDown = (event: KeyboardEvent) => {
       // Check if typing in editor or input field
@@ -728,7 +749,7 @@ export const DspPlaygroundPanel = () => {
       document.removeEventListener("keydown", handleKeyDown);
       document.removeEventListener("keyup", handleKeyUp);
     };
-  }, [audioPlaying]);
+  }, [audioPlaying, audioPaused]);
 
   const handleShare = useCallback(async () => {
     if (!shareToken || typeof navigator === "undefined" || !navigator.clipboard) {
@@ -1300,6 +1321,169 @@ export const DspPlaygroundPanel = () => {
     input.click();
   }, []);
 
+  // Handler for running 128 samples
+  const handleRun128Samples = useCallback(() => {
+    if (!wasmInitialized || !audioPaused) return;
+
+    // Process inputs for all 16 channels
+    for (let j = 0; j < 16; j++) {
+      const source = inputSourcesRef.current[j];
+      let channelSample = 0;
+
+      if (typeof source === "object" && source.type === "file") {
+        // File source
+        const file = audioFilesRef.current.find(f => f.id === source.fileId);
+        if (file && file.audioBuffer) {
+          const channelData = file.audioBuffer.getChannelData(0);
+          const pos = dspStepCounter.current;
+
+          // Read sample if within bounds, otherwise silent
+          if (pos < channelData.length) {
+            channelSample = Math.round(channelData[pos] * 32767);
+          }
+        }
+      }
+      // Note: keyboard input is not included when paused
+
+      aicaDsp.writeReg(0x3000 + 0x1500 + 0 + j * 8, (channelSample >> 0) & 0xf);
+      aicaDsp.writeReg(0x3000 + 0x1500 + 4 + j * 8, (channelSample >> 4) & 0xffff);
+      inputPlotterRefs.current[j]?.appendSample(channelSample);
+    }
+
+    // Run one DSP step (which processes 128 samples)
+    aicaDsp.step128();
+    dspStepCounter.current++;
+
+    // Read DSP outputs and update plotters
+    let mixSampleInt = 0;
+    const states = channelStatesRef.current;
+    const hasSolo = states.some(s => s === 2);
+
+    for (let j = 0; j < 16; j++) {
+      let fxSampleInt = aicaDsp.readReg(0x3000 + 0x1580 + j * 4);
+      fxSampleInt = fxSampleInt & 0xffff;
+      if (fxSampleInt & 0x8000) {
+        fxSampleInt |= 0xffff0000;
+      }
+
+      // Apply solo/mute logic based on channel state
+      let channelEnabled = true;
+      if (hasSolo) {
+        channelEnabled = states[j] === 2;
+      } else {
+        channelEnabled = states[j] !== 1;
+      }
+
+      if (channelEnabled) {
+        mixSampleInt += fxSampleInt;
+      }
+
+      outputPlotterRefs.current[j]?.appendSample(fxSampleInt);
+    }
+
+    // Update mix plotter with combined output
+    mixPlotterRef.current?.appendSample(mixSampleInt);
+  }, [wasmInitialized, audioPaused]);
+
+  // DisassemblyView configuration for DSP
+  const disassemblyConfig: DisassemblyViewConfig = useMemo(() => ({
+    instructionSize: 1,
+    maxAddress: 0x7f,
+    formatAddressInput: (value: number) => value.toString(),
+    formatAddressDisplay: (value: number) => value.toString().padStart(3, '0'),
+    parseAddressInput: (input: string) => {
+      const trimmed = input.trim();
+      if (!trimmed) return undefined;
+      const parsed = Number.parseInt(trimmed, 10);
+      return Number.isNaN(parsed) ? undefined : parsed;
+    },
+    gridColumns: '24px 80px 1fr',
+    stepLabel: 'Step',
+    stepIcon: ArrowForwardIcon,
+    showStepInOut: false,
+    urlParamName: 'step',
+    showBytes: false,
+    showMuteSolo: false,
+    runPauseIcon: {
+      paused: PlayArrowIcon,
+      running: PauseIcon,
+    },
+    runPauseLabel: {
+      paused: 'Run',
+      running: 'Pause',
+    },
+    prefixActions: [
+      {
+        key: 'run128',
+        icon: FastForwardIcon,
+        label: 'Run 128 samples',
+        disabled: !audioPlaying || !audioPaused,
+        onClick: handleRun128Samples,
+      },
+    ],
+  }), [audioPlaying, audioPaused, handleRun128Samples]);
+
+  // DisassemblyView callbacks for DSP playground
+  const disassemblyCallbacks: DisassemblyViewCallbacks = useMemo(() => ({
+    onFetchDisassembly: async (address: number, count: number): Promise<DisassemblyLine[]> => {
+      if (!wasmInitialized) {
+        return [];
+      }
+
+      const lines: DisassemblyLine[] = [];
+      for (let i = 0; i < count && address + i <= 0x7f; i++) {
+        const step = address + i;
+        const dwords = [
+          aicaDsp.readReg(0x3000 + 0x400 + step * 4 * 4 + 0),
+          aicaDsp.readReg(0x3000 + 0x400 + step * 4 * 4 + 4),
+          aicaDsp.readReg(0x3000 + 0x400 + step * 4 * 4 + 8),
+          aicaDsp.readReg(0x3000 + 0x400 + step * 4 * 4 + 12),
+        ];
+
+        const desc = decodeInst(dwords);
+        const disasm = disassembleDesc(desc);
+
+        lines.push({
+          address: step,
+          bytes: dwords.map(d => d.toString(16).padStart(8, '0')).join(' '),
+          disassembly: disasm || '(nop)',
+        });
+      }
+
+      return lines;
+    },
+    onStep: async () => {
+      // No-op in playground mode
+    },
+    onBreakpointAdd: async () => {
+      // No-op in playground mode
+    },
+    onBreakpointRemove: async () => {
+      // No-op in playground mode
+    },
+    onBreakpointToggle: async () => {
+      // No-op in playground mode
+    },
+    onMuteToggle: () => {
+      // No-op in playground mode
+    },
+    onSoloToggle: () => {
+      // No-op in playground mode
+    },
+    onRunPauseToggle: () => {
+      if (audioPaused) {
+        // Resume
+        setAudioPaused(false);
+      } else if (audioPlaying) {
+        // Pause
+        setAudioPaused(true);
+      } else {
+        // Start audio if not playing
+        handleStartAudio();
+      }
+    },
+  }), [wasmInitialized, audioPlaying, audioPaused, handleStartAudio]);
+
   if (!wasmInitialized) {
     return (
       <Panel>
@@ -1438,7 +1622,23 @@ export const DspPlaygroundPanel = () => {
 
         {/* Waveform visualizations */}
         <Box ref={dspSectionRef} sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-          <Typography variant="subtitle2">DSP Inputs</Typography>
+          {/* DSP Disassembly */}
+          <Typography variant="subtitle2">DSP Disassembly</Typography>
+          <Box sx={{ height: 300 }}>
+            <DisassemblyView
+              config={disassemblyConfig}
+              callbacks={disassemblyCallbacks}
+              defaultAddress={0}
+              currentPc={undefined}
+              breakpointsByAddress={new Map()}
+              initialized={wasmInitialized}
+              executionState={audioPlaying && !audioPaused ? "running" : "paused"}
+              categoryState={undefined}
+              initialUrlAddress={undefined}
+            />
+          </Box>
+
+          <Typography variant="subtitle2" sx={{ mt: 2 }}>DSP Inputs</Typography>
           <Box
             sx={{
               display: "grid",
@@ -1581,54 +1781,102 @@ export const DspPlaygroundPanel = () => {
                   outputContainerRefs.current[i] = el as HTMLElement | null;
                 }}
               >
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25, mb: 0.5 }}>
-                  <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
-                    Out {i.toString().padStart(2, '0')}
-                  </Typography>
-                  <Box sx={{ display: 'flex', alignItems: 'center', mx: '0.25em' }}>
-                    <Tooltip title="Mute/Unmute this output channel">
-                      <IconButton
-                        ref={(el) => {
-                          muteButtonRefs.current[i] = el;
-                        }}
-                        size="small"
-                        onClick={() => handleMuteToggle(i)}
-                        sx={{
-                          width: 16,
-                          height: 16,
-                          minWidth: 16,
-                          minHeight: 16,
-                          p: 0.25,
-                          '&.mute-active': {
-                            color: 'error.main',
-                          },
-                        }}
-                      >
-                        <VolumeUpIcon sx={{ fontSize: 12 }} />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip title="Solo this output channel">
-                      <IconButton
-                        ref={(el) => {
-                          soloButtonRefs.current[i] = el;
-                        }}
-                        size="small"
-                        onClick={() => handleSoloToggle(i)}
-                        sx={{
-                          width: 16,
-                          height: 16,
-                          minWidth: 16,
-                          minHeight: 16,
-                          p: 0.25,
-                          '&.solo-active': {
-                            color: 'warning.main',
-                          },
-                        }}
-                      >
-                        <RadioButtonUncheckedIcon sx={{ fontSize: 12 }} />
-                      </IconButton>
-                    </Tooltip>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25, mb: 0.5, justifyContent: 'space-between' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
+                      Out {i.toString().padStart(2, '0')}
+                    </Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', mx: '0.25em' }}>
+                      <Tooltip title="Mute/Unmute this output channel">
+                        <IconButton
+                          ref={(el) => {
+                            muteButtonRefs.current[i] = el;
+                          }}
+                          size="small"
+                          onClick={() => handleMuteToggle(i)}
+                          sx={{
+                            width: 16,
+                            height: 16,
+                            minWidth: 16,
+                            minHeight: 16,
+                            p: 0.25,
+                            '&.mute-active': {
+                              color: 'error.main',
+                            },
+                          }}
+                        >
+                          <VolumeUpIcon sx={{ fontSize: 12 }} />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Solo this output channel">
+                        <IconButton
+                          ref={(el) => {
+                            soloButtonRefs.current[i] = el;
+                          }}
+                          size="small"
+                          onClick={() => handleSoloToggle(i)}
+                          sx={{
+                            width: 16,
+                            height: 16,
+                            minWidth: 16,
+                            minHeight: 16,
+                            p: 0.25,
+                            '&.solo-active': {
+                              color: 'warning.main',
+                            },
+                          }}
+                        >
+                          <RadioButtonUncheckedIcon sx={{ fontSize: 12 }} />
+                        </IconButton>
+                      </Tooltip>
+                    </Box>
                   </Box>
+                  <Tooltip title="10x scale">
+                    <IconButton
+                      ref={(el) => {
+                        zoomButtonRefs.current[i] = el;
+                      }}
+                      size="small"
+                      onClick={() => {
+                        const wasScaled = outputScale10xRef.current.has(i);
+                        const nowScaled = !wasScaled;
+
+                        if (nowScaled) {
+                          outputScale10xRef.current.add(i);
+                        } else {
+                          outputScale10xRef.current.delete(i);
+                        }
+
+                        // Update button class
+                        const btn = zoomButtonRefs.current[i];
+                        if (btn) {
+                          if (nowScaled) {
+                            btn.classList.add('zoom-active');
+                          } else {
+                            btn.classList.remove('zoom-active');
+                          }
+                        }
+
+                        // Update the plotter's max amplitude
+                        const plotter = outputPlotterRefs.current[i];
+                        if (plotter) {
+                          plotter.setMaxAmplitude(nowScaled ? 3276.7 : 32767);
+                        }
+                      }}
+                      sx={{
+                        width: 16,
+                        height: 16,
+                        minWidth: 16,
+                        minHeight: 16,
+                        p: 0.25,
+                        '&.zoom-active': {
+                          color: 'primary.main',
+                        },
+                      }}
+                    >
+                      <ZoomInIcon sx={{ fontSize: 12 }} />
+                    </IconButton>
+                  </Tooltip>
                 </Box>
                 <WaveformPlotter
                   ref={(el) => {
@@ -1636,6 +1884,7 @@ export const DspPlaygroundPanel = () => {
                   }}
                   height={100}
                   maxSamples={180}
+                  maxAmplitude={outputScale10xRef.current.has(i) ? 3276.7 : 32767}
                   fillWidth={true}
                 />
               </Box>

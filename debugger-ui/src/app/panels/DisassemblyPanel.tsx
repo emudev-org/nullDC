@@ -102,11 +102,12 @@ const DisassemblyPanel = ({ target, defaultAddress }: DisassemblyPanelProps) => 
       formatAddressInput: (value: number) => formatAddressInput(target, value),
       formatAddressDisplay: (value: number) => formatAddressForDisplay(target, value),
       parseAddressInput: (input: string) => parseAddressInput(target, input),
-      gridColumns: isDsp ? "24px 80px 120px 1fr" : "24px 140px 140px 1fr",
+      gridColumns: isDsp ? "24px 80px 1fr" : "24px 140px 140px 1fr",
       stepLabel: isDsp ? "Step" : "Step Over",
       stepIcon: isDsp ? ArrowForwardIcon : SubdirectoryArrowRightIcon,
       showStepInOut: target === "sh4" || target === "arm7",
       urlParamName: isDsp ? "step" : "address",
+      showBytes: !isDsp,
     };
   }, [target]);
 

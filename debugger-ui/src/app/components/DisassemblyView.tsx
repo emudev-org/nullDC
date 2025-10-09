@@ -10,6 +10,8 @@ import ArrowUpwardRoundedIcon from "@mui/icons-material/ArrowUpwardRounded";
 import VolumeOffIcon from "@mui/icons-material/VolumeOff";
 import VolumeUpIcon from "@mui/icons-material/VolumeUp";
 import RefreshIcon from "@mui/icons-material/Refresh";
+import PlayArrowIcon from "@mui/icons-material/PlayArrow";
+import PauseIcon from "@mui/icons-material/Pause";
 import type { DisassemblyLine } from "../../lib/debuggerSchema";
 
 const WHEEL_PIXEL_THRESHOLD = 60;
@@ -36,6 +38,30 @@ export interface DisassemblyViewConfig {
   showStepInOut: boolean;
   /** URL parameter name for address (e.g., "address" or "step") */
   urlParamName: string;
+  /** Whether to show the opcode/bytes column (default: true) */
+  showBytes?: boolean;
+  /** Whether to show mute/solo buttons (default: true) */
+  showMuteSolo?: boolean;
+  /** Icon for the run/pause button */
+  runPauseIcon?: { paused: typeof ArrowForwardIcon; running: typeof ArrowForwardIcon };
+  /** Label for the run/pause button */
+  runPauseLabel?: { paused: string; running: string };
+  /** Prefix action buttons to show before step buttons (after run/pause) */
+  prefixActions?: Array<{
+    key: string;
+    icon: typeof ArrowForwardIcon;
+    label: string;
+    disabled?: boolean;
+    onClick: () => void;
+  }>;
+  /** Extra action buttons to show after step buttons */
+  extraActions?: Array<{
+    key: string;
+    icon: typeof ArrowForwardIcon;
+    label: string;
+    disabled?: boolean;
+    onClick: () => void;
+  }>;
 }
 
 export interface DisassemblyViewCallbacks {
@@ -57,6 +83,8 @@ export interface DisassemblyViewCallbacks {
   onMuteToggle: () => void;
   /** Handle solo toggle for this view's category */
   onSoloToggle: () => void;
+  /** Handle run/pause toggle (if provided, run/pause button will be shown) */
+  onRunPauseToggle?: () => void;
 }
 
 export interface DisassemblyViewProps {
@@ -164,9 +192,11 @@ const DisassemblyLineItem = memo(({
       <Typography component="span" sx={{ color: "text.secondary" }}>
         {config.formatAddressDisplay(line.address)}
       </Typography>
-      <Typography component="span" sx={{ color: "text.secondary" }}>
-        {line.bytes}
-      </Typography>
+      {(config.showBytes ?? true) && (
+        <Typography component="span" sx={{ color: "text.secondary" }}>
+          {line.bytes}
+        </Typography>
+      )}
       <Typography component="span" sx={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
         {line.disassembly}
       </Typography>
@@ -529,8 +559,19 @@ export const DisassemblyView = ({
     forceUpdate((v) => v + 1);
   }, [callbacks]);
 
+  const handleRunPauseToggle = useCallback(() => {
+    if (callbacks.onRunPauseToggle) {
+      callbacks.onRunPauseToggle();
+    }
+  }, [callbacks]);
+
   const stepDisabled = executionState !== "paused";
   const StepIcon = config.stepIcon;
+
+  const RunPausedIcon = config.runPauseIcon?.paused ?? PlayArrowIcon;
+  const RunRunningIcon = config.runPauseIcon?.running ?? PauseIcon;
+  const runPausedLabel = config.runPauseLabel?.paused ?? "Run";
+  const runRunningLabel = config.runPauseLabel?.running ?? "Pause";
 
   return (
     <Paper
@@ -554,9 +595,42 @@ export const DisassemblyView = ({
         }}
       >
         <Stack direction="row" spacing={0.5} alignItems="center">
+          {callbacks.onRunPauseToggle && (
+            <Tooltip title={executionState === "paused" ? runPausedLabel : runRunningLabel}>
+              <span>
+                <IconButton
+                  size="small"
+                  onClick={handleRunPauseToggle}
+                  disabled={!initialized}
+                >
+                  {executionState === "paused" ? (
+                    <RunPausedIcon fontSize="small" />
+                  ) : (
+                    <RunRunningIcon fontSize="small" />
+                  )}
+                </IconButton>
+              </span>
+            </Tooltip>
+          )}
+          {config.prefixActions?.map((action) => {
+            const ActionIcon = action.icon;
+            return (
+              <Tooltip key={action.key} title={action.label}>
+                <span>
+                  <IconButton
+                    size="small"
+                    onClick={action.onClick}
+                    disabled={action.disabled ?? !initialized}
+                  >
+                    <ActionIcon fontSize="small" />
+                  </IconButton>
+                </span>
+              </Tooltip>
+            );
+          })}
           <Tooltip title={config.stepLabel}>
             <span>
-              <IconButton size="small" onClick={handleStep} disabled={stepDisabled}>
+              <IconButton size="small" onClick={handleStep} disabled={stepDisabled || !initialized}>
                 <StepIcon fontSize="small" />
               </IconButton>
             </span>
@@ -565,32 +639,52 @@ export const DisassemblyView = ({
             <>
               <Tooltip title="Step In">
                 <span>
-                  <IconButton size="small" onClick={handleStepIn} disabled={stepDisabled}>
+                  <IconButton size="small" onClick={handleStepIn} disabled={stepDisabled || !initialized}>
                     <ArrowDownwardRoundedIcon fontSize="small" />
                   </IconButton>
                 </span>
               </Tooltip>
               <Tooltip title="Step Out">
                 <span>
-                  <IconButton size="small" onClick={handleStepOut} disabled={stepDisabled}>
+                  <IconButton size="small" onClick={handleStepOut} disabled={stepDisabled || !initialized}>
                     <ArrowUpwardRoundedIcon fontSize="small" />
                   </IconButton>
                 </span>
               </Tooltip>
             </>
           )}
+          {config.extraActions?.map((action) => {
+            const ActionIcon = action.icon;
+            return (
+              <Tooltip key={action.key} title={action.label}>
+                <span>
+                  <IconButton
+                    size="small"
+                    onClick={action.onClick}
+                    disabled={action.disabled ?? !initialized}
+                  >
+                    <ActionIcon fontSize="small" />
+                  </IconButton>
+                </span>
+              </Tooltip>
+            );
+          })}
         </Stack>
         <Stack direction="row" spacing={1} alignItems="center" sx={{ flex: 1, justifyContent: "flex-end" }}>
-          <Tooltip title={categoryState?.muted ? "Unmute category" : "Mute category"}>
-            <IconButton size="small" onClick={handleMuteToggle} color={categoryState?.muted ? "warning" : "default"}>
-              {categoryState?.muted ? <VolumeOffIcon fontSize="small" /> : <VolumeUpIcon fontSize="small" />}
-            </IconButton>
-          </Tooltip>
-          <Tooltip title={categoryState?.soloed ? "Unsolo category" : "Solo category"}>
-            <IconButton size="small" onClick={handleSoloToggle} color={categoryState?.soloed ? "primary" : "default"}>
-              {categoryState?.soloed ? <RadioButtonCheckedIcon fontSize="small" /> : <RadioButtonUncheckedIcon fontSize="small" />}
-            </IconButton>
-          </Tooltip>
+          {(config.showMuteSolo ?? true) && (
+            <>
+              <Tooltip title={categoryState?.muted ? "Unmute category" : "Mute category"}>
+                <IconButton size="small" onClick={handleMuteToggle} color={categoryState?.muted ? "warning" : "default"}>
+                  {categoryState?.muted ? <VolumeOffIcon fontSize="small" /> : <VolumeUpIcon fontSize="small" />}
+                </IconButton>
+              </Tooltip>
+              <Tooltip title={categoryState?.soloed ? "Unsolo category" : "Solo category"}>
+                <IconButton size="small" onClick={handleSoloToggle} color={categoryState?.soloed ? "primary" : "default"}>
+                  {categoryState?.soloed ? <RadioButtonCheckedIcon fontSize="small" /> : <RadioButtonUncheckedIcon fontSize="small" />}
+                </IconButton>
+              </Tooltip>
+            </>
+          )}
           <Tooltip title="Go to current PC">
             <span>
               <IconButton size="small" onClick={handleGotoPC} disabled={currentPc === undefined}>
