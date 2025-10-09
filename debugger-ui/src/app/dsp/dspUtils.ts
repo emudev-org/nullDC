@@ -145,9 +145,22 @@ export const encodeInst = (desc: Partial<DspInstDesc>): number[] => {
 };
 
 export const disassembleDesc = (desc: DspInstDesc): string => {
+  // Fields that are 1-bit flags (only show name when set to 1)
+  const oneBitFields = new Set([
+    'TWT', 'XSEL', 'IWT', 'TABLE', 'MWT', 'MRD', 'EWT',
+    'ADRL', 'FRCL', 'YRL', 'NEGB', 'ZERO', 'BSEL', 'NOFL', 'ADREB', 'NXADR'
+  ]);
+
   return Object.entries(desc)
     .filter(([, value]) => value !== 0)
-    .map(([key, value]) => value === 1 ? key : `${key}:${value}`)
+    .map(([key, value]) => {
+      // For 1-bit fields with value 1, just show the name
+      if (oneBitFields.has(key) && value === 1) {
+        return key;
+      }
+      // For all other fields or values, show name:value
+      return `${key}:${value}`;
+    })
     .join(" ");
 };
 

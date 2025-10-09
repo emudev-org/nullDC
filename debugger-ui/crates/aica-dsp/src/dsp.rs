@@ -293,10 +293,24 @@ pub fn step_128_end() {
     }
 }
 
-pub fn step_128() {
-    step_128_start();
-    for i in 0..128 {
-        step(i);
+pub fn get_dsp_registers() -> Vec<i32> {
+    unsafe {
+        vec![
+            MDEC_CT as i32,
+            ACC,
+            SHIFTED,
+            X,
+            Y,
+            B,
+            INPUTS,
+            MEMVAL[0],
+            MEMVAL[1],
+            MEMVAL[2],
+            MEMVAL[3],
+            FRC_REG,
+            Y_REG,
+            ADRS_REG as i32,
+        ]
     }
-    step_128_end();
 }
+

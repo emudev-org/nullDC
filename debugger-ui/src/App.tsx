@@ -10,6 +10,7 @@ const App = () => {
         <Route path="/" element={<HomePage />} />
         <Route path="/docs" element={<DocsPage />} />
         <Route path="/:tab" element={<AppLayout />} />
+        <Route path="/:tab/:subtab" element={<AppLayout />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </HashRouter>

@@ -105,7 +105,7 @@ export interface DisassemblyViewProps {
   /** Category state (muted/soloed) */
   categoryState?: { muted: boolean; soloed: boolean };
   /** Initial address from URL if any */
-  initialUrlAddress?: { address: number; fromUrl: boolean };
+  initialUrlAddress?: { address: number; fromUrl: boolean; highlight?: boolean };
 }
 
 const normalizeAddress = (value: number, max: number, step: number) => {
@@ -234,11 +234,13 @@ export const DisassemblyView = ({
       const normalizedTarget = normalizeAddress(targetAddress, config.maxAddress, config.instructionSize);
       setAddress(normalizedTarget);
 
-      // Set target for highlighting
-      targetAddressRef.current = initialUrlAddress.address;
-      targetTimestampRef.current = Date.now();
+      // Set target for highlighting (default to true if not specified)
+      if (initialUrlAddress.highlight !== false) {
+        targetAddressRef.current = initialUrlAddress.address;
+        targetTimestampRef.current = Date.now();
+      }
     }
-  }, [initialUrlAddress?.address, initialUrlAddress?.fromUrl, config.instructionSize, config.maxAddress]);
+  }, [initialUrlAddress?.address, initialUrlAddress?.fromUrl, initialUrlAddress?.highlight, config.instructionSize, config.maxAddress]);
 
   const requestIdRef = useRef(0);
   const wheelRemainder = useRef(0);
@@ -346,6 +348,11 @@ export const DisassemblyView = ({
   // Trigger highlight effect when URL address changes (or action_guid changes for re-clicks)
   useEffect(() => {
     if (!initialUrlAddress?.fromUrl || !initialized) {
+      return;
+    }
+
+    // Skip highlighting if explicitly disabled
+    if (initialUrlAddress.highlight === false) {
       return;
     }
 

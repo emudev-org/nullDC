@@ -198,9 +198,10 @@ pub fn step128_end() {
 }
 
 #[wasm_bindgen]
-pub fn step128() {
-    dsp::step_128();
+pub fn get_dsp_registers() -> Vec<i32> {
+    dsp::get_dsp_registers()
 }
+
 
 // Export memory access for debugging
 pub fn get_aica_ram() -> &'static mut [u8] {

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import {
   Alert,
   Box,
@@ -19,6 +20,7 @@ import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import PauseIcon from "@mui/icons-material/Pause";
 import StopIcon from "@mui/icons-material/Stop";
 import FastForwardIcon from "@mui/icons-material/FastForward";
+import SkipNextIcon from "@mui/icons-material/SkipNext";
 import DeleteIcon from "@mui/icons-material/Delete";
 import HearingIcon from "@mui/icons-material/Hearing";
 import VolumeUpIcon from "@mui/icons-material/VolumeUp";
@@ -172,6 +174,8 @@ interface AudioFile {
 }
 
 export const DspPlaygroundPanel = () => {
+  const navigate = useNavigate();
+  const { subtab } = useParams();
   const [activeTab, setActiveTab] = useState<"source" | "compiled" | "assembly">(resolveInitialTab());
   const dspSourceRef = useRef(resolveInitialDspSource());
   const compiledAssemblyRef = useRef("");
@@ -179,6 +183,17 @@ export const DspPlaygroundPanel = () => {
   const compiledEditorRef = useRef<DspAssemblyEditorRef | null>(null);
   const [audioPlaying, setAudioPlaying] = useState(false);
   const [audioPaused, setAudioPaused] = useState(false);
+  const [currentDspStep, setCurrentDspStep] = useState(0);
+  const [goToPc, setGoToPc] = useState<{ address: number; fromUrl: boolean; highlight?: boolean } | undefined>(undefined);
+  const registerElementsRef = useRef<Map<string, HTMLElement>>(new Map());
+  const sourceExpandedRef = useRef(true);
+  const debuggerExpandedRef = useRef(false);
+  const waveformsExpandedRef = useRef(true);
+  const audioFilesExpandedRef = useRef(true);
+  const sourceContainerRef = useRef<HTMLElement | null>(null);
+  const debuggerContainerRef = useRef<HTMLElement | null>(null);
+  const waveformsContainerRef = useRef<HTMLElement | null>(null);
+  const audioFilesContainerRef = useRef<HTMLElement | null>(null);
   const outputScale10xRef = useRef<Set<number>>(new Set());
   const [wasmInitialized, setWasmInitialized] = useState(false);
   const [binaryVersion, setBinaryVersion] = useState(0);
@@ -196,7 +211,6 @@ export const DspPlaygroundPanel = () => {
     })()
   );
   const audioFilesRef = useRef<AudioFile[]>(audioFiles);
-  const dspStepCounter = useRef(0);
   const frequency = useRef(0);
   const keysPressed = useRef(new Set<string>());
   const phase = useRef(0);
@@ -242,6 +256,16 @@ export const DspPlaygroundPanel = () => {
       setWasmInitialized(true);
     });
   }, []);
+
+  // Sync activeTab with URL subtab
+  useEffect(() => {
+    if (subtab === "assembler") {
+      setActiveTab("assembly");
+    } else if (!subtab) {
+      // When navigating to /dsp-playground (no subtab), default to Compiler
+      setActiveTab("source");
+    }
+  }, [subtab]);
 
   // Save to localStorage (called manually, not reactive)
   const saveToLocalStorage = useCallback(() => {
@@ -544,7 +568,8 @@ export const DspPlaygroundPanel = () => {
     if (!wasmInitialized) return;
 
     // Reset DSP step counter
-    dspStepCounter.current = 0;
+    aicaDsp.resetCounters();
+    setCurrentDspStep(0);
 
     const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({
       sampleRate: 44100,
@@ -577,7 +602,7 @@ export const DspPlaygroundPanel = () => {
             const file = audioFilesRef.current.find(f => f.id === source.fileId);
             if (file && file.audioBuffer) {
               const channelData = file.audioBuffer.getChannelData(0);
-              const pos = dspStepCounter.current;
+              const pos = aicaDsp.getSampleCounter();
 
               // Read sample if within bounds, otherwise silent
               if (pos < channelData.length) {
@@ -602,7 +627,8 @@ export const DspPlaygroundPanel = () => {
           inputPlotterRefs.current[j]?.appendSample(channelSample);
         }
 
-        aicaDsp.step128();
+        // Execute 128 DSP steps (one full sample)
+        aicaDsp.runToNextSample();
 
         // Read DSP outputs
         let audioOut = 0;
@@ -649,7 +675,7 @@ export const DspPlaygroundPanel = () => {
             const file = audioFilesRef.current.find(f => f.id === source.fileId);
             if (file && file.audioBuffer) {
               const channelData = file.audioBuffer.getChannelData(0);
-              const pos = dspStepCounter.current;
+              const pos = aicaDsp.getSampleCounter();
 
               // Read sample if within bounds, otherwise silent
               if (pos < channelData.length) {
@@ -666,9 +692,6 @@ export const DspPlaygroundPanel = () => {
         } else {
           outputBuffer[i] = audioOut;
         }
-
-        // Increment DSP step counter
-        dspStepCounter.current++;
 
         // Update the phase
         phase.current += (TWO_PI * frequency.current) / sampleRate;
@@ -700,9 +723,12 @@ export const DspPlaygroundPanel = () => {
   }, []);
 
   // Handle audio context suspend/resume when paused
+  // Note: The pause/resume button handler now does this synchronously to avoid glitches
   useEffect(() => {
     if (!audioContextRef.current || !audioPlaying) return;
 
+    // Only handle cases where state changed outside of the pause button
+    // (e.g., when stopping playback)
     if (audioPaused) {
       void audioContextRef.current.suspend();
     } else {
@@ -772,6 +798,101 @@ export const DspPlaygroundPanel = () => {
   useEffect(() => {
     audioFilesRef.current = audioFiles;
   }, [audioFiles]);
+
+  // Reset goToPc after it's been applied
+  useEffect(() => {
+    if (goToPc) {
+      const timer = setTimeout(() => {
+        setGoToPc(undefined);
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [goToPc]);
+
+  // Store last register values to track changes
+  const lastRegValuesRef = useRef<Map<string, number>>(new Map());
+
+  // Update register values directly in DOM when paused (avoids re-render)
+  useEffect(() => {
+    if (!wasmInitialized || !audioPlaying || !audioPaused) return;
+
+    const sampleNum = aicaDsp.getSampleCounter();
+    const stepNum = aicaDsp.getCurrentStep();
+    const regs = aicaDsp.getDspRegisters();
+
+    // Helper to update register element only if value changed
+    const updateRegister = (name: string, value: number, bits: number = 32) => {
+      const lastValue = lastRegValuesRef.current.get(name);
+      if (lastValue === value) return; // Skip if unchanged
+
+      lastRegValuesRef.current.set(name, value);
+
+      const el = registerElementsRef.current.get(name);
+      if (el) {
+        const signExtend = (value: number, bits: number): number => {
+          const shift = 32 - bits;
+          return (value << shift) >> shift;
+        };
+        const signedValue = signExtend(value, bits);
+        const hexValue = (value >>> 0).toString(16).toUpperCase().padStart(Math.ceil(bits / 4), '0');
+        el.textContent = signedValue.toString().padStart(11, ' ');
+        el.title = `0x${hexValue}`;
+      }
+    };
+
+    // Update counters
+    const sampleEl = registerElementsRef.current.get('Sample');
+    if (sampleEl) {
+      sampleEl.textContent = sampleNum.toString().padStart(11, ' ');
+      sampleEl.title = `0x${sampleNum.toString(16).toUpperCase()}`;
+    }
+    const stepEl = registerElementsRef.current.get('Step');
+    if (stepEl) {
+      stepEl.textContent = stepNum.toString().padStart(11, ' ');
+      stepEl.title = `0x${stepNum.toString(16).toUpperCase()}`;
+    }
+
+    // Update internal registers
+    const regNames = ["MDEC_CT", "ACC", "SHIFTED", "X", "Y", "B", "INPUTS", "MEMVAL[0]", "MEMVAL[1]", "MEMVAL[2]", "MEMVAL[3]", "FRC_REG", "Y_REG", "ADRS_REG"];
+    regNames.forEach((name, i) => {
+      updateRegister(name, regs[i], i === 0 ? 10 : i >= 4 && i <= 7 ? 24 : 32);
+    });
+
+    // Update TEMP registers (128 registers, 16-bit)
+    for (let i = 0; i < 128; i++) {
+      updateRegister(`TEMP[${i}]`, aicaDsp.readReg(0x3000 + 0x000 + i * 2), 16);
+    }
+
+    // Update COEF registers (128 registers, 16-bit)
+    for (let i = 0; i < 128; i++) {
+      updateRegister(`COEF[${i}]`, aicaDsp.readReg(0x3000 + 0x200 + i * 2), 16);
+    }
+
+    // Update MADRS registers (64 registers, 16-bit)
+    for (let i = 0; i < 64; i++) {
+      updateRegister(`MADRS[${i}]`, aicaDsp.readReg(0x3000 + 0x400 + i * 16), 16);
+    }
+
+    // Update MEMS registers (32 registers, 24-bit)
+    for (let i = 0; i < 32; i++) {
+      updateRegister(`MEMS[${i}]`, aicaDsp.readReg(0x3000 + 0xE00 + i * 8), 24);
+    }
+
+    // Update MIXS registers (16 registers, 20-bit)
+    for (let i = 0; i < 16; i++) {
+      updateRegister(`MIXS[${i}]`, aicaDsp.readReg(0x3000 + 0x1400 + i * 4), 20);
+    }
+
+    // Update EFREG registers (16 registers, 32-bit)
+    for (let i = 0; i < 16; i++) {
+      updateRegister(`EFREG[${i}]`, aicaDsp.readReg(0x3000 + 0x1600 + i * 4), 32);
+    }
+
+    // Update EXTS registers (2 registers, 16-bit)
+    for (let i = 0; i < 2; i++) {
+      updateRegister(`EXTS[${i}]`, aicaDsp.readReg(0x3000 + 0x1700 + i * 2), 16);
+    }
+  }, [wasmInitialized, audioPlaying, audioPaused, currentDspStep]);
 
   // Sync inputSources ref to Select elements on audioFiles change
   useEffect(() => {
@@ -1324,6 +1445,21 @@ export const DspPlaygroundPanel = () => {
     input.click();
   }, []);
 
+  // Handler for running to next sample (run until currentStep === 0)
+  const handleRunToNextSample = useCallback(() => {
+    if (!wasmInitialized || !audioPaused) return;
+
+    // Run until we reach the next sample boundary (step 0)
+    aicaDsp.runToNextSample();
+
+    // Update current step for the disassembly view
+    const newStep = aicaDsp.getCurrentStep();
+    setCurrentDspStep(newStep);
+
+    // Scroll to the current PC without highlighting
+    setGoToPc({ address: newStep, fromUrl: true, highlight: false });
+  }, [wasmInitialized, audioPaused]);
+
   // Handler for running 128 samples
   const handleRun128Samples = useCallback(() => {
     if (!wasmInitialized || !audioPaused) return;
@@ -1338,7 +1474,7 @@ export const DspPlaygroundPanel = () => {
         const file = audioFilesRef.current.find(f => f.id === source.fileId);
         if (file && file.audioBuffer) {
           const channelData = file.audioBuffer.getChannelData(0);
-          const pos = dspStepCounter.current;
+          const pos = aicaDsp.getSampleCounter();
 
           // Read sample if within bounds, otherwise silent
           if (pos < channelData.length) {
@@ -1353,9 +1489,11 @@ export const DspPlaygroundPanel = () => {
       inputPlotterRefs.current[j]?.appendSample(channelSample);
     }
 
-    // Run one DSP step (which processes 128 samples)
-    aicaDsp.step128();
-    dspStepCounter.current++;
+    // Run one full sample (128 DSP steps)
+    aicaDsp.runToNextSample();
+
+    // Update current step for the disassembly view
+    setCurrentDspStep(aicaDsp.getCurrentStep());
 
     // Read DSP outputs and update plotters
     let mixSampleInt = 0;
@@ -1423,8 +1561,15 @@ export const DspPlaygroundPanel = () => {
         disabled: !audioPlaying || !audioPaused,
         onClick: handleRun128Samples,
       },
+      {
+        key: 'runToNextSample',
+        icon: SkipNextIcon,
+        label: 'Run to next sample',
+        disabled: !audioPlaying || !audioPaused,
+        onClick: handleRunToNextSample,
+      },
     ],
-  }), [audioPlaying, audioPaused, handleRun128Samples]);
+  }), [audioPlaying, audioPaused, handleRunToNextSample, handleRun128Samples]);
 
   // DisassemblyView callbacks for DSP playground
   const disassemblyCallbacks: DisassemblyViewCallbacks = useMemo(() => ({
@@ -1456,7 +1601,67 @@ export const DspPlaygroundPanel = () => {
       return lines;
     },
     onStep: async () => {
-      // No-op in playground mode
+      if (!wasmInitialized || !audioPaused) return;
+
+      // Process inputs for all 16 channels
+      for (let j = 0; j < 16; j++) {
+        const source = inputSourcesRef.current[j];
+        let channelSample = 0;
+
+        if (typeof source === "object" && source.type === "file") {
+          const file = audioFilesRef.current.find(f => f.id === source.fileId);
+          if (file && file.audioBuffer) {
+            const channelData = file.audioBuffer.getChannelData(0);
+            const pos = aicaDsp.getSampleCounter();
+
+            if (pos < channelData.length) {
+              channelSample = Math.round(channelData[pos] * 32767);
+            }
+          }
+        }
+
+        aicaDsp.writeReg(0x3000 + 0x1500 + 0 + j * 8, (channelSample >> 0) & 0xf);
+        aicaDsp.writeReg(0x3000 + 0x1500 + 4 + j * 8, (channelSample >> 4) & 0xffff);
+        inputPlotterRefs.current[j]?.appendSample(channelSample);
+      }
+
+      // Execute one DSP step
+      aicaDsp.doDspStep();
+
+      // Update current step for the disassembly view
+      const newStep = aicaDsp.getCurrentStep();
+      setCurrentDspStep(newStep);
+
+      // Scroll to the current PC without highlighting
+      setGoToPc({ address: newStep, fromUrl: true, highlight: false });
+
+      // Read DSP outputs and update plotters
+      let mixSampleInt = 0;
+      const states = channelStatesRef.current;
+      const hasSolo = states.some(s => s === 2);
+
+      for (let j = 0; j < 16; j++) {
+        let fxSampleInt = aicaDsp.readReg(0x3000 + 0x1580 + j * 4);
+        fxSampleInt = fxSampleInt & 0xffff;
+        if (fxSampleInt & 0x8000) {
+          fxSampleInt |= 0xffff0000;
+        }
+
+        let channelEnabled = true;
+        if (hasSolo) {
+          channelEnabled = states[j] === 2;
+        } else {
+          channelEnabled = states[j] !== 1;
+        }
+
+        if (channelEnabled) {
+          mixSampleInt += fxSampleInt;
+        }
+
+        outputPlotterRefs.current[j]?.appendSample(fxSampleInt);
+      }
+
+      mixPlotterRef.current?.appendSample(mixSampleInt);
     },
     onBreakpointAdd: async () => {
       // No-op in playground mode
@@ -1474,25 +1679,40 @@ export const DspPlaygroundPanel = () => {
       // No-op in playground mode
     },
     onRunPauseToggle: () => {
+      if (!audioPlaying) return; // Disabled when audio not playing
+
       if (audioPaused) {
-        // Resume
+        // Resume - update state first, then resume audio in microtask
         setAudioPaused(false);
-      } else if (audioPlaying) {
-        // Pause
-        setAudioPaused(true);
+        queueMicrotask(() => {
+          if (audioContextRef.current) {
+            void audioContextRef.current.resume();
+          }
+        });
       } else {
-        // Start audio if not playing
-        handleStartAudio();
+        // Pause - first suspend audio immediately, then update state in microtask
+        if (audioContextRef.current) {
+          void audioContextRef.current.suspend();
+        }
+        queueMicrotask(() => {
+          setAudioPaused(true);
+          // Scroll to current step when pausing
+          if (wasmInitialized) {
+            const currentStep = aicaDsp.getCurrentStep();
+            setCurrentDspStep(currentStep);
+            setGoToPc({ address: currentStep, fromUrl: true, highlight: false });
+          }
+        });
       }
     },
-  }), [wasmInitialized, audioPlaying, audioPaused, handleStartAudio]);
+  }), [wasmInitialized, audioPlaying, audioPaused]);
 
   if (!wasmInitialized) {
     return (
       <Panel>
         <Box sx={{ p: 3, display: "flex", justifyContent: "center", alignItems: "center" }}>
           <Typography variant="body1" color="text.secondary">
-            Loading DSP WASM module...
+            Loading WASM module...
           </Typography>
         </Box>
       </Panel>
@@ -1551,98 +1771,328 @@ export const DspPlaygroundPanel = () => {
           </Alert>
         )}
 
-        {/* Tabbed Editor */}
-        <Box
-          ref={editorContainerRef}
-          sx={{
-            position: 'relative',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-          }}
-        >
-          <Tabs
-            value={activeTab}
-            onChange={(_, newValue) => {
-              setActiveTab(newValue);
-              // Don't reset editorsReady - let the useEffect handle re-compilation
-            }}
-            sx={{ width: '100%', borderBottom: 1, borderColor: 'divider' }}
-          >
-            <Tab label="DSP Compiler" value="source" />
-            <Tab label="DSP Compiled" value="compiled" />
-            <Tab label="DSP Assembler" value="assembly" />
-          </Tabs>
-
-          <Box ref={editorInnerContainerRef} sx={{ width: '100%', height: 250 }}>
-            {activeTab === "source" ? (
-              <DspSourceEditor
-                ref={sourceEditorRef}
-                value={dspSourceRef.current}
-                onChange={handleDspSourceChange}
-                height="100%"
-                onEditorReady={handleEditorReady}
-              />
-            ) : activeTab === "compiled" ? (
-              <DspAssemblyEditor
-                key={activeTab}
-                ref={compiledEditorRef}
-                value={compiledAssemblyRef.current}
-                onChange={() => {}} // Read-only
-                height="100%"
-                readOnly={true}
-                onEditorReady={handleEditorReady}
-              />
-            ) : (
-              <DspAssemblyEditor
-                key={activeTab}
-                ref={editorRef}
-                value={assemblySourceRef.current}
-                onChange={handleAssemblySourceChange}
-                height="100%"
-                onEditorReady={handleEditorReady}
-              />
-            )}
+        {/* Source Section */}
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+          {/* Source Header */}
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 2 }}>
+            <Typography variant="h6">Source</Typography>
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                sourceExpandedRef.current = !sourceExpandedRef.current;
+                if (sourceContainerRef.current) {
+                  sourceContainerRef.current.style.display = sourceExpandedRef.current ? 'block' : 'none';
+                }
+                const btn = e.currentTarget;
+                btn.style.transform = sourceExpandedRef.current ? 'rotate(180deg)' : 'rotate(0deg)';
+              }}
+              sx={{
+                transform: 'rotate(180deg)',
+                transition: 'transform 0.2s',
+              }}
+            >
+              <KeyboardArrowDownIcon />
+            </IconButton>
           </Box>
-          <IconButton
-            ref={editorToggleButtonRef}
-            size="small"
-            onClick={handleEditorFullscreenToggle}
-            sx={{
-              mt: 1,
-              backgroundColor: 'background.paper',
-              opacity: 0.7,
-              flexShrink: 0,
-              '&:hover': {
-                opacity: 1,
-                backgroundColor: 'background.paper',
-              },
-            }}
-          >
-            <KeyboardArrowDownIcon />
-          </IconButton>
+
+          <Box ref={sourceContainerRef}>
+            {/* Tabbed Editor */}
+            <Box
+              ref={editorContainerRef}
+              sx={{
+                position: 'relative',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+              }}
+            >
+                <Tabs
+                  value={activeTab}
+                  onChange={(_, newValue) => {
+                    setActiveTab(newValue);
+                    // Update URL based on tab
+                    if (newValue === "assembly") {
+                      navigate("/dsp-playground/assembler", { replace: true });
+                    } else {
+                      navigate("/dsp-playground", { replace: true });
+                    }
+                    // Don't reset editorsReady - let the useEffect handle re-compilation
+                  }}
+                  sx={{ width: '100%', borderBottom: 1, borderColor: 'divider' }}
+                >
+                  <Tab label="Compiler" value="source" />
+                  <Tab label="Compiled" value="compiled" />
+                  <Tab label="Assembler" value="assembly" />
+                </Tabs>
+
+                <Box ref={editorInnerContainerRef} sx={{ width: '100%', height: 250 }}>
+                  {activeTab === "source" ? (
+                    <DspSourceEditor
+                      ref={sourceEditorRef}
+                      value={dspSourceRef.current}
+                      onChange={handleDspSourceChange}
+                      height="100%"
+                      onEditorReady={handleEditorReady}
+                    />
+                  ) : activeTab === "compiled" ? (
+                    <DspAssemblyEditor
+                      key={activeTab}
+                      ref={compiledEditorRef}
+                      value={compiledAssemblyRef.current}
+                      onChange={() => {}} // Read-only
+                      height="100%"
+                      readOnly={true}
+                      onEditorReady={handleEditorReady}
+                    />
+                  ) : (
+                    <DspAssemblyEditor
+                      key={activeTab}
+                      ref={editorRef}
+                      value={assemblySourceRef.current}
+                      onChange={handleAssemblySourceChange}
+                      height="100%"
+                      onEditorReady={handleEditorReady}
+                    />
+                  )}
+                </Box>
+                <IconButton
+                  ref={editorToggleButtonRef}
+                  size="small"
+                  onClick={handleEditorFullscreenToggle}
+                  sx={{
+                    mt: 1,
+                    backgroundColor: 'background.paper',
+                    opacity: 0.7,
+                    flexShrink: 0,
+                    '&:hover': {
+                      opacity: 1,
+                      backgroundColor: 'background.paper',
+                    },
+                  }}
+                >
+                  <KeyboardArrowDownIcon />
+                </IconButton>
+              </Box>
+          </Box>
         </Box>
 
-        {/* Waveform visualizations */}
+        {/* Debugger Section */}
         <Box ref={dspSectionRef} sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-          {/* DSP Disassembly */}
-          <Typography variant="subtitle2">DSP Disassembly</Typography>
-          <Box sx={{ height: 300 }}>
+          {/* Debugger Header */}
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 2 }}>
+            <Typography variant="h6">Debugger</Typography>
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                debuggerExpandedRef.current = !debuggerExpandedRef.current;
+                if (debuggerContainerRef.current) {
+                  debuggerContainerRef.current.style.display = debuggerExpandedRef.current ? 'block' : 'none';
+                }
+                const btn = e.currentTarget;
+                btn.style.transform = debuggerExpandedRef.current ? 'rotate(180deg)' : 'rotate(0deg)';
+              }}
+              sx={{
+                transform: 'rotate(0deg)',
+                transition: 'transform 0.2s',
+              }}
+            >
+              <KeyboardArrowDownIcon />
+            </IconButton>
+          </Box>
+
+          <Box ref={debuggerContainerRef} sx={{ display: 'none' }}>
+            {/* Disassembly */}
+            <Typography variant="subtitle2">Disassembly</Typography>
+              <Box sx={{ height: 600 }}>
             <DisassemblyView
               key={binaryVersion}
               config={disassemblyConfig}
               callbacks={disassemblyCallbacks}
               defaultAddress={0}
-              currentPc={undefined}
+              currentPc={audioPlaying && audioPaused ? currentDspStep : undefined}
               breakpointsByAddress={new Map()}
-              initialized={wasmInitialized}
-              executionState={audioPlaying && !audioPaused ? "running" : "paused"}
+              initialized={wasmInitialized && audioPlaying}
+              executionState={audioPlaying && audioPaused ? "paused" : "running"}
               categoryState={undefined}
-              initialUrlAddress={undefined}
+              initialUrlAddress={goToPc}
             />
           </Box>
 
-          <Typography variant="subtitle2" sx={{ mt: 2 }}>DSP Inputs</Typography>
+          {/* Registers */}
+          <Typography variant="subtitle2" sx={{ mt: 2 }}>Registers</Typography>
+          <Box sx={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))",
+            gap: 1,
+            fontFamily: "monospace",
+            fontSize: "0.875rem"
+          }}>
+            {wasmInitialized && (() => {
+              // Use default values for initial render
+              const regNames = ["MDEC_CT", "ACC", "SHIFTED", "X", "Y", "B", "INPUTS", "MEMVAL[0]", "MEMVAL[1]", "MEMVAL[2]", "MEMVAL[3]", "FRC_REG", "Y_REG", "ADRS_REG"];
+              const counters = [
+                { name: "Sample", value: 0 },
+                { name: "Step", value: 0 },
+              ];
+              const internalRegs = Array(regNames.length).fill(0);
+              const tempRegs = Array.from({ length: 128 }, (_, i) => ({ name: `TEMP[${i}]`, value: 0 }));
+              const coefRegs = Array.from({ length: 128 }, (_, i) => ({ name: `COEF[${i}]`, value: 0 }));
+              const madrsRegs = Array.from({ length: 64 }, (_, i) => ({ name: `MADRS[${i}]`, value: 0 }));
+              const memsRegs = Array.from({ length: 32 }, (_, i) => ({ name: `MEMS[${i}]`, value: 0 }));
+              const mixsRegs = Array.from({ length: 16 }, (_, i) => ({ name: `MIXS[${i}]`, value: 0 }));
+              const efregRegs = Array.from({ length: 16 }, (_, i) => ({ name: `EFREG[${i}]`, value: 0 }));
+              const extsRegs = Array.from({ length: 2 }, (_, i) => ({ name: `EXTS[${i}]`, value: 0 }));
+
+              // Sign extend values based on bit width
+              const signExtend = (value: number, bits: number): number => {
+                const shift = 32 - bits;
+                return (value << shift) >> shift;
+              };
+
+              const renderRegister = (name: string, value: number, bits: number = 32) => {
+                const signedValue = signExtend(value, bits);
+                const hexValue = (value >>> 0).toString(16).toUpperCase().padStart(Math.ceil(bits / 4), '0');
+
+                return (
+                  <Box key={name} sx={{ display: "flex", gap: 1 }}>
+                    <Typography component="span" sx={{ color: "text.secondary", minWidth: "100px" }}>
+                      {name}:
+                    </Typography>
+                    <Typography
+                      component="span"
+                      ref={(el) => {
+                        if (el) registerElementsRef.current.set(name, el);
+                      }}
+                      sx={{ fontWeight: "bold", cursor: "default" }}
+                      title={`0x${hexValue}`}
+                    >
+                      {signedValue.toString().padStart(11, ' ')}
+                    </Typography>
+                  </Box>
+                );
+              };
+
+              return (
+                <>
+                  {/* Counters */}
+                  {counters.map(({ name, value }) => (
+                    <Box key={name} sx={{ display: "flex", gap: 1 }}>
+                      <Typography component="span" sx={{ color: "primary.main", minWidth: "100px", fontWeight: "bold" }}>
+                        {name}:
+                      </Typography>
+                      <Typography
+                        component="span"
+                        ref={(el) => {
+                          if (el) registerElementsRef.current.set(name, el);
+                        }}
+                        sx={{ fontWeight: "bold", cursor: "default" }}
+                        title={`0x${value.toString(16).toUpperCase()}`}
+                      >
+                        {value.toString().padStart(11, ' ')}
+                      </Typography>
+                    </Box>
+                  ))}
+
+                  {/* Internal registers header */}
+                  <Box key="internal-header" sx={{ gridColumn: "1 / -1", mt: 1 }}>
+                    <Typography variant="caption" sx={{ color: "text.disabled", fontWeight: "bold" }}>
+                      Internal Registers
+                    </Typography>
+                  </Box>
+                  {regNames.map((name, i) => {
+                    // Internal registers are 24-bit signed values, except MDEC_CT and ADRS_REG
+                    const bits = (name === "MDEC_CT" || name === "ADRS_REG") ? 32 : 24;
+                    return renderRegister(name, internalRegs[i], bits);
+                  })}
+
+                  {/* TEMP registers - 24-bit signed */}
+                  <Box key="temp-header" sx={{ gridColumn: "1 / -1", mt: 1 }}>
+                    <Typography variant="caption" sx={{ color: "text.disabled", fontWeight: "bold" }}>
+                      TEMP (Temporary Storage)
+                    </Typography>
+                  </Box>
+                  {tempRegs.map(({ name, value }) => renderRegister(name, value, 24))}
+
+                  {/* COEF registers - 16-bit signed */}
+                  <Box key="coef-header" sx={{ gridColumn: "1 / -1", mt: 1 }}>
+                    <Typography variant="caption" sx={{ color: "text.disabled", fontWeight: "bold" }}>
+                      COEF (Coefficients)
+                    </Typography>
+                  </Box>
+                  {coefRegs.map(({ name, value }) => renderRegister(name, value, 16))}
+
+                  {/* MADRS registers - 16-bit unsigned */}
+                  <Box key="madrs-header" sx={{ gridColumn: "1 / -1", mt: 1 }}>
+                    <Typography variant="caption" sx={{ color: "text.disabled", fontWeight: "bold" }}>
+                      MADRS (Memory Addresses)
+                    </Typography>
+                  </Box>
+                  {madrsRegs.map(({ name, value }) => renderRegister(name, value, 16))}
+
+                  {/* MEMS registers - 24-bit signed */}
+                  <Box key="mems-header" sx={{ gridColumn: "1 / -1", mt: 1 }}>
+                    <Typography variant="caption" sx={{ color: "text.disabled", fontWeight: "bold" }}>
+                      MEMS (Memory Samples)
+                    </Typography>
+                  </Box>
+                  {memsRegs.map(({ name, value }) => renderRegister(name, value, 24))}
+
+                  {/* MIXS registers - 20-bit signed */}
+                  <Box key="mixs-header" sx={{ gridColumn: "1 / -1", mt: 1 }}>
+                    <Typography variant="caption" sx={{ color: "text.disabled", fontWeight: "bold" }}>
+                      MIXS (Mixer Samples)
+                    </Typography>
+                  </Box>
+                  {mixsRegs.map(({ name, value }) => renderRegister(name, value, 20))}
+
+                  {/* EFREG registers - 32-bit unsigned */}
+                  <Box key="efreg-header" sx={{ gridColumn: "1 / -1", mt: 1 }}>
+                    <Typography variant="caption" sx={{ color: "text.disabled", fontWeight: "bold" }}>
+                      EFREG (Effect Outputs)
+                    </Typography>
+                  </Box>
+                  {efregRegs.map(({ name, value }) => renderRegister(name, value, 32))}
+
+                  {/* EXTS registers - 16-bit signed */}
+                  <Box key="exts-header" sx={{ gridColumn: "1 / -1", mt: 1 }}>
+                    <Typography variant="caption" sx={{ color: "text.disabled", fontWeight: "bold" }}>
+                      EXTS (External Inputs)
+                    </Typography>
+                  </Box>
+                  {extsRegs.map(({ name, value }) => renderRegister(name, value, 16))}
+                </>
+              );
+            })()}
+          </Box>
+          </Box>
+        </Box>
+
+        {/* Waveforms Section */}
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+          {/* Waveforms Header */}
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 2 }}>
+            <Typography variant="h6">Waveforms</Typography>
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                waveformsExpandedRef.current = !waveformsExpandedRef.current;
+                if (waveformsContainerRef.current) {
+                  waveformsContainerRef.current.style.display = waveformsExpandedRef.current ? 'block' : 'none';
+                }
+                const btn = e.currentTarget;
+                btn.style.transform = waveformsExpandedRef.current ? 'rotate(180deg)' : 'rotate(0deg)';
+              }}
+              sx={{
+                transform: 'rotate(180deg)',
+                transition: 'transform 0.2s',
+              }}
+            >
+              <KeyboardArrowDownIcon />
+            </IconButton>
+          </Box>
+
+          <Box ref={waveformsContainerRef}>
+            <Typography variant="subtitle2" sx={{ mt: 2 }}>Inputs</Typography>
           <Box
             sx={{
               display: "grid",
@@ -1769,7 +2219,7 @@ export const DspPlaygroundPanel = () => {
           </Box>
 
           <Typography variant="subtitle2" sx={{ mt: 2 }}>
-            DSP Outputs
+            Outputs
           </Typography>
           <Box
             sx={{
@@ -1896,7 +2346,7 @@ export const DspPlaygroundPanel = () => {
           </Box>
 
           <Typography variant="subtitle2" sx={{ mt: 2 }}>
-            DSP Mix
+            Output Mix
           </Typography>
           <Box>
             <WaveformPlotter
@@ -1908,12 +2358,34 @@ export const DspPlaygroundPanel = () => {
               fillWidth={true}
             />
           </Box>
+          </Box>
+        </Box>
 
-          {/* Audio Files Section */}
-          <Typography variant="subtitle2" sx={{ mt: 3 }}>
-            Audio Files
-          </Typography>
+        {/* Audio File Sources Section */}
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+          {/* Audio File Sources Header */}
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 2 }}>
+            <Typography variant="h6">Audio File Sources</Typography>
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                audioFilesExpandedRef.current = !audioFilesExpandedRef.current;
+                if (audioFilesContainerRef.current) {
+                  audioFilesContainerRef.current.style.display = audioFilesExpandedRef.current ? 'block' : 'none';
+                }
+                const btn = e.currentTarget;
+                btn.style.transform = audioFilesExpandedRef.current ? 'rotate(180deg)' : 'rotate(0deg)';
+              }}
+              sx={{
+                transform: 'rotate(180deg)',
+                transition: 'transform 0.2s',
+              }}
+            >
+              <KeyboardArrowDownIcon />
+            </IconButton>
+          </Box>
 
+          <Box ref={audioFilesContainerRef}>
           {/* File List */}
           {audioFiles.length > 0 && (
             <Box
@@ -2073,6 +2545,7 @@ export const DspPlaygroundPanel = () => {
               </Paper>
             </Box>
           </Tooltip>
+          </Box>
         </Box>
       </Box>
     </Panel>
