@@ -147,7 +147,7 @@ export const encodeInst = (desc: Partial<DspInstDesc>): number[] => {
 export const disassembleDesc = (desc: DspInstDesc): string => {
   return Object.entries(desc)
     .filter(([, value]) => value !== 0)
-    .map(([key, value]) => `${key}:${value}`)
+    .map(([key, value]) => value === 1 ? key : `${key}:${value}`)
     .join(" ");
 };
 

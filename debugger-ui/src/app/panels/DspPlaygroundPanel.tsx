@@ -181,6 +181,7 @@ export const DspPlaygroundPanel = () => {
   const [audioPaused, setAudioPaused] = useState(false);
   const outputScale10xRef = useRef<Set<number>>(new Set());
   const [wasmInitialized, setWasmInitialized] = useState(false);
+  const [binaryVersion, setBinaryVersion] = useState(0);
   const [editorsReady, setEditorsReady] = useState(false);
   const [shareToken, setShareToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -279,6 +280,7 @@ export const DspPlaygroundPanel = () => {
         // Use preprocessing version to support #define macros
         const parsedData = assembleSourceWithPreprocessing(newSource);
         writeRegisters(aicaDsp, parsedData);
+        setBinaryVersion(v => v + 1);
         editorRef.current?.setStatus('assembled');
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -321,6 +323,7 @@ export const DspPlaygroundPanel = () => {
           const lines = assembly.split("\n");
           const parsedData = assembleSource(lines);
           writeRegisters(aicaDsp, parsedData);
+          setBinaryVersion(v => v + 1);
 
           // Set compiled status
           sourceEditorRef.current?.setStatus('compiled');
@@ -1626,6 +1629,7 @@ export const DspPlaygroundPanel = () => {
           <Typography variant="subtitle2">DSP Disassembly</Typography>
           <Box sx={{ height: 300 }}>
             <DisassemblyView
+              key={binaryVersion}
               config={disassemblyConfig}
               callbacks={disassemblyCallbacks}
               defaultAddress={0}
