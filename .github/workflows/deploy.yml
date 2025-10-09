@@ -27,25 +27,25 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: debugger-ui/package-lock.json
+          cache-dependency-path: devtools/package-lock.json
 
-      - name: Build debugger-ui (${{ matrix.variant }})
-        working-directory: ./debugger-ui
+      - name: Build devtools (${{ matrix.variant }})
+        working-directory: ./devtools
         run: |
           npm ci
           npm run build
         env:
           VITE_TRANSPORT: ${{ matrix.variant == 'wasm' && 'broadcast' || 'websocket' }}
 
-      - name: Test debugger-ui (${{ matrix.variant }})
-        working-directory: ./debugger-ui
+      - name: Test devtools (${{ matrix.variant }})
+        working-directory: ./devtools
         run: npm test
 
-      - name: Upload debugger-ui artifact
+      - name: Upload devtools artifact
         uses: actions/upload-artifact@v4
         with:
-          name: debugger-ui-dist-${{ matrix.variant }}
-          path: debugger-ui/dist
+          name: devtools-dist-${{ matrix.variant }}
+          path: devtools/dist
   build-emulator:
     needs: build-debugger
     runs-on: ${{ matrix.os }}
@@ -125,12 +125,12 @@ jobs:
             echo "linker = \"riscv64-linux-gnu-gcc\"" >> ~/.cargo/config.toml
           fi
 
-      - name: "Native: Download debugger-ui"
+      - name: "Native: Download devtools"
         if: matrix.target != 'wasm32-unknown-unknown'
         uses: actions/download-artifact@v4
         with:
-          name: debugger-ui-dist-native
-          path: debugger-ui/dist
+          name: devtools-dist-native
+          path: devtools/dist
       - name: "Native: Run SH4 tests"
         if: matrix.target != 'wasm32-unknown-unknown' && matrix.target != 'aarch64-unknown-linux-gnu' && matrix.target != 'riscv64gc-unknown-linux-gnu' && matrix.target != 'aarch64-pc-windows-msvc'
         run: cargo test --package sh4-core --target ${{ matrix.target }}
@@ -174,12 +174,12 @@ jobs:
           crate: wasm-opt
           version: ${{ steps.toolvers.outputs.wasm_opt_version }}
           
-      - name: "WASM: Download debugger-ui"
+      - name: "WASM: Download devtools"
         if: matrix.target == 'wasm32-unknown-unknown'
         uses: actions/download-artifact@v4
         with:
-          name: debugger-ui-dist-wasm
-          path: debugger-ui/dist
+          name: devtools-dist-wasm
+          path: devtools/dist
 
       - name: "WASM: Build code and site"
         if: matrix.target == 'wasm32-unknown-unknown'
