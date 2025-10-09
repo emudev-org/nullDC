@@ -34,13 +34,20 @@ const registerDspSourceLanguage = (monaco: Monaco) => {
   monaco.languages.setMonarchTokensProvider("aica-dsp-source", {
     tokenizer: {
       root: [
-        // Comments
+        // Comments (only C++ style)
         [/\/\/.*$/, "comment"],
-        [/#.*$/, "comment"],
+        [/\/\*/, 'comment', '@comment'],
+
+        // #define preprocessor directive (must be before # immediate values)
+        [/#define\b/, "keyword"],
+
+        // Immediate values with # prefix
+        [/#0x[0-9a-fA-F]+/, "number"],
+        [/#-?\d+/, "number"],
+        [/#[a-zA-Z_][a-zA-Z0-9_]*/, "number"],
 
         // Hex numbers (before identifiers to catch 0x prefix)
         [/0x[0-9a-fA-F]+/, "number"],
-        [/#0x[0-9a-fA-F]+/, "number"],
 
         // Identifiers (match before decimal numbers to prevent partial matching)
         [/[a-zA-Z_][a-zA-Z0-9_]*/, {
@@ -54,10 +61,14 @@ const registerDspSourceLanguage = (monaco: Monaco) => {
 
         // Decimal numbers (standalone only)
         [/\d+/, "number"],
-        [/#-?\d+/, "number"],
 
         // Operators
         [/[=:\[\]+\/\-]/, "operator"],
+      ],
+      comment: [
+        [/[^\/*]+/, 'comment'],
+        [/\*\//, 'comment', '@pop'],
+        [/[\/*]/, 'comment']
       ],
     },
     keywords: ['INPUT', 'OUTPUT', 'MAC', 'SMODE', 'ST', 'STF', 'LD', 'LDF', 'MADRS'],

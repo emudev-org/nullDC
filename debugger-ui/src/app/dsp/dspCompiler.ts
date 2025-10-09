@@ -29,25 +29,32 @@ const SMODES: Record<string, number> = {
   trim: 3,
 };
 
-function BIT(x: number): number {
-  return 1 << x;
+function BIT(x: number): bigint {
+  return BigInt(1) << BigInt(x);
 }
 
-function GENMASK(h: number, l: number): number {
-  return (0xffffffffffffffff << l) & (0xffffffffffffffff >> (63 - h));
+function GENMASK(h: number, l: number): bigint {
+  const mask = (BigInt('0xffffffffffffffff') << BigInt(l)) & (BigInt('0xffffffffffffffff') >> BigInt(63 - h));
+  return mask;
 }
 
-function CTZ(value: number): number {
-  if (value === 0) return -1;
-  return (value & -value).toString(2).length - 1;
+function CTZ(value: bigint): number {
+  if (value === BigInt(0)) return -1;
+  let count = 0;
+  let v = value;
+  while ((v & BigInt(1)) === BigInt(0)) {
+    v >>= BigInt(1);
+    count++;
+  }
+  return count;
 }
 
-function FIELD_GET(field: number, value: number): number {
-  return (value & field) >> CTZ(field);
+function FIELD_GET(field: bigint, value: bigint): number {
+  return Number((value & field) >> BigInt(CTZ(field)));
 }
 
-function FIELD_PREP(field: number, value: number): number {
-  return (value << CTZ(field)) & field;
+function FIELD_PREP(field: bigint, value: number | bigint): bigint {
+  return (BigInt(value) << BigInt(CTZ(field))) & field;
 }
 
 const TRA = GENMASK(63, 57);
@@ -84,7 +91,7 @@ const dspFields = [
 const dummyAcc = FIELD_PREP(YSEL, 1) | BSEL; // acc = x * 0 + acc
 
 interface CompilerState {
-  steps: number[];
+  steps: bigint[];
   coefs: Record<number, number>;
   madrs: string[];
   nofl: number;
@@ -93,7 +100,7 @@ interface CompilerState {
   errors: Array<{ line: number; message: string }>;
 }
 
-function createSteps(lines: string[]): { steps: number[]; coefs: number[]; madrs: string[]; errors: Array<{ line: number; message: string }> } {
+function createSteps(lines: string[]): { steps: bigint[]; coefs: number[]; madrs: string[]; errors: Array<{ line: number; message: string }> } {
   const state: CompilerState = {
     steps: [],
     coefs: {},
@@ -174,18 +181,18 @@ function createSteps(lines: string[]): { steps: number[]; coefs: number[]; madrs
     // MAC
     match = /^MAC\s+(input|\[\s*temp:(\d+)\s*\])\s*,\s*((shifted|yreg):(lo|hi)|#0[xX][0-9a-fA-F]+|#-?\d+)(\s*,\s*(-?)(acc|\[\s*temp:(\d+)\s*\]))?/i.exec(line);
     if (match) {
-      let xsel: number, tra: number, ira: number;
+      let xsel: bigint, tra: bigint, ira: bigint;
       if (match[1] === "input") {
         xsel = XSEL;
-        tra = 0;
+        tra = BigInt(0);
         ira = FIELD_PREP(IRA, state.imode);
       } else {
-        xsel = 0;
+        xsel = BigInt(0);
         tra = FIELD_PREP(TRA, parseInt(match[2], 10));
-        ira = 0;
+        ira = BigInt(0);
       }
 
-      let ysel: number;
+      let ysel: bigint;
       if (match[4] === "yreg") {
         if (match[5] === "lo") {
           ysel = FIELD_PREP(YSEL, 3);
@@ -199,31 +206,31 @@ function createSteps(lines: string[]): { steps: number[]; coefs: number[]; madrs
         } else {
           state.steps.push(newOp);
         }
-        ysel = 0;
+        ysel = BigInt(0);
       } else {
         ysel = FIELD_PREP(YSEL, 1);
         state.coefs[state.steps.length] = parseInt(match[3].substring(1), 0) << 3;
       }
 
-      let negb: number, zero: number, bsel: number;
+      let negb: bigint, zero: bigint, bsel: bigint;
       if (match[6] !== undefined) {
         negb = FIELD_PREP(NEGB, match[7] === '-' ? 1 : 0);
-        zero = 0;
+        zero = BigInt(0);
 
         if (match[8] === "acc") {
           bsel = BSEL;
         } else {
-          bsel = 0;
+          bsel = BigInt(0);
           const tra2 = FIELD_PREP(TRA, parseInt(match[9], 10));
-          if (xsel === 0 && tra !== tra2) {
+          if (xsel === BigInt(0) && tra !== tra2) {
             state.errors.push({ line: lineNum, message: `Invalid instruction: ${match[0]}` });
             continue;
           }
           tra = tra2;
         }
       } else {
-        bsel = 0;
-        negb = 0;
+        bsel = BigInt(0);
+        negb = BigInt(0);
         zero = ZERO;
       }
 
@@ -254,10 +261,10 @@ function createSteps(lines: string[]): { steps: number[]; coefs: number[]; madrs
     match = /^ST(F)?\s+(\[)?madrs:(\d+)(\s*\+)?(?:\/s)?(\])?$/i.exec(line);
     if (match) {
       const masa = parseInt(match[3], 10);
-      const table = match[2] ? 0 : TABLE;
-      const adreb = /\/s/.test(line) ? ADREB : 0;
-      const nxadr = match[4] ? NXADR : 0;
-      const nofl = match[1] ? 0 : NOFL;
+      const table = match[2] ? BigInt(0) : TABLE;
+      const adreb = /\/s/.test(line) ? ADREB : BigInt(0);
+      const nxadr = match[4] ? NXADR : BigInt(0);
+      const nofl = match[1] ? BigInt(0) : NOFL;
 
       if (masa >= 64 || (!!match[2] !== !!match[5])) {
         state.errors.push({ line: lineNum, message: `Invalid instruction: ${match[0]}` });
@@ -278,10 +285,10 @@ function createSteps(lines: string[]): { steps: number[]; coefs: number[]; madrs
     if (match) {
       const masa = parseInt(match[3], 10);
       const iwa = parseInt(match[6], 10);
-      const table = match[2] ? 0 : TABLE;
-      const adreb = /\/s/.test(line) ? ADREB : 0;
-      const nxadr = match[4] ? NXADR : 0;
-      const nofl = match[1] ? 0 : NOFL;
+      const table = match[2] ? BigInt(0) : TABLE;
+      const adreb = /\/s/.test(line) ? ADREB : BigInt(0);
+      const nxadr = match[4] ? NXADR : BigInt(0);
+      const nofl = match[1] ? BigInt(0) : NOFL;
 
       if (masa >= 64 || iwa >= 32 || (!!match[2] !== !!match[5])) {
         state.errors.push({ line: lineNum, message: `Invalid instruction: ${match[0]}` });
@@ -308,7 +315,7 @@ function createSteps(lines: string[]): { steps: number[]; coefs: number[]; madrs
   return { steps: state.steps, coefs: coefsArray, madrs: state.madrs, errors: state.errors };
 }
 
-function optLoads(steps: number[]): number[] {
+function optLoads(steps: bigint[]): bigint[] {
   for (let idx = 3; idx < steps.length; idx++) {
     let step = steps[idx];
 
@@ -319,12 +326,12 @@ function optLoads(steps: number[]): number[] {
     const iwa = FIELD_GET(IWA, steps[idx + 2]);
     let oldIdx = idx;
 
-    while (oldIdx > 2 && !(step & IWT)) {
+    while (oldIdx > 2 && (step & IWT) === BigInt(0)) {
       oldIdx -= 1;
       step = steps[oldIdx];
 
       // Break if previous opcode reads INPUTS from the mems register we're loading to
-      if ((step & (ADRL | YRL | XSEL)) && FIELD_GET(IRA, step) === iwa) {
+      if ((step & (ADRL | YRL | XSEL)) !== BigInt(0) && FIELD_GET(IRA, step) === iwa) {
         break;
       }
     }
@@ -333,7 +340,7 @@ function optLoads(steps: number[]): number[] {
     oldIdx += ((oldIdx & 1) ^ 1);
 
     // If this step has MWT, we can't reuse the table/adreb/etc. bits
-    while (steps[oldIdx] & MWT) {
+    while ((steps[oldIdx] & MWT) !== BigInt(0)) {
       oldIdx += 2;
     }
 
@@ -348,7 +355,7 @@ function optLoads(steps: number[]): number[] {
   return steps;
 }
 
-function trickleDown(steps: number[], coefs: number[]): void {
+function trickleDown(steps: bigint[], coefs: number[]): void {
   const nbSteps = steps.length;
 
   while (true) {
@@ -357,7 +364,7 @@ function trickleDown(steps: number[], coefs: number[]): void {
     for (let idx = nbSteps - 1; idx >= 1; idx--) {
       const step = steps[idx];
 
-      if (step === dummyAcc || (step & (MWT | MRD | IWT))) {
+      if (step === dummyAcc || (step & (MWT | MRD | IWT)) !== BigInt(0)) {
         continue;
       }
 
@@ -375,7 +382,7 @@ function trickleDown(steps: number[], coefs: number[]): void {
   }
 }
 
-function dropNops(steps: number[], coefs: number[]): { steps: number[]; coefs: number[] } {
+function dropNops(steps: bigint[], coefs: number[]): { steps: bigint[]; coefs: number[] } {
   let nbSteps = steps.length;
   let wasNop = false;
 
@@ -399,7 +406,7 @@ function dropNops(steps: number[], coefs: number[]): { steps: number[]; coefs: n
   return { steps, coefs };
 }
 
-function generateAsm(steps: number[], coefs: number[], madrs: string[]): string {
+function generateAsm(steps: bigint[], coefs: number[], madrs: string[]): string {
   const lines: string[] = [];
 
   // Add MADRS lines
@@ -416,7 +423,7 @@ function generateAsm(steps: number[], coefs: number[], madrs: string[]): string 
     let line = `MPRO[${idx}] =`;
     const step = steps[idx];
 
-    const fieldVals: Record<string, number> = {
+    const fieldVals: Record<string, bigint> = {
       TRA, TWT, TWA, XSEL, YSEL, IRA, IWT, IWA,
       TABLE, MWT, MRD, EWT, EWA, ADRL, FRCL, SHIFT,
       YRL, NEGB, ZERO, BSEL, NOFL, MASA, ADREB, NXADR

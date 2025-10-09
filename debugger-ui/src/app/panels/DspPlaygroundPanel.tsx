@@ -1369,9 +1369,9 @@ export const DspPlaygroundPanel = () => {
             }}
             sx={{ width: '100%', borderBottom: 1, borderColor: 'divider' }}
           >
-            <Tab label="DSP Source" value="source" />
+            <Tab label="DSP Compiler" value="source" />
             <Tab label="DSP Compiled" value="compiled" />
-            <Tab label="DSP Assembly" value="assembly" />
+            <Tab label="DSP Assembler" value="assembly" />
           </Tabs>
 
           <Box ref={editorInnerContainerRef} sx={{ width: '100%', height: 250 }}>

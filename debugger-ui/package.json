@@ -9,7 +9,9 @@
     "mock:dev": "npm run build:wasm && tsx --tsconfig tsconfig.server.json server/mockServer.ts",
     "build": "npm run build:wasm && tsc -b && vite build",
     "build:wasm": "cd crates/aica-dsp && wasm-pack build --target web --out-dir ../../src/wasm/aica-dsp",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test": "vitest",
+    "test:ui": "vitest --ui"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
@@ -38,6 +40,7 @@
     "@types/react-dom": "^19.1.9",
     "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^5.0.4",
+    "@vitest/ui": "^3.2.4",
     "eslint": "^9.36.0",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.22",
@@ -47,6 +50,7 @@
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.45.0",
     "vite": "^7.1.7",
+    "vitest": "^3.2.4",
     "ws": "^8.18.3"
   }
 }
