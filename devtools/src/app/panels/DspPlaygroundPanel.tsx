@@ -184,6 +184,10 @@ export const DspPlaygroundPanel = () => {
   const [audioPlaying, setAudioPlaying] = useState(false);
   const [audioPaused, setAudioPaused] = useState(false);
   const [currentDspStep, setCurrentDspStep] = useState(0);
+  const [currentSample, setCurrentSample] = useState(0);
+  const [breakpoints, setBreakpoints] = useState<Map<number, { id: number; enabled: boolean }>>(new Map());
+  const breakpointIdCounterRef = useRef(0);
+  const breakpointsRef = useRef<Map<number, { id: number; enabled: boolean }>>(breakpoints);
   const [goToPc, setGoToPc] = useState<{ address: number; fromUrl: boolean; highlight?: boolean } | undefined>(undefined);
   const registerElementsRef = useRef<Map<string, HTMLElement>>(new Map());
   const sourceExpandedRef = useRef(true);
@@ -249,6 +253,11 @@ export const DspPlaygroundPanel = () => {
   const inputContainerRefs = useRef<Array<HTMLElement | null>>(Array(16).fill(null));
   const outputContainerRefs = useRef<Array<HTMLElement | null>>(Array(16).fill(null));
   const inputSelectRefs = useRef<Array<HTMLSelectElement | null>>(Array(16).fill(null));
+
+  // Sync breakpoints ref with state
+  useEffect(() => {
+    breakpointsRef.current = breakpoints;
+  }, [breakpoints]);
 
   // Initialize WASM
   useEffect(() => {
@@ -627,8 +636,42 @@ export const DspPlaygroundPanel = () => {
           inputPlotterRefs.current[j]?.appendSample(channelSample);
         }
 
-        // Execute 128 DSP steps (one full sample)
-        aicaDsp.runToNextSample();
+        // Execute 128 DSP steps (one full sample) or until breakpoint hit
+        let hitBreakpoint = false;
+        const startStep = aicaDsp.getCurrentStep();
+
+        do {
+          aicaDsp.doDspStep();
+          const currentStep = aicaDsp.getCurrentStep();
+
+          // Check if we hit a breakpoint (but not on the starting step)
+          if (currentStep !== startStep) {
+            const bp = breakpointsRef.current.get(currentStep);
+            if (bp && bp.enabled) {
+              hitBreakpoint = true;
+              break;
+            }
+          }
+        } while (aicaDsp.getCurrentStep() !== 0);
+
+        // If we hit a breakpoint, pause audio and don't continue processing this buffer
+        if (hitBreakpoint) {
+          // Pause audio immediately
+          if (audioContextRef.current) {
+            void audioContextRef.current.suspend();
+          }
+          queueMicrotask(() => {
+            setAudioPaused(true);
+            const currentStep = aicaDsp.getCurrentStep();
+            setCurrentDspStep(currentStep);
+            setGoToPc({ address: currentStep, fromUrl: true, highlight: false });
+          });
+          // Fill rest of buffer with silence
+          for (let k = i; k < outputBuffer.length; k++) {
+            outputBuffer[k] = 0;
+          }
+          return;
+        }
 
         // Read DSP outputs
         let audioOut = 0;
@@ -892,7 +935,7 @@ export const DspPlaygroundPanel = () => {
     for (let i = 0; i < 2; i++) {
       updateRegister(`EXTS[${i}]`, aicaDsp.readReg(0x3000 + 0x1700 + i * 2), 16);
     }
-  }, [wasmInitialized, audioPlaying, audioPaused, currentDspStep]);
+  }, [wasmInitialized, audioPlaying, audioPaused, currentDspStep, currentSample]);
 
   // Sync inputSources ref to Select elements on audioFiles change
   useEffect(() => {
@@ -1445,86 +1488,150 @@ export const DspPlaygroundPanel = () => {
     input.click();
   }, []);
 
+  // Helper function to check if a breakpoint is hit
+  const checkBreakpoint = useCallback((step: number): boolean => {
+    const bp = breakpoints.get(step);
+    return bp !== undefined && bp.enabled;
+  }, [breakpoints]);
+
   // Handler for running to next sample (run until currentStep === 0)
   const handleRunToNextSample = useCallback(() => {
     if (!wasmInitialized || !audioPaused) return;
 
-    // Run until we reach the next sample boundary (step 0)
-    aicaDsp.runToNextSample();
+    // Run until we reach the next sample boundary (step 0) or hit a breakpoint
+    const startStep = aicaDsp.getCurrentStep();
 
-    // Update current step for the disassembly view
+    // Always step at least once, then continue until we reach step 0
+    do {
+      aicaDsp.doDspStep();
+      const currentStep = aicaDsp.getCurrentStep();
+
+      // Check if we hit a breakpoint (but not on the starting step)
+      if (currentStep !== startStep && checkBreakpoint(currentStep)) {
+        break;
+      }
+
+      // Stop when we reach step 0 (sample boundary)
+      if (currentStep === 0) {
+        break;
+      }
+    } while (true);
+
+    // Update current step and sample for the disassembly view
     const newStep = aicaDsp.getCurrentStep();
+    const newSample = aicaDsp.getSampleCounter();
     setCurrentDspStep(newStep);
+    setCurrentSample(newSample);
 
     // Scroll to the current PC without highlighting
     setGoToPc({ address: newStep, fromUrl: true, highlight: false });
-  }, [wasmInitialized, audioPaused]);
+  }, [wasmInitialized, audioPaused, checkBreakpoint]);
 
   // Handler for running 128 samples
   const handleRun128Samples = useCallback(() => {
     if (!wasmInitialized || !audioPaused) return;
 
-    // Process inputs for all 16 channels
-    for (let j = 0; j < 16; j++) {
-      const source = inputSourcesRef.current[j];
-      let channelSample = 0;
+    let startStep = aicaDsp.getCurrentStep();
+    let hitBreakpoint = false;
 
-      if (typeof source === "object" && source.type === "file") {
-        // File source
-        const file = audioFilesRef.current.find(f => f.id === source.fileId);
-        if (file && file.audioBuffer) {
-          const channelData = file.audioBuffer.getChannelData(0);
-          const pos = aicaDsp.getSampleCounter();
+    // Run 128 samples (or until breakpoint)
+    for (let sampleIdx = 0; sampleIdx < 128; sampleIdx++) {
+      // Process inputs for all 16 channels
+      for (let j = 0; j < 16; j++) {
+        const source = inputSourcesRef.current[j];
+        let channelSample = 0;
 
-          // Read sample if within bounds, otherwise silent
-          if (pos < channelData.length) {
-            channelSample = Math.round(channelData[pos] * 32767);
+        if (typeof source === "object" && source.type === "file") {
+          // File source
+          const file = audioFilesRef.current.find(f => f.id === source.fileId);
+          if (file && file.audioBuffer) {
+            const channelData = file.audioBuffer.getChannelData(0);
+            const pos = aicaDsp.getSampleCounter();
+
+            // Read sample if within bounds, otherwise silent
+            if (pos < channelData.length) {
+              channelSample = Math.round(channelData[pos] * 32767);
+            }
           }
         }
-      }
-      // Note: keyboard input is not included when paused
+        // Note: keyboard input is not included when paused
 
-      aicaDsp.writeReg(0x3000 + 0x1500 + 0 + j * 8, (channelSample >> 0) & 0xf);
-      aicaDsp.writeReg(0x3000 + 0x1500 + 4 + j * 8, (channelSample >> 4) & 0xffff);
-      inputPlotterRefs.current[j]?.appendSample(channelSample);
+        aicaDsp.writeReg(0x3000 + 0x1500 + 0 + j * 8, (channelSample >> 0) & 0xf);
+        aicaDsp.writeReg(0x3000 + 0x1500 + 4 + j * 8, (channelSample >> 4) & 0xffff);
+        inputPlotterRefs.current[j]?.appendSample(channelSample);
+      }
+
+      // Run one full sample (128 DSP steps) or until breakpoint hit
+      let completedSample = false;
+
+      do {
+        aicaDsp.doDspStep();
+        const currentStep = aicaDsp.getCurrentStep();
+
+        // Check if we hit a breakpoint (but not on the starting step)
+        if (currentStep !== startStep && checkBreakpoint(currentStep)) {
+          hitBreakpoint = true;
+          break;
+        }
+
+        startStep = -1;
+
+        // Check if we completed a full sample
+        if (currentStep === 0) {
+          completedSample = true;
+          break;
+        }
+      } while (true);
+
+      // Only read outputs and update plotters if we completed the full sample
+      if (completedSample) {
+
+        // Read DSP outputs and update plotters
+        let mixSampleInt = 0;
+        const states = channelStatesRef.current;
+        const hasSolo = states.some(s => s === 2);
+
+        for (let j = 0; j < 16; j++) {
+          let fxSampleInt = aicaDsp.readReg(0x3000 + 0x1580 + j * 4);
+          fxSampleInt = fxSampleInt & 0xffff;
+          if (fxSampleInt & 0x8000) {
+            fxSampleInt |= 0xffff0000;
+          }
+
+          // Apply solo/mute logic based on channel state
+          let channelEnabled = true;
+          if (hasSolo) {
+            channelEnabled = states[j] === 2;
+          } else {
+            channelEnabled = states[j] !== 1;
+          }
+
+          if (channelEnabled) {
+            mixSampleInt += fxSampleInt;
+          }
+
+          outputPlotterRefs.current[j]?.appendSample(fxSampleInt);
+        }
+
+        // Update mix plotter with combined output
+        mixPlotterRef.current?.appendSample(mixSampleInt);
+      }
+
+      // Stop if we hit a breakpoint
+      if (hitBreakpoint) {
+        break;
+      }
     }
 
-    // Run one full sample (128 DSP steps)
-    aicaDsp.runToNextSample();
+    // Update current step and sample for the disassembly view
+    const newStep = aicaDsp.getCurrentStep();
+    const newSample = aicaDsp.getSampleCounter();
+    setCurrentDspStep(newStep);
+    setCurrentSample(newSample);
 
-    // Update current step for the disassembly view
-    setCurrentDspStep(aicaDsp.getCurrentStep());
-
-    // Read DSP outputs and update plotters
-    let mixSampleInt = 0;
-    const states = channelStatesRef.current;
-    const hasSolo = states.some(s => s === 2);
-
-    for (let j = 0; j < 16; j++) {
-      let fxSampleInt = aicaDsp.readReg(0x3000 + 0x1580 + j * 4);
-      fxSampleInt = fxSampleInt & 0xffff;
-      if (fxSampleInt & 0x8000) {
-        fxSampleInt |= 0xffff0000;
-      }
-
-      // Apply solo/mute logic based on channel state
-      let channelEnabled = true;
-      if (hasSolo) {
-        channelEnabled = states[j] === 2;
-      } else {
-        channelEnabled = states[j] !== 1;
-      }
-
-      if (channelEnabled) {
-        mixSampleInt += fxSampleInt;
-      }
-
-      outputPlotterRefs.current[j]?.appendSample(fxSampleInt);
-    }
-
-    // Update mix plotter with combined output
-    mixPlotterRef.current?.appendSample(mixSampleInt);
-  }, [wasmInitialized, audioPaused]);
+    // Scroll to the current PC without highlighting
+    setGoToPc({ address: newStep, fromUrl: true, highlight: false });
+  }, [wasmInitialized, audioPaused, checkBreakpoint]);
 
   // DisassemblyView configuration for DSP
   const disassemblyConfig: DisassemblyViewConfig = useMemo(() => ({
@@ -1663,14 +1770,52 @@ export const DspPlaygroundPanel = () => {
 
       mixPlotterRef.current?.appendSample(mixSampleInt);
     },
-    onBreakpointAdd: async () => {
-      // No-op in playground mode
+    onBreakpointAdd: async (address: number) => {
+
+      let audioWasPaused = false;
+      // Pause audio first if playing (to avoid hitting the breakpoint immediately)
+      if (audioPlaying && !audioPaused && audioContextRef.current) {
+        audioWasPaused = true;
+        await void audioContextRef.current.suspend();
+        setAudioPaused(true);
+
+        while (aicaDsp.getCurrentStep() != address) {
+          aicaDsp.doDspStep();
+        }
+      }
+
+      const id = breakpointIdCounterRef.current++;
+      setBreakpoints(prev => new Map(prev).set(address, { id, enabled: true }));
+
+      // Update display after adding breakpoint
+      if (wasmInitialized && audioWasPaused) {
+        const newStep = aicaDsp.getCurrentStep();
+        setCurrentDspStep(newStep);
+      }
     },
-    onBreakpointRemove: async () => {
-      // No-op in playground mode
+    onBreakpointRemove: async (id: number) => {
+      setBreakpoints(prev => {
+        const next = new Map(prev);
+        for (const [addr, bp] of next.entries()) {
+          if (bp.id === id) {
+            next.delete(addr);
+            break;
+          }
+        }
+        return next;
+      });
     },
-    onBreakpointToggle: async () => {
-      // No-op in playground mode
+    onBreakpointToggle: async (id: number, enabled: boolean) => {
+      setBreakpoints(prev => {
+        const next = new Map(prev);
+        for (const [addr, bp] of next.entries()) {
+          if (bp.id === id) {
+            next.set(addr, { ...bp, enabled });
+            break;
+          }
+        }
+        return next;
+      });
     },
     onMuteToggle: () => {
       // No-op in playground mode
@@ -1705,7 +1850,7 @@ export const DspPlaygroundPanel = () => {
         });
       }
     },
-  }), [wasmInitialized, audioPlaying, audioPaused]);
+  }), [wasmInitialized, audioPlaying, audioPaused, breakpoints]);
 
   if (!wasmInitialized) {
     return (
@@ -1910,7 +2055,7 @@ export const DspPlaygroundPanel = () => {
               callbacks={disassemblyCallbacks}
               defaultAddress={0}
               currentPc={audioPlaying && audioPaused ? currentDspStep : undefined}
-              breakpointsByAddress={new Map()}
+              breakpointsByAddress={breakpoints}
               initialized={wasmInitialized && audioPlaying}
               executionState={audioPlaying && audioPaused ? "paused" : "running"}
               categoryState={undefined}
