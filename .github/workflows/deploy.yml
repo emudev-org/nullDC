@@ -37,6 +37,10 @@ jobs:
         env:
           VITE_TRANSPORT: ${{ matrix.variant == 'wasm' && 'broadcast' || 'websocket' }}
 
+      - name: Test debugger-ui (${{ matrix.variant }})
+        working-directory: ./debugger-ui
+        run: npm test
+
       - name: Upload debugger-ui artifact
         uses: actions/upload-artifact@v4
         with:
