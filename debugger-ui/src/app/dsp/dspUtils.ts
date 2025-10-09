@@ -1,6 +1,14 @@
 import type { aicaDsp } from "../../lib/aicaDsp";
+import { preprocessDspSource } from "./dspCompilerPreprocessor";
 
 type AicaDsp = typeof aicaDsp;
+
+// Store the last preprocessed macros for hover support in assembly editor
+let lastAssemblyMacros: Map<string, import('./dspCompilerPreprocessor').MacroDefinition> = new Map();
+
+export function getLastAssemblyMacros() {
+  return lastAssemblyMacros;
+}
 
 export interface DspInstDesc {
   TRA: number;
@@ -145,7 +153,7 @@ export const disassembleDesc = (desc: DspInstDesc): string => {
 
 export const assembleDesc = (text: string): Partial<DspInstDesc> => {
   const rv = getDefaultInst();
-  const tokens = text.split(" ");
+  const tokens = text.split(/\s+/).filter(t => t.length > 0);
 
   tokens.forEach((token) => {
     const split = token.split(":");
@@ -211,6 +219,17 @@ const parseDecOrHex16 = (str: string): number => {
   return rv & 0xffff;
 };
 
+// Assemble with preprocessing support
+export const assembleSourceWithPreprocessing = (source: string): ParsedData => {
+  const { output: preprocessedSource, macros } = preprocessDspSource(source);
+
+  // Store macros for hover support
+  lastAssemblyMacros = macros;
+
+  const lines = preprocessedSource.split('\n');
+  return assembleSource(lines);
+};
+
 export const assembleSource = (source: string[]): ParsedData => {
   const parsedData: ParsedData = {
     COEF: [],
@@ -223,16 +242,16 @@ export const assembleSource = (source: string[]): ParsedData => {
     line = line.trim();
 
     // Skip empty lines and comments
-    if (line === "" || line.startsWith("#")) {
+    if (line === "" || line.startsWith("#") || line.startsWith("//")) {
       return;
     }
 
     // Determine the type of data and parse accordingly
-    const coefMatch = line.match(/^COEF\[(\d+)\] = (\d+|[-0-9a-fA-Fx]+)$/);
-    const madrsMatch = line.match(/^MADRS\[(\d+)\] = (\d+|[-0-9a-fA-Fx]+)$/);
-    const memsLMatch = line.match(/^MEMS_L\[(\d+)\] = (\d+|[-0-9a-fA-Fx]+)$/);
-    const memsHMatch = line.match(/^MEMS_H\[(\d+)\] = (\d+|[-0-9a-fA-Fx]+)$/);
-    const mproMatch = line.match(/^MPRO\[(\d+)\] = (.+)$/);
+    const coefMatch = line.match(/^COEF\[(\d+)\]\s*=\s*(\d+|[-0-9a-fA-Fx]+)$/);
+    const madrsMatch = line.match(/^MADRS\[(\d+)\]\s*=\s*(\d+|[-0-9a-fA-Fx]+)$/);
+    const memsLMatch = line.match(/^MEMS_L\[(\d+)\]\s*=\s*(\d+|[-0-9a-fA-Fx]+)$/);
+    const memsHMatch = line.match(/^MEMS_H\[(\d+)\]\s*=\s*(\d+|[-0-9a-fA-Fx]+)$/);
+    const mproMatch = line.match(/^MPRO\[(\d+)\]\s*=\s*(.+)$/);
 
     if (coefMatch) {
       parsedData.COEF.push({

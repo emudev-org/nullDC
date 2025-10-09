@@ -9,6 +9,8 @@ import {
   Paper,
   Select,
   Stack,
+  Tab,
+  Tabs,
   Tooltip,
   Typography,
 } from "@mui/material";
@@ -27,13 +29,19 @@ import { deflate, inflate } from "pako";
 import { Panel } from "../layout/Panel";
 import { DspAssemblyEditor } from "../components/DspAssemblyEditor";
 import type { DspAssemblyEditorRef } from "../components/DspAssemblyEditor";
+import { DspSourceEditor } from "../components/DspSourceEditor";
+import type { DspSourceEditorRef } from "../components/DspSourceEditor";
 import { WaveformPlotter } from "../components/WaveformPlotter";
 import type { WaveformPlotterRef } from "../components/WaveformPlotter";
 import { aicaDsp } from "../../lib/aicaDsp";
-import { assembleSource, writeRegisters, decodeInst, disassembleDesc } from "../dsp/dspUtils";
+import { assembleSource, assembleSourceWithPreprocessing, writeRegisters, decodeInst, disassembleDesc } from "../dsp/dspUtils";
+import { compileDspSource, CompilationError } from "../dsp/dspCompiler";
 import { DSP_DEFAULT_SOURCE } from "../dsp/defaultSource";
+import { DEFAULT_DSP_SOURCE } from "../dsp/defaultDspSource";
 
 const DSP_SOURCE_STORAGE_KEY = "nulldc-debugger-dsp-source";
+const DSP_ASSEMBLY_STORAGE_KEY = "nulldc-debugger-dsp-assembly";
+const DSP_TAB_STORAGE_KEY = "nulldc-debugger-dsp-active-tab";
 const DSP_SHARE_URL = "https://skmp.gitlab.io/aica-dsp-playground/";
 
 const encodeSource = (value: string) => {
@@ -65,6 +73,21 @@ const resolveInitialSource = () => {
     }
   }
   try {
+    const storedSource = window.localStorage.getItem(DSP_ASSEMBLY_STORAGE_KEY);
+    if (storedSource && storedSource !== "") {
+      return storedSource;
+    }
+  } catch (error) {
+    console.warn("Failed to read DSP assembly from storage", error);
+  }
+  return DSP_DEFAULT_SOURCE;
+};
+
+const resolveInitialDspSource = () => {
+  if (typeof window === "undefined") {
+    return DEFAULT_DSP_SOURCE;
+  }
+  try {
     const storedSource = window.localStorage.getItem(DSP_SOURCE_STORAGE_KEY);
     if (storedSource && storedSource !== "") {
       return storedSource;
@@ -72,7 +95,22 @@ const resolveInitialSource = () => {
   } catch (error) {
     console.warn("Failed to read DSP source from storage", error);
   }
-  return DSP_DEFAULT_SOURCE;
+  return DEFAULT_DSP_SOURCE;
+};
+
+const resolveInitialTab = (): "source" | "compiled" | "assembly" => {
+  if (typeof window === "undefined") {
+    return "source";
+  }
+  try {
+    const storedTab = window.localStorage.getItem(DSP_TAB_STORAGE_KEY);
+    if (storedTab === "source" || storedTab === "compiled" || storedTab === "assembly") {
+      return storedTab;
+    }
+  } catch (error) {
+    console.warn("Failed to read active tab from storage", error);
+  }
+  return "source";
 };
 
 const NOTE_FREQUENCIES: Record<string, number> = {
@@ -131,10 +169,16 @@ interface AudioFile {
 }
 
 export const DspPlaygroundPanel = () => {
-  const sourceRef = useRef(resolveInitialSource());
+  const [activeTab, setActiveTab] = useState<"source" | "compiled" | "assembly">(resolveInitialTab());
+  const dspSourceRef = useRef(resolveInitialDspSource());
+  const compiledAssemblyRef = useRef("");
+  const assemblySourceRef = useRef(resolveInitialSource());
   const errorRef = useRef<string | null>(null);
+  const sourceErrorRef = useRef<string | null>(null);
+  const compiledEditorRef = useRef<DspAssemblyEditorRef | null>(null);
   const [audioPlaying, setAudioPlaying] = useState(false);
   const [wasmInitialized, setWasmInitialized] = useState(false);
+  const [editorsReady, setEditorsReady] = useState(false);
   const [shareToken, setShareToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [audioFiles, setAudioFiles] = useState<AudioFile[]>([]);
@@ -166,6 +210,7 @@ export const DspPlaygroundPanel = () => {
   const muteButtonRefs = useRef<Array<HTMLButtonElement | null>>(Array(16).fill(null));
   const soloButtonRefs = useRef<Array<HTMLButtonElement | null>>(Array(16).fill(null));
 
+  const sourceEditorRef = useRef<DspSourceEditorRef | null>(null);
   const editorRef = useRef<DspAssemblyEditorRef | null>(null);
   const editorContainerRef = useRef<HTMLDivElement | null>(null);
   const editorInnerContainerRef = useRef<HTMLDivElement | null>(null);
@@ -194,50 +239,190 @@ export const DspPlaygroundPanel = () => {
   const saveToLocalStorage = useCallback(() => {
     if (typeof window === "undefined") return;
     try {
-      window.localStorage.setItem(DSP_SOURCE_STORAGE_KEY, sourceRef.current);
+      window.localStorage.setItem(DSP_SOURCE_STORAGE_KEY, dspSourceRef.current);
+      window.localStorage.setItem(DSP_ASSEMBLY_STORAGE_KEY, assemblySourceRef.current);
+      window.localStorage.setItem(DSP_TAB_STORAGE_KEY, activeTab);
     } catch (error) {
       console.warn("Failed to save DSP source to storage", error);
     }
-  }, []);
+  }, [activeTab]);
 
   // Generate share token from source (called manually, not reactive)
   const updateShareToken = useCallback(() => {
     if (typeof window === "undefined") return;
     try {
-      const encoded = encodeSource(sourceRef.current);
+      // Share based on active content
+      const contentToShare = activeTab === "assembly" ? assemblySourceRef.current : compiledAssemblyRef.current;
+      const encoded = encodeSource(contentToShare);
       setShareToken(encoded);
     } catch (error) {
       console.error("Failed to encode source", error);
       setShareToken(null);
     }
-  }, []);
+  }, [activeTab]);
 
   const assembleAndWrite = useCallback(
     (newSource: string) => {
       if (!wasmInitialized) return;
 
+      editorRef.current?.setStatus('assembling');
       editorRef.current?.setError(null);
+      editorRef.current?.setErrors([]);
       try {
-        const lines = newSource.split("\n");
-        const parsedData = assembleSource(lines);
+        // Use preprocessing version to support #define macros
+        const parsedData = assembleSourceWithPreprocessing(newSource);
         writeRegisters(aicaDsp, parsedData);
+        editorRef.current?.setStatus('assembled');
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         editorRef.current?.setError(message);
+        setTimeout(() => {
+          editorRef.current?.setStatus('error', 1);
+        }, 0);
       }
     },
     [wasmInitialized]
   );
 
+  const compileAndWrite = useCallback(
+    (newDspSource: string) => {
+      if (!wasmInitialized) return;
+
+      // Set compiling status
+      sourceEditorRef.current?.setStatus('compiling');
+      compiledEditorRef.current?.setStatus('assembling');
+
+      // Clear any existing errors
+      if (sourceEditorRef.current) {
+        sourceEditorRef.current.setErrors([]);
+        sourceEditorRef.current.setError(null);
+      }
+      if (compiledEditorRef.current) {
+        compiledEditorRef.current.setErrors([]);
+        compiledEditorRef.current.setError(null);
+      }
+
+      try {
+        // Compile high-level source to assembly
+        const assembly = compileDspSource(newDspSource);
+
+        // Store the compiled assembly and update the compiled editor
+        compiledAssemblyRef.current = assembly;
+
+        try {
+          // Assemble and write to DSP
+          const lines = assembly.split("\n");
+          const parsedData = assembleSource(lines);
+          writeRegisters(aicaDsp, parsedData);
+
+          // Set compiled status
+          sourceEditorRef.current?.setStatus('compiled');
+          compiledEditorRef.current?.setStatus('assembled');
+        } catch (assembleErr) {
+          // Assembly failed - parse line number from error
+          const message = assembleErr instanceof Error ? assembleErr.message : String(assembleErr);
+          const lineMatch = message.match(/line (\d+)/i);
+          const line = lineMatch ? parseInt(lineMatch[1], 10) : 1;
+
+          const assemblyErrors = [{ line, message }];
+
+          // Show "assembling failed" in source editor with callback to switch to compiled tab
+          const switchToCompiledTab = () => {
+            setActiveTab('compiled');
+          };
+
+          // Set errors in compiled editor
+          compiledEditorRef.current?.setErrors(assemblyErrors);
+
+          setTimeout(() => {
+            sourceEditorRef.current?.setStatus('assembling-failed', assemblyErrors.length, switchToCompiledTab);
+            compiledEditorRef.current?.setStatus('error', assemblyErrors.length);
+          }, 0);
+        }
+      } catch (err) {
+        if (err instanceof CompilationError) {
+          // Handle multiple compilation errors
+          // Set errors first so they're stored before status updates the tooltip
+          sourceEditorRef.current?.setErrors(err.errors);
+
+          // Generate error report for compiled editor
+          const errorReport = [
+            "# Failed to compile source",
+            "",
+            ...err.errors.map(e => `# Line ${e.line}: ${e.message}`)
+          ].join('\n');
+          compiledAssemblyRef.current = errorReport;
+
+          // Then set status which will use the stored errors for the tooltip
+          setTimeout(() => {
+            sourceEditorRef.current?.setStatus('error', err.errors.length);
+            compiledEditorRef.current?.setStatus('error', err.errors.length);
+          }, 0);
+        } else {
+          // Handle other errors as before
+          const message = err instanceof Error ? err.message : String(err);
+          sourceEditorRef.current?.setError(message);
+
+          // Generate error report for compiled editor
+          const errorReport = [
+            "# Failed to compile source",
+            "",
+            `# ${message}`
+          ].join('\n');
+          compiledAssemblyRef.current = errorReport;
+
+          setTimeout(() => {
+            sourceEditorRef.current?.setStatus('error', 1);
+            compiledEditorRef.current?.setStatus('error', 1);
+          }, 0);
+        }
+      }
+    },
+    [wasmInitialized]
+  );
+
+  // Initial compilation when WASM initializes and editors are ready
   useEffect(() => {
-    if (wasmInitialized) {
-      assembleAndWrite(sourceRef.current);
+    if (wasmInitialized && editorsReady) {
+      if (activeTab === "source" || activeTab === "compiled") {
+        compileAndWrite(dspSourceRef.current);
+      } else {
+        assembleAndWrite(assemblySourceRef.current);
+      }
       updateShareToken();
     }
-  }, [wasmInitialized, assembleAndWrite, updateShareToken]);
+  }, [wasmInitialized, editorsReady]);
 
-  const handleSourceChange = useCallback((newSource: string) => {
-    sourceRef.current = newSource;
+  // Re-compile/re-assemble when switching tabs
+  useEffect(() => {
+    if (!wasmInitialized) return;
+
+    // Use a small timeout to ensure the new editor is mounted
+    const timer = setTimeout(() => {
+      if (activeTab === "source" || activeTab === "compiled") {
+        compileAndWrite(dspSourceRef.current);
+      } else {
+        assembleAndWrite(assemblySourceRef.current);
+      }
+      updateShareToken();
+    }, 50);
+
+    return () => clearTimeout(timer);
+  }, [activeTab, wasmInitialized, compileAndWrite, assembleAndWrite, updateShareToken]);
+
+  const handleEditorReady = useCallback(() => {
+    setEditorsReady(true);
+  }, []);
+
+  const handleDspSourceChange = useCallback((newSource: string) => {
+    dspSourceRef.current = newSource;
+    compileAndWrite(newSource);
+    saveToLocalStorage();
+    updateShareToken();
+  }, [compileAndWrite, saveToLocalStorage, updateShareToken]);
+
+  const handleAssemblySourceChange = useCallback((newSource: string) => {
+    assemblySourceRef.current = newSource;
     assembleAndWrite(newSource);
     saveToLocalStorage();
     updateShareToken();
@@ -307,7 +492,7 @@ export const DspPlaygroundPanel = () => {
         }
 
         const newSource = lines.join("\n");
-        sourceRef.current = newSource;
+        assemblySourceRef.current = newSource;
         assembleAndWrite(newSource);
         saveToLocalStorage();
         updateShareToken();
@@ -710,9 +895,15 @@ export const DspPlaygroundPanel = () => {
 
     // Trigger editor layout after DOM updates
     setTimeout(() => {
-      editorRef.current?.layout();
+      if (activeTab === "source") {
+        sourceEditorRef.current?.layout();
+      } else if (activeTab === "compiled") {
+        compiledEditorRef.current?.layout();
+      } else {
+        editorRef.current?.layout();
+      }
     }, 10);
-  }, []);
+  }, [activeTab]);
 
   const handleSoloToggle = useCallback((channel: number) => {
     const newSoloed = soloedChannelRef.current === channel ? null : channel;
@@ -1167,7 +1358,7 @@ export const DspPlaygroundPanel = () => {
           </Alert>
         )}
 
-        {/* Assembly Editor */}
+        {/* Tabbed Editor */}
         <Box
           ref={editorContainerRef}
           sx={{
@@ -1177,13 +1368,48 @@ export const DspPlaygroundPanel = () => {
             alignItems: 'center',
           }}
         >
+          <Tabs
+            value={activeTab}
+            onChange={(_, newValue) => {
+              setActiveTab(newValue);
+              // Don't reset editorsReady - let the useEffect handle re-compilation
+            }}
+            sx={{ width: '100%', borderBottom: 1, borderColor: 'divider' }}
+          >
+            <Tab label="DSP Source" value="source" />
+            <Tab label="DSP Compiled" value="compiled" />
+            <Tab label="DSP Assembly" value="assembly" />
+          </Tabs>
+
           <Box ref={editorInnerContainerRef} sx={{ width: '100%', height: 250 }}>
-            <DspAssemblyEditor
-              ref={editorRef}
-              value={sourceRef.current}
-              onChange={handleSourceChange}
-              height="100%"
-            />
+            {activeTab === "source" ? (
+              <DspSourceEditor
+                ref={sourceEditorRef}
+                value={dspSourceRef.current}
+                onChange={handleDspSourceChange}
+                height="100%"
+                onEditorReady={handleEditorReady}
+              />
+            ) : activeTab === "compiled" ? (
+              <DspAssemblyEditor
+                key={activeTab}
+                ref={compiledEditorRef}
+                value={compiledAssemblyRef.current}
+                onChange={() => {}} // Read-only
+                height="100%"
+                readOnly={true}
+                onEditorReady={handleEditorReady}
+              />
+            ) : (
+              <DspAssemblyEditor
+                key={activeTab}
+                ref={editorRef}
+                value={assemblySourceRef.current}
+                onChange={handleAssemblySourceChange}
+                height="100%"
+                onEditorReady={handleEditorReady}
+              />
+            )}
           </Box>
           <IconButton
             ref={editorToggleButtonRef}
@@ -1237,7 +1463,7 @@ export const DspPlaygroundPanel = () => {
                     <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
                       In {i.toString().padStart(2, '0')}
                     </Typography>
-                    <Tooltip title="Tap to listen to this input only">
+                    <Tooltip title="Listen to this input only">
                       <IconButton
                         ref={(el) => {
                           tapButtonRefs.current[i] = el;
