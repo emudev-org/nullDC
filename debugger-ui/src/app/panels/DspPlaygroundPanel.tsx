@@ -131,11 +131,10 @@ interface AudioFile {
 }
 
 export const DspPlaygroundPanel = () => {
-  const [source, setSource] = useState(resolveInitialSource);
-  const [error, setError] = useState<string | null>(null);
+  const sourceRef = useRef(resolveInitialSource());
+  const errorRef = useRef<string | null>(null);
   const [audioPlaying, setAudioPlaying] = useState(false);
   const [wasmInitialized, setWasmInitialized] = useState(false);
-  const [wavBuffer, setWavBuffer] = useState<DataView | null>(null);
   const [shareToken, setShareToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [audioFiles, setAudioFiles] = useState<AudioFile[]>([]);
@@ -151,7 +150,6 @@ export const DspPlaygroundPanel = () => {
   const dspStepCounter = useRef(0);
   const frequency = useRef(0);
   const keysPressed = useRef(new Set<string>());
-  const wavIndex = useRef(0);
   const phase = useRef(0);
   const amplitude = 0.5;
   const lastKeyboardSample = useRef(0); // For smoothing keyboard input
@@ -190,40 +188,40 @@ export const DspPlaygroundPanel = () => {
     });
   }, []);
 
-  // Save to localStorage
-  useEffect(() => {
+  // Save to localStorage (called manually, not reactive)
+  const saveToLocalStorage = useCallback(() => {
     if (typeof window === "undefined") return;
     try {
-      window.localStorage.setItem(DSP_SOURCE_STORAGE_KEY, source);
+      window.localStorage.setItem(DSP_SOURCE_STORAGE_KEY, sourceRef.current);
     } catch (error) {
       console.warn("Failed to save DSP source to storage", error);
     }
-  }, [source]);
+  }, []);
 
-  // Generate share token from source
-  useEffect(() => {
+  // Generate share token from source (called manually, not reactive)
+  const updateShareToken = useCallback(() => {
     if (typeof window === "undefined") return;
     try {
-      const encoded = encodeSource(source);
+      const encoded = encodeSource(sourceRef.current);
       setShareToken(encoded);
     } catch (error) {
       console.error("Failed to encode source", error);
       setShareToken(null);
     }
-  }, [source]);
+  }, []);
 
   const assembleAndWrite = useCallback(
     (newSource: string) => {
       if (!wasmInitialized) return;
 
-      setError(null);
+      editorRef.current?.setError(null);
       try {
         const lines = newSource.split("\n");
         const parsedData = assembleSource(lines);
         writeRegisters(aicaDsp, parsedData);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        setError(message);
+        editorRef.current?.setError(message);
       }
     },
     [wasmInitialized]
@@ -231,13 +229,17 @@ export const DspPlaygroundPanel = () => {
 
   useEffect(() => {
     if (wasmInitialized) {
-      assembleAndWrite(source);
+      assembleAndWrite(sourceRef.current);
+      updateShareToken();
     }
-  }, [source, wasmInitialized, assembleAndWrite]);
+  }, [wasmInitialized, assembleAndWrite, updateShareToken]);
 
   const handleSourceChange = useCallback((newSource: string) => {
-    setSource(newSource);
-  }, []);
+    sourceRef.current = newSource;
+    assembleAndWrite(newSource);
+    saveToLocalStorage();
+    updateShareToken();
+  }, [assembleAndWrite, saveToLocalStorage, updateShareToken]);
 
   const handleLoadRegs = useCallback(
     async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -302,16 +304,20 @@ export const DspPlaygroundPanel = () => {
           }
         }
 
-        setSource(lines.join("\n"));
+        const newSource = lines.join("\n");
+        sourceRef.current = newSource;
+        assembleAndWrite(newSource);
+        saveToLocalStorage();
+        updateShareToken();
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        setError(`Error loading registers: ${message}`);
+        editorRef.current?.setError(`Error loading registers: ${message}`);
       }
 
       // Reset file input
       event.target.value = "";
     },
-    [wasmInitialized]
+    [wasmInitialized, assembleAndWrite, saveToLocalStorage, updateShareToken]
   );
 
   const handleDownloadRegs = useCallback(() => {
@@ -337,18 +343,6 @@ export const DspPlaygroundPanel = () => {
     URL.revokeObjectURL(url);
   }, [wasmInitialized]);
 
-  const handleLoadWav = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    void file.arrayBuffer().then((buffer) => {
-      setWavBuffer(new DataView(buffer));
-      wavIndex.current = 0;
-    });
-
-    event.target.value = "";
-  }, []);
-
   const handleStartAudio = useCallback(() => {
     if (!wasmInitialized) return;
 
@@ -367,15 +361,7 @@ export const DspPlaygroundPanel = () => {
 
       for (let i = 0; i < outputBuffer.length; i++) {
         // Generate sine wave sample only if frequency > 0
-        let sample = frequency.current > 0 ? amplitude * Math.sin(phase.current) : 0;
-
-        if (wavBuffer) {
-          const idx = wavIndex.current;
-          if (idx < wavBuffer.byteLength - 1) {
-            sample = wavBuffer.getInt16(idx, true) / 32768;
-            wavIndex.current = (idx + 2) % wavBuffer.byteLength;
-          }
-        }
+        const sample = frequency.current > 0 ? amplitude * Math.sin(phase.current) : 0;
 
         const rawKeyboardSample = Math.round(sample * 32767);
 
@@ -499,7 +485,7 @@ export const DspPlaygroundPanel = () => {
     audioContextRef.current = audioContext;
     scriptNodeRef.current = scriptNode;
     setAudioPlaying(true);
-  }, [wasmInitialized, wavBuffer]);
+  }, [wasmInitialized]);
 
   const handleStopAudio = useCallback(() => {
     if (scriptNodeRef.current) {
@@ -513,7 +499,7 @@ export const DspPlaygroundPanel = () => {
     setAudioPlaying(false);
   }, []);
 
-  // Keyboard MIDI handling
+  // Keyboard input handling
   useEffect(() => {
     if (!audioPlaying) return;
 
@@ -1148,10 +1134,6 @@ export const DspPlaygroundPanel = () => {
           <Button variant="outlined" size="small" onClick={handleDownloadRegs}>
             Download Regs
           </Button>
-          <Button variant="outlined" size="small" component="label">
-            Load WAV
-            <input type="file" hidden accept=".wav" onChange={handleLoadWav} />
-          </Button>
           <Box sx={{ flexGrow: 1 }} />
           {shareToken && (
             <Button
@@ -1169,7 +1151,7 @@ export const DspPlaygroundPanel = () => {
         {audioPlaying && (
           <Alert severity="info" sx={{ py: 0.5 }}>
             <Typography variant="caption">
-              <strong>Keyboard MIDI Active:</strong> z,x,c,v,b,n,m (lower octave) | a,s,d,f,g,h,j,k,l (higher octave)
+              <strong>Keyboard input active:</strong> z,x,c,v,b,n,m (lower octave) | a,s,d,f,g,h,j,k,l (higher octave)
             </Typography>
           </Alert>
         )}
@@ -1187,9 +1169,8 @@ export const DspPlaygroundPanel = () => {
           <Box ref={editorInnerContainerRef} sx={{ width: '100%', height: 250 }}>
             <DspAssemblyEditor
               ref={editorRef}
-              value={source}
+              value={sourceRef.current}
               onChange={handleSourceChange}
-              error={error}
               height="100%"
             />
           </Box>
@@ -1211,13 +1192,6 @@ export const DspPlaygroundPanel = () => {
             <KeyboardArrowDownIcon />
           </IconButton>
         </Box>
-
-        {/* Error display */}
-        {error && (
-          <Alert severity="error" onClose={() => setError(null)}>
-            {error}
-          </Alert>
-        )}
 
         {/* Waveform visualizations */}
         <Box ref={dspSectionRef} sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
@@ -1450,6 +1424,9 @@ export const DspPlaygroundPanel = () => {
                 gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
                 gap: 1,
                 mb: 1,
+                opacity: audioPlaying ? 0.5 : 1,
+                pointerEvents: audioPlaying ? "none" : "auto",
+                filter: audioPlaying ? "grayscale(100%)" : "none",
               }}
             >
               {audioFiles.map((file) => (
@@ -1565,17 +1542,20 @@ export const DspPlaygroundPanel = () => {
           {/* Drop Zone */}
           <Paper
             variant="outlined"
-            onDrop={handleFileDrop}
-            onDragOver={handleDragOver}
-            onClick={handleDropZoneClick}
+            onDrop={audioPlaying ? undefined : handleFileDrop}
+            onDragOver={audioPlaying ? undefined : handleDragOver}
+            onClick={audioPlaying ? undefined : handleDropZoneClick}
             sx={{
               p: 3,
               textAlign: "center",
               border: "2px dashed",
               borderColor: "divider",
               backgroundColor: "action.hover",
-              cursor: "pointer",
-              "&:hover": {
+              cursor: audioPlaying ? "not-allowed" : "pointer",
+              opacity: audioPlaying ? 0.5 : 1,
+              pointerEvents: audioPlaying ? "none" : "auto",
+              filter: audioPlaying ? "grayscale(100%)" : "none",
+              "&:hover": audioPlaying ? {} : {
                 borderColor: "primary.main",
                 backgroundColor: "action.selected",
               },

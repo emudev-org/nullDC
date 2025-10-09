@@ -1,4 +1,4 @@
-import { memo, useCallback, useRef, useImperativeHandle, forwardRef } from "react";
+import { memo, useCallback, useEffect, useRef, useImperativeHandle, forwardRef } from "react";
 import { Box, Typography } from "@mui/material";
 import Editor from "@monaco-editor/react";
 import type { Monaco } from "@monaco-editor/react";
@@ -14,6 +14,7 @@ export interface DspAssemblyEditorProps {
 
 export interface DspAssemblyEditorRef {
   layout: () => void;
+  setError: (error: string | null) => void;
 }
 
 const registerDspLanguage = (monaco: Monaco) => {
@@ -79,12 +80,45 @@ export const DspAssemblyEditor = memo(
     ({ value, onChange, error, height = 250 }, ref) => {
       const { mode } = useThemeMode();
       const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
+      const monacoRef = useRef<Monaco | null>(null);
+      const errorRef = useRef<string | null>(error || null);
 
       useImperativeHandle(ref, () => ({
         layout: () => {
           editorRef.current?.layout();
         },
+        setError: (newError: string | null) => {
+          errorRef.current = newError;
+          updateMarkers(newError);
+        },
       }));
+
+      const updateMarkers = useCallback((errorMessage: string | null) => {
+        if (!editorRef.current || !monacoRef.current) return;
+
+        const model = editorRef.current.getModel();
+        if (!model) return;
+
+        if (errorMessage) {
+          // Try to parse line number from error message (e.g., "Error at line 5:")
+          const lineMatch = errorMessage.match(/line (\d+)/i);
+          const line = lineMatch ? parseInt(lineMatch[1], 10) : 1;
+
+          monacoRef.current.editor.setModelMarkers(model, "dsp-assembly", [
+            {
+              startLineNumber: line,
+              startColumn: 1,
+              endLineNumber: line,
+              endColumn: model.getLineMaxColumn(line),
+              message: errorMessage,
+              severity: monacoRef.current.MarkerSeverity.Error,
+            },
+          ]);
+        } else {
+          // Clear markers
+          monacoRef.current.editor.setModelMarkers(model, "dsp-assembly", []);
+        }
+      }, []);
 
       const handleEditorDidMount = useCallback((editor: editor.IStandaloneCodeEditor) => {
         editorRef.current = editor;
@@ -95,6 +129,7 @@ export const DspAssemblyEditor = memo(
       }, []);
 
       const handleEditorWillMount = useCallback((monaco: Monaco) => {
+        monacoRef.current = monaco;
         registerDspLanguage(monaco);
       }, []);
 
@@ -113,7 +148,7 @@ export const DspAssemblyEditor = memo(
           <Box
             sx={{
               border: 1,
-              borderColor: error ? "error.main" : "divider",
+              borderColor: "divider",
               borderRadius: 1,
               overflow: "hidden",
               ...(typeof height === "string" && height === "100%"

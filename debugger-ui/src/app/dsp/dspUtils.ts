@@ -161,7 +161,17 @@ export const assembleDesc = (text: string): Partial<DspInstDesc> => {
     if (value === undefined) {
       value = "1";
     }
-    (rv as Record<string, number>)[key] = parseInt(value, 10);
+
+    // Validate that the value is a valid number (decimal or hex)
+    const numValue = value.startsWith("0x") || value.startsWith("0X")
+      ? parseInt(value, 16)
+      : parseInt(value, 10);
+
+    if (isNaN(numValue) || !/^(0[xX][0-9a-fA-F]+|\d+)$/.test(value)) {
+      throw new Error(`Invalid value '${value}' for field '${key}' in: ${text}`);
+    }
+
+    (rv as Record<string, number>)[key] = numValue;
   });
 
   return rv;
