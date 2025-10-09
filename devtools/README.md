@@ -1,4 +1,4 @@
-﻿# nullDC Debugger
+﻿# nullDC DevTools
 
 A web UI that connects to nullDC and exposes emulator hardware in an inspectable way.
 

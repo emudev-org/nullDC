@@ -1,4 +1,4 @@
-# nullDC Debugger
+# nullDC Devtools
 the frontend should work (in different builds) with both the rust application as wasm and native. in native it uses a websocket, in wasm it uses cross-tab communication.
 
 The emulator will provide the hardware state (typical superh4 registers like pc, gprs, fprs, fpscr, etc, but also state for SH4 peripherals, the holly chip, AICA (the sound chip) and TA/CORE (aka PowerVR, the GPU). I'm thinking a device tree, and also a "watch" window where people can add their watches with some path notation like dc.sh4.cpu.pr or dc.sh4.dmac.dmaor. The emulator will also provide memory windows / views as well as disassembly on demand, with both of those failing in case of TLB misses. The cpu state should include and ICACHE, DCACHE and TLB visualization (likely tables?). I Also want to have views for TA debugger and CORE debugger, where you can inspect the lists / analyze logs of previous frames. Similarly for AICA i want to have channel state inspection, and waveforms for each step along the processing chain of a channel, with possibly the ability to hear to a section of audio, as well as dsp inputs / outputs / stepping.

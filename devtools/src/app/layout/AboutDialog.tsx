@@ -76,7 +76,7 @@ export const AboutDialog = ({ open, onClose }: AboutDialogProps) => {
   }, [open, client, connectionState, info]);
 
   const emulatorRows = [
-    { label: "Name", value: info?.name ?? "—" },
+    { label: "Emulator", value: info?.name ?? "—" },
     { label: "Version", value: info?.version ?? "—" },
     { label: "Build", value: info?.build ?? "—" },
   ];
@@ -91,12 +91,20 @@ export const AboutDialog = ({ open, onClose }: AboutDialogProps) => {
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
-      <DialogTitle>About nullDC Debugger</DialogTitle>
+      <DialogTitle>About nullDC DevTools</DialogTitle>
       <DialogContent dividers>
         <Stack spacing={1.5}>
           <Typography variant="body2" color="text.secondary">
             A modern web UI vibed together with LLMs.
           </Typography>
+          <Stack direction="row" justifyContent="space-between">
+            <Typography variant="body2" fontWeight={600}>
+              DevTools
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              {DEBUGGER_VERSION}
+            </Typography>
+          </Stack>
           <Divider />
           {connectionState !== "connected" ? (
             <Typography variant="body2" color="text.secondary">
@@ -127,14 +135,6 @@ export const AboutDialog = ({ open, onClose }: AboutDialogProps) => {
               ))}
             </Stack>
           )}
-          <Stack direction="row" justifyContent="space-between">
-            <Typography variant="body2" fontWeight={600}>
-              Debugger
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              {DEBUGGER_VERSION}
-            </Typography>
-          </Stack>
           <Typography variant="caption" color="text.disabled">
             Connection state: {connectionState}
           </Typography>

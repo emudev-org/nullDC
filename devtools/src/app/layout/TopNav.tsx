@@ -18,7 +18,7 @@ export const TopNav = ({
   onResetLayout,
   rightSection,
   active,
-  title = "nullDC Debugger",
+  title = "nullDC DevTools",
 }: TopNavProps) => {
   const homeVariant = active === "home" ? "contained" : "text";
   const docsVariant = active === "docs" ? "contained" : "text";
