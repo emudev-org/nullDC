@@ -19,11 +19,8 @@ import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import StopIcon from "@mui/icons-material/Stop";
 import DeleteIcon from "@mui/icons-material/Delete";
 import HearingIcon from "@mui/icons-material/Hearing";
-import VolumeOffIcon from "@mui/icons-material/VolumeOff";
 import VolumeUpIcon from "@mui/icons-material/VolumeUp";
-import RadioButtonCheckedIcon from "@mui/icons-material/RadioButtonChecked";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
-import KeyboardArrowUpIcon from "@mui/icons-material/KeyboardArrowUp";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import { deflate, inflate } from "pako";
 import { Panel } from "../layout/Panel";
@@ -173,8 +170,6 @@ export const DspPlaygroundPanel = () => {
   const dspSourceRef = useRef(resolveInitialDspSource());
   const compiledAssemblyRef = useRef("");
   const assemblySourceRef = useRef(resolveInitialSource());
-  const errorRef = useRef<string | null>(null);
-  const sourceErrorRef = useRef<string | null>(null);
   const compiledEditorRef = useRef<DspAssemblyEditorRef | null>(null);
   const [audioPlaying, setAudioPlaying] = useState(false);
   const [wasmInitialized, setWasmInitialized] = useState(false);
@@ -1209,10 +1204,8 @@ export const DspPlaygroundPanel = () => {
     setAudioFiles((prev) => prev.filter((f) => f.id !== fileId));
 
     // Also reset any input sources using this file to "none"
-    setInputSources((prev) =>
-      prev.map((source) =>
-        typeof source === "object" && source.fileId === fileId ? "none" : source
-      )
+    inputSourcesRef.current = inputSourcesRef.current.map((source: InputSource) =>
+      typeof source === "object" && source.fileId === fileId ? "none" : source
     );
   }, []);
 

@@ -9,9 +9,12 @@ export interface PreprocessorError {
 }
 
 export class PreprocessorException extends Error {
-  constructor(public errors: PreprocessorError[]) {
+  errors: PreprocessorError[];
+
+  constructor(errors: PreprocessorError[]) {
     super(errors.map(e => `Line ${e.line}: ${e.message}`).join('\n'));
     this.name = 'PreprocessorException';
+    this.errors = errors;
   }
 }
 
