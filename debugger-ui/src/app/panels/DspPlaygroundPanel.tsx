@@ -200,8 +200,11 @@ export const DspPlaygroundPanel = () => {
   const filePlaybackSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const tappedChannelRef = useRef<number | null>(null);
   const tapButtonRefs = useRef<Array<HTMLButtonElement | null>>(Array(16).fill(null));
-  const mutedChannelsRef = useRef<Set<number>>(new Set());
-  const soloedChannelRef = useRef<number | null>(null);
+
+  // Channel output states: 0 = normal, 1 = muted, 2 = soloed
+  type ChannelState = 0 | 1 | 2;
+  const channelStatesRef = useRef<ChannelState[]>(Array(16).fill(0));
+
   const muteButtonRefs = useRef<Array<HTMLButtonElement | null>>(Array(16).fill(null));
   const soloButtonRefs = useRef<Array<HTMLButtonElement | null>>(Array(16).fill(null));
 
@@ -592,8 +595,8 @@ export const DspPlaygroundPanel = () => {
         // Read DSP outputs
         let audioOut = 0;
         let mixSampleInt = 0;
-        const soloed = soloedChannelRef.current;
-        const muted = mutedChannelsRef.current;
+        const states = channelStatesRef.current;
+        const hasSolo = states.some(s => s === 2);
 
         for (let j = 0; j < 16; j++) {
           let fxSampleInt = aicaDsp.readReg(0x3000 + 0x1580 + j * 4);
@@ -602,12 +605,14 @@ export const DspPlaygroundPanel = () => {
             fxSampleInt |= 0xffff0000;
           }
 
-          // Apply solo/mute logic
+          // Apply solo/mute logic based on channel state
           let channelEnabled = true;
-          if (soloed !== null) {
-            channelEnabled = j === soloed;
-          } else if (muted.has(j)) {
-            channelEnabled = false;
+          if (hasSolo) {
+            // If any channel is soloed, only soloed channels are enabled
+            channelEnabled = states[j] === 2;
+          } else {
+            // Otherwise, only muted channels are disabled
+            channelEnabled = states[j] !== 1;
           }
 
           const fxSample = fxSampleInt / 32767;
@@ -798,52 +803,89 @@ export const DspPlaygroundPanel = () => {
     });
   }, []);
 
-  const handleMuteToggle = useCallback((channel: number) => {
-    const muted = mutedChannelsRef.current;
+  // Helper function to update all output channel visual states
+  const updateOutputVisualStates = useCallback(() => {
+    const states = channelStatesRef.current;
+    const hasSolo = states.some(s => s === 2);
 
-    // If channel is currently soloed, clear solo first
-    if (soloedChannelRef.current === channel) {
-      soloedChannelRef.current = null;
-      soloButtonRefs.current.forEach((btn) => {
-        if (btn) btn.classList.remove('solo-active');
-      });
-    }
+    // Update all mute buttons
+    muteButtonRefs.current.forEach((btn, idx) => {
+      if (btn) {
+        const icon = btn.querySelector('svg');
+        const isMuted = states[idx] === 1;
 
-    if (muted.has(channel)) {
-      muted.delete(channel);
-    } else {
-      muted.add(channel);
-    }
-
-    // Update button class and icon
-    const btn = muteButtonRefs.current[channel];
-    if (btn) {
-      const icon = btn.querySelector('svg');
-      if (muted.has(channel)) {
-        btn.classList.add('mute-active');
-        if (icon) {
-          icon.innerHTML = '<path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"></path>';
-        }
-      } else {
-        btn.classList.remove('mute-active');
-        if (icon) {
-          icon.innerHTML = '<path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"></path>';
+        if (isMuted) {
+          btn.classList.add('mute-active');
+          if (icon) {
+            icon.innerHTML = '<path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"></path>';
+          }
+        } else {
+          btn.classList.remove('mute-active');
+          if (icon) {
+            icon.innerHTML = '<path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"></path>';
+          }
         }
       }
-    }
+    });
 
-    // Apply grayscale to the muted channel's container
-    const container = outputContainerRefs.current[channel];
-    if (container) {
-      if (muted.has(channel)) {
-        container.style.filter = 'grayscale(100%)';
-        container.style.opacity = '0.5';
-      } else {
-        container.style.filter = '';
-        container.style.opacity = '';
+    // Update all solo buttons
+    soloButtonRefs.current.forEach((btn, idx) => {
+      if (btn) {
+        const icon = btn.querySelector('svg');
+        const isSoloed = states[idx] === 2;
+
+        if (isSoloed) {
+          btn.classList.add('solo-active');
+          if (icon) {
+            icon.innerHTML = '<path d="M12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zm0-5C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"></path>';
+          }
+        } else {
+          btn.classList.remove('solo-active');
+          if (icon) {
+            icon.innerHTML = '<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"></path>';
+          }
+        }
       }
-    }
+    });
+
+    // Update all output container visual states
+    outputContainerRefs.current.forEach((container, idx) => {
+      if (container) {
+        // Determine if this channel should be grayed out
+        let shouldGray = false;
+
+        if (hasSolo) {
+          // If any channel is soloed, gray out all except the soloed channel(s)
+          shouldGray = states[idx] !== 2;
+        } else if (states[idx] === 1) {
+          // If no solo but channel is muted, gray it out
+          shouldGray = true;
+        }
+
+        if (shouldGray) {
+          container.style.filter = 'grayscale(100%)';
+          container.style.opacity = '0.5';
+        } else {
+          container.style.filter = '';
+          container.style.opacity = '';
+        }
+      }
+    });
   }, []);
+
+  const handleMuteToggle = useCallback((channel: number) => {
+    const states = channelStatesRef.current;
+
+    // Toggle between normal (0) and muted (1)
+    if (states[channel] === 1) {
+      states[channel] = 0; // Unmute
+    } else {
+      states[channel] = 1; // Mute
+    }
+
+    // Recalculate all visual states
+    updateOutputVisualStates();
+  }, [updateOutputVisualStates]);
 
   const handleEditorFullscreenToggle = useCallback(() => {
     editorFullscreenRef.current = !editorFullscreenRef.current;
@@ -901,53 +943,24 @@ export const DspPlaygroundPanel = () => {
   }, [activeTab]);
 
   const handleSoloToggle = useCallback((channel: number) => {
-    const newSoloed = soloedChannelRef.current === channel ? null : channel;
-    soloedChannelRef.current = newSoloed;
+    const states = channelStatesRef.current;
 
-    // If soloing, clear mute for this channel
-    if (newSoloed !== null) {
-      mutedChannelsRef.current.delete(channel);
-      const muteBtn = muteButtonRefs.current[channel];
-      if (muteBtn) {
-        muteBtn.classList.remove('mute-active');
-        const icon = muteBtn.querySelector('svg');
-        if (icon) {
-          icon.innerHTML = '<path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"></path>';
+    if (states[channel] === 2) {
+      // If this channel is already soloed, unsolo it (set to normal)
+      states[channel] = 0;
+    } else {
+      // Clear all other solos and solo this channel
+      for (let i = 0; i < states.length; i++) {
+        if (states[i] === 2) {
+          states[i] = 0; // Clear other solos
         }
       }
+      states[channel] = 2; // Solo this channel
     }
 
-    // Update all solo button classes and icons
-    soloButtonRefs.current.forEach((btn, idx) => {
-      if (btn) {
-        const icon = btn.querySelector('svg');
-        if (idx === newSoloed) {
-          btn.classList.add('solo-active');
-          if (icon) {
-            icon.innerHTML = '<path d="M12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zm0-5C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"></path>';
-          }
-        } else {
-          btn.classList.remove('solo-active');
-          if (icon) {
-            icon.innerHTML = '<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"></path>';
-          }
-        }
-      }
-    });
-
-    // Apply grayscale to all output containers except the soloed one
-    outputContainerRefs.current.forEach((container, idx) => {
-      if (container) {
-        if (newSoloed !== null && idx !== newSoloed) {
-          container.style.filter = 'grayscale(100%)';
-          container.style.opacity = '0.5';
-        } else {
-          container.style.filter = '';
-          container.style.opacity = '';
-        }
-      }
-    });
-  }, []);
+    // Recalculate all visual states
+    updateOutputVisualStates();
+  }, [updateOutputVisualStates]);
 
   const handleInputSourceChange = useCallback((channel: number, source: InputSource) => {
     inputSourcesRef.current[channel] = source;
