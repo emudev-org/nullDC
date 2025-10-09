@@ -4,10 +4,11 @@
   "version": "2.0.0-pre",
   "type": "module",
   "scripts": {
-    "dev": "tsx watch --tsconfig tsconfig.server.json server/mockServer.ts",
-    "mock:start": "tsx --tsconfig tsconfig.server.json server/mockServer.ts",
+    "dev": "npm run build:wasm && tsx watch --tsconfig tsconfig.server.json server/mockServer.ts",
+    "mock:start": "npm run build:wasm && tsx --tsconfig tsconfig.server.json server/mockServer.ts",
     "build": "npm run build:wasm && tsc -b && vite build",
-    "build:wasm": "cd crates/aica-dsp && wasm-pack build --target web --out-dir ../../experiments/aica_dsp_playground_rust/pkg",
+    "build:wasm": "cd crates/aica-dsp && wasm-pack build --target web --out-dir ../../src/wasm/aica-dsp",
+    "postinstall": "npm run build:wasm",
     "lint": "eslint ."
   },
   "dependencies": {
