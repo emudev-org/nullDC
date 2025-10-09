@@ -140,12 +140,13 @@ export const DspPlaygroundPanel = () => {
   const [audioFiles, setAudioFiles] = useState<AudioFile[]>([]);
   const [playingFileId, setPlayingFileId] = useState<string | null>(null);
   const [loadingChannels, setLoadingChannels] = useState<Set<number>>(new Set());
-  const [inputSources, setInputSources] = useState<InputSource[]>(() => {
-    const sources: InputSource[] = Array(16).fill("none");
-    sources[0] = "keyboard"; // Channel 0 defaults to keyboard
-    return sources;
-  });
-  const inputSourcesRef = useRef<InputSource[]>(inputSources);
+  const inputSourcesRef = useRef<InputSource[]>(
+    (() => {
+      const sources: InputSource[] = Array(16).fill("none");
+      sources[0] = "keyboard"; // Channel 0 defaults to keyboard
+      return sources;
+    })()
+  );
   const audioFilesRef = useRef<AudioFile[]>(audioFiles);
   const dspStepCounter = useRef(0);
   const frequency = useRef(0);
@@ -180,6 +181,7 @@ export const DspPlaygroundPanel = () => {
   const mixPlotterRef = useRef<WaveformPlotterRef | null>(null);
   const inputContainerRefs = useRef<Array<HTMLElement | null>>(Array(16).fill(null));
   const outputContainerRefs = useRef<Array<HTMLElement | null>>(Array(16).fill(null));
+  const inputSelectRefs = useRef<Array<HTMLSelectElement | null>>(Array(16).fill(null));
 
   // Initialize WASM
   useEffect(() => {
@@ -557,14 +559,20 @@ export const DspPlaygroundPanel = () => {
     }
   }, [shareToken]);
 
-  // Sync inputSources state to ref for audio callback
-  useEffect(() => {
-    inputSourcesRef.current = inputSources;
-  }, [inputSources]);
-
   // Sync audioFiles state to ref for audio callback
   useEffect(() => {
     audioFilesRef.current = audioFiles;
+  }, [audioFiles]);
+
+  // Sync inputSources ref to Select elements on audioFiles change
+  useEffect(() => {
+    inputSelectRefs.current.forEach((selectEl, i) => {
+      if (selectEl) {
+        const source = inputSourcesRef.current[i];
+        const value = typeof source === "object" ? `file:${source.fileId}` : source;
+        selectEl.value = value;
+      }
+    });
   }, [audioFiles]);
 
 
@@ -756,11 +764,14 @@ export const DspPlaygroundPanel = () => {
   }, []);
 
   const handleInputSourceChange = useCallback((channel: number, source: InputSource) => {
-    setInputSources((prev) => {
-      const updated = [...prev];
-      updated[channel] = source;
-      return updated;
-    });
+    inputSourcesRef.current[channel] = source;
+
+    // Update the Select element's value directly without re-render
+    const selectElement = inputSelectRefs.current[channel];
+    if (selectElement) {
+      const value = typeof source === "object" ? `file:${source.fileId}` : source;
+      selectElement.value = value;
+    }
   }, []);
 
   const handleAddAudioFileForChannel = useCallback((channel: number, previousSource: InputSource) => {
@@ -1253,26 +1264,28 @@ export const DspPlaygroundPanel = () => {
                     <CircularProgress size={12} sx={{ mr: 0.5 }} />
                   )}
                   <Tooltip
-                    title={
-                      typeof inputSources[i] === "object" && inputSources[i].type === "file"
-                        ? `File: ${audioFiles.find((f) => f.id === inputSources[i].fileId)?.name || ""}`
-                        : ""
-                    }
+                    title={(() => {
+                      const source = inputSourcesRef.current[i];
+                      return typeof source === "object" && source.type === "file"
+                        ? `File: ${audioFiles.find((f) => f.id === source.fileId)?.name || ""}`
+                        : "";
+                    })()}
                     disableInteractive
                   >
                     <Box component="span">
                       <Select
                         size="small"
                         disabled={loadingChannels.has(i)}
-                        value={
-                          typeof inputSources[i] === "object"
-                            ? `file:${inputSources[i].fileId}`
-                            : inputSources[i]
+                        inputRef={(el) => { inputSelectRefs.current[i] = el; }}
+                        defaultValue={
+                          typeof inputSourcesRef.current[i] === "object"
+                            ? `file:${inputSourcesRef.current[i].fileId}`
+                            : inputSourcesRef.current[i]
                         }
                         onChange={(e) => {
                           const val = e.target.value as string;
                           if (val === "add-file") {
-                            handleAddAudioFileForChannel(i, inputSources[i]);
+                            handleAddAudioFileForChannel(i, inputSourcesRef.current[i]);
                             // Don't change the selection
                             return;
                           } else if (val.startsWith("file:")) {
@@ -1302,7 +1315,7 @@ export const DspPlaygroundPanel = () => {
                             File: {file.name}
                           </MenuItem>
                         ))}
-                        <MenuItem value="add-file">Add audio file...</MenuItem>
+                        <MenuItem value="add-file" disabled={audioPlaying}>Add audio file...</MenuItem>
                       </Select>
                     </Box>
                   </Tooltip>
@@ -1540,34 +1553,41 @@ export const DspPlaygroundPanel = () => {
           )}
 
           {/* Drop Zone */}
-          <Paper
-            variant="outlined"
-            onDrop={audioPlaying ? undefined : handleFileDrop}
-            onDragOver={audioPlaying ? undefined : handleDragOver}
-            onClick={audioPlaying ? undefined : handleDropZoneClick}
-            sx={{
-              p: 3,
-              textAlign: "center",
-              border: "2px dashed",
-              borderColor: "divider",
-              backgroundColor: "action.hover",
-              cursor: audioPlaying ? "not-allowed" : "pointer",
-              opacity: audioPlaying ? 0.5 : 1,
-              pointerEvents: audioPlaying ? "none" : "auto",
-              filter: audioPlaying ? "grayscale(100%)" : "none",
-              "&:hover": audioPlaying ? {} : {
-                borderColor: "primary.main",
-                backgroundColor: "action.selected",
-              },
-            }}
+          <Tooltip
+            title={audioPlaying ? "Cannot add files while DSP is active" : ""}
+            disableInteractive
           >
-            <Typography variant="body2" color="text.secondary">
-              Drop sound files here
-            </Typography>
-            <Typography variant="caption" color="text.secondary">
-              Supports: .pcm, .wav, .mp3, .ogg, and other common audio formats
-            </Typography>
-          </Paper>
+            <Box>
+              <Paper
+                variant="outlined"
+                onDrop={audioPlaying ? undefined : handleFileDrop}
+                onDragOver={audioPlaying ? undefined : handleDragOver}
+                onClick={audioPlaying ? undefined : handleDropZoneClick}
+                sx={{
+                  p: 3,
+                  textAlign: "center",
+                  border: "2px dashed",
+                  borderColor: "divider",
+                  backgroundColor: "action.hover",
+                  cursor: audioPlaying ? "not-allowed" : "pointer",
+                  opacity: audioPlaying ? 0.5 : 1,
+                  pointerEvents: audioPlaying ? "none" : "auto",
+                  filter: audioPlaying ? "grayscale(100%)" : "none",
+                  "&:hover": audioPlaying ? {} : {
+                    borderColor: "primary.main",
+                    backgroundColor: "action.selected",
+                  },
+                }}
+              >
+                <Typography variant="body2" color="text.secondary">
+                  Drop sound files here
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Supports: .pcm, .wav, .mp3, .ogg, and other common audio formats
+                </Typography>
+              </Paper>
+            </Box>
+          </Tooltip>
         </Box>
       </Box>
     </Panel>
