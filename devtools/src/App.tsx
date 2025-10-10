@@ -12,13 +12,37 @@ const App = () => {
     <HashRouter>
       <Routes>
         <Route path="/" element={<HomePage />} />
-        <Route path="/sh4-sim" element={<Sh4SimPage />} />
-        <Route path="/clx2-ta-log-analyzer" element={<Clx2TaLogAnalyzerPage />} />
-        <Route path="/clx2-core-log-analyzer" element={<Clx2CoreLogAnalyzerPage />} />
-        <Route path="/dsp-playground/*" element={<DspPlaygroundPage />} />
         <Route path="/docs" element={<DocsPage />} />
-        <Route path="/:tab" element={<AppLayout />} />
-        <Route path="/:tab/:subtab" element={<AppLayout />} />
+
+        {/* Workspace routes - each has its own layout persistence */}
+        <Route path="/workspace/sh4-debugger" element={<AppLayout workspaceId="sh4-debugger" />} />
+        <Route path="/workspace/sh4-debugger/:tab" element={<AppLayout workspaceId="sh4-debugger" />} />
+        <Route path="/workspace/sh4-debugger/:tab/:subtab" element={<AppLayout workspaceId="sh4-debugger" />} />
+
+        <Route path="/workspace/arm7-debugger" element={<AppLayout workspaceId="arm7-debugger" />} />
+        <Route path="/workspace/arm7-debugger/:tab" element={<AppLayout workspaceId="arm7-debugger" />} />
+        <Route path="/workspace/arm7-debugger/:tab/:subtab" element={<AppLayout workspaceId="arm7-debugger" />} />
+
+        <Route path="/workspace/dsp-debugger" element={<AppLayout workspaceId="dsp-debugger" />} />
+        <Route path="/workspace/dsp-debugger/:tab" element={<AppLayout workspaceId="dsp-debugger" />} />
+        <Route path="/workspace/dsp-debugger/:tab/:subtab" element={<AppLayout workspaceId="dsp-debugger" />} />
+
+        <Route path="/workspace/custom-debugger" element={<AppLayout workspaceId="custom-debugger" />} />
+        <Route path="/workspace/custom-debugger/:tab" element={<AppLayout workspaceId="custom-debugger" />} />
+        <Route path="/workspace/custom-debugger/:tab/:subtab" element={<AppLayout workspaceId="custom-debugger" />} />
+
+        <Route path="/workspace/sh4-sim" element={<Sh4SimPage />} />
+        <Route path="/workspace/dsp-playground/*" element={<DspPlaygroundPage />} />
+        <Route path="/workspace/clx2-ta-log-analyzer" element={<Clx2TaLogAnalyzerPage />} />
+        <Route path="/workspace/clx2-core-log-analyzer" element={<Clx2CoreLogAnalyzerPage />} />
+
+        {/* Redirects from old routes to new workspace routes */}
+        <Route path="/sh4-sim" element={<Navigate to="/workspace/sh4-sim" replace />} />
+        <Route path="/dsp-playground/*" element={<Navigate to="/workspace/dsp-playground" replace />} />
+        <Route path="/clx2-ta-log-analyzer" element={<Navigate to="/workspace/clx2-ta-log-analyzer" replace />} />
+        <Route path="/clx2-core-log-analyzer" element={<Navigate to="/workspace/clx2-core-log-analyzer" replace />} />
+        <Route path="/events" element={<Navigate to="/workspace/custom-debugger/events" replace />} />
+
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </HashRouter>

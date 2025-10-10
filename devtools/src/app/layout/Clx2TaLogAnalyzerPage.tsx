@@ -16,8 +16,8 @@ export const Clx2TaLogAnalyzerPage = () => {
           onHomeClick={() => navigate("/")}
           onDocsClick={() => navigate("/docs")}
           onAboutClick={showAbout}
-          title="CLX2/TA Log Analyzer"
           active="workspace"
+          currentPage="ta-log-analyzer"
         />
       </AppBar>
       <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>

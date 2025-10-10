@@ -11,24 +11,24 @@ export const HomePage = () => {
   const debuggerActions = useMemo(
     () => [
       {
-        title: "Debug SH4 Code",
+        title: "SH4 Debugger",
         description: "Disassemble, set breakpoints, and step through SH4 instructions with live pipeline data.",
-        action: () => navigate("/sh4-disassembly"),
+        action: () => navigate("/workspace/sh4-debugger"),
       },
       {
-        title: "Debug ARM Code",
+        title: "ARM7 Debugger",
         description: "Inspect ARM7 execution state and control breakpoints for the AICA co-processor.",
-        action: () => navigate("/arm7-disassembly"),
+        action: () => navigate("/workspace/arm7-debugger"),
       },
       {
-        title: "Debug AICA",
-        description: "Monitor AICA channels and waveforms to diagnose audio paths.",
-        action: () => navigate("/aica"),
-      },
-      {
-        title: "Debug DSP",
+        title: "DSP Debugger",
         description: "Inspect DSP state, disassembly, and breakpoints for audio processing.",
-        action: () => navigate("/dsp-disassembly"),
+        action: () => navigate("/workspace/dsp-debugger"),
+      },
+      {
+        title: "Custom Debugger",
+        description: "Full debugger workspace with all panels for comprehensive system debugging.",
+        action: () => navigate("/workspace/custom-debugger"),
       },
     ],
     [navigate],
@@ -39,22 +39,22 @@ export const HomePage = () => {
       {
         title: "SH4 Simulator",
         description: "Experiment with scheduling patterns and visualize pipeline hazards.",
-        action: () => navigate("/sh4-sim"),
+        action: () => navigate("/workspace/sh4-sim"),
       },
       {
         title: "CLX2/TA Log Analyzer",
         description: "Review tile accelerator primitives and generated CORE lists to diagnose frame submission issues.",
-        action: () => navigate("/clx2-ta-log-analyzer"),
+        action: () => navigate("/workspace/clx2-ta-log-analyzer"),
       },
       {
         title: "CLX2/CORE Log Analyzer",
         description: "Inspect PowerVR CORE primitives, buffers and state changes in a frame to diagnose frame rendering artifacts.",
-        action: () => navigate("/clx2-core-log-analyzer"),
+        action: () => navigate("/workspace/clx2-core-log-analyzer"),
       },
       {
         title: "DSP Playground",
         description: "Author, debug and preview DSP effects with real-time waveform inspection.",
-        action: () => navigate("/dsp-playground"),
+        action: () => navigate("/workspace/dsp-playground"),
       },
     ],
     [navigate],
@@ -100,8 +100,8 @@ export const HomePage = () => {
               Choose a task to get started.
             </Typography>
             <Stack direction={{ xs: "column", sm: "row" }} spacing={2} sx={{ mt: 2 }}>
-              <Button variant="contained" size="large" onClick={() => navigate("/events")}>View Event Log</Button>
-              <Button variant="outlined" size="large" onClick={() => navigate("/device-tree")}>Open Device Tree</Button>
+              <Button variant="contained" size="large" onClick={() => navigate("/workspace/custom-debugger/events")}>View Event Log</Button>
+              <Button variant="outlined" size="large" onClick={() => navigate("/workspace/custom-debugger/device-tree")}>Open Device Tree</Button>
             </Stack>
           </Stack>
 

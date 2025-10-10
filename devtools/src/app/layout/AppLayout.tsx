@@ -31,8 +31,6 @@ import { useThemeMode } from "../../theme/ThemeModeProvider";
 import { DEBUGGER_VERSION } from "./aboutVersion";
 import { DockingLayout, clearDockingLayout, type PanelDefinition } from "./DockingLayout";
 
-const LAYOUT_STORAGE_KEY = "nulldc-debugger-layout";
-
 type StoredLayoutPrefs = {
   leftPanelOpen: boolean;
   rightPanelOpen: boolean;
@@ -43,13 +41,15 @@ const defaultLayoutPrefs: StoredLayoutPrefs = {
   rightPanelOpen: true,
 };
 
-const loadLayoutPrefs = (): StoredLayoutPrefs => {
+const getLayoutStorageKey = (workspaceId: string) => `nulldc-debugger-layout-${workspaceId}`;
+
+const loadLayoutPrefs = (workspaceId: string): StoredLayoutPrefs => {
   if (typeof window === "undefined") {
     return defaultLayoutPrefs;
   }
 
   try {
-    const raw = window.localStorage.getItem(LAYOUT_STORAGE_KEY);
+    const raw = window.localStorage.getItem(getLayoutStorageKey(workspaceId));
     if (!raw) {
       return defaultLayoutPrefs;
     }
@@ -101,7 +101,11 @@ type Notification = {
   timestamp: number;
 };
 
-export const AppLayout = () => {
+interface AppLayoutProps {
+  workspaceId: string;
+}
+
+export const AppLayout = ({ workspaceId }: AppLayoutProps) => {
   const connect = useSessionStore((state) => state.connect);
   const disconnect = useSessionStore((state) => state.disconnect);
   const connectionState = useSessionStore((state) => state.connectionState);
@@ -114,8 +118,8 @@ export const AppLayout = () => {
   const errorMessage = useDebuggerDataStore((state) => state.errorMessage);
   const clearError = useDebuggerDataStore((state) => state.clearError);
   const navigate = useNavigate();
-  const [leftPanelOpen, setLeftPanelOpen] = useState(() => loadLayoutPrefs().leftPanelOpen);
-  const [rightPanelOpen, setRightPanelOpen] = useState(() => loadLayoutPrefs().rightPanelOpen);
+  const [leftPanelOpen, setLeftPanelOpen] = useState(() => loadLayoutPrefs(workspaceId).leftPanelOpen);
+  const [rightPanelOpen, setRightPanelOpen] = useState(() => loadLayoutPrefs(workspaceId).rightPanelOpen);
   const [isNarrow, setIsNarrow] = useState(window.innerWidth < 1200);
   const { open: aboutOpen, show: showAbout, hide: hideAbout } = useAboutModal();
   const { mode, toggleMode } = useThemeMode();
@@ -130,6 +134,13 @@ export const AppLayout = () => {
   const showRightPanel = !isNarrow && rightPanelOpen;
   const showLeftToggle = !isNarrow;
   const showRightToggle = !isNarrow;
+
+  // Load layout preferences when workspaceId changes
+  useEffect(() => {
+    const prefs = loadLayoutPrefs(workspaceId);
+    setLeftPanelOpen(prefs.leftPanelOpen);
+    setRightPanelOpen(prefs.rightPanelOpen);
+  }, [workspaceId]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -150,11 +161,11 @@ export const AppLayout = () => {
     };
 
     try {
-      window.localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(prefs));
+      window.localStorage.setItem(getLayoutStorageKey(workspaceId), JSON.stringify(prefs));
     } catch (error) {
       console.warn("Failed to persist layout preferences", error);
     }
-  }, [leftPanelOpen, rightPanelOpen]);
+  }, [leftPanelOpen, rightPanelOpen, workspaceId]);
 
   useEffect(() => {
     void connect();
@@ -231,14 +242,14 @@ export const AppLayout = () => {
     }
 
     try {
-      window.localStorage.removeItem(LAYOUT_STORAGE_KEY);
-      clearDockingLayout();
+      window.localStorage.removeItem(getLayoutStorageKey(workspaceId));
+      clearDockingLayout(workspaceId);
       // Reload to reset docking layout
       window.location.reload();
     } catch (error) {
       console.warn("Failed to clear layout preferences", error);
     }
-  }, []);
+  }, [workspaceId]);
 
   const handleRun = useCallback(async () => {
     if (!client || connectionState !== "connected") {
@@ -285,7 +296,7 @@ export const AppLayout = () => {
           onDocsClick={() => navigate("/docs")}
           onAboutClick={showAbout}
           onResetLayout={handleResetLayout}
-          title="Debugger"
+          currentPage={workspaceId}
           centerSection={
             <Stack direction="row" spacing={1} alignItems="center">
               <Tooltip title="Run">
@@ -398,7 +409,7 @@ export const AppLayout = () => {
               flex: 1,
             }}
           >
-            <DockingLayout panels={workspaceTabs} />
+            <DockingLayout key={workspaceId} panels={workspaceTabs} workspaceId={workspaceId} />
           </Box>
           {showRightToggle && (
             <Box sx={{ display: "flex", alignItems: "center" }}>

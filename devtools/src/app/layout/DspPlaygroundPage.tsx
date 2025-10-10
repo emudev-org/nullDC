@@ -16,8 +16,8 @@ export const DspPlaygroundPage = () => {
           onHomeClick={() => navigate("/")}
           onDocsClick={() => navigate("/docs")}
           onAboutClick={showAbout}
-          title="DSP Playground"
           active="workspace"
+          currentPage="dsp-playground"
         />
       </AppBar>
       <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>

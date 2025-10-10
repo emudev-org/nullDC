@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { type ReactNode } from "react";
 import { AppBar, Box, Container, Stack, Typography } from "@mui/material";
 import { TopNav } from "./TopNav";
 import { AboutDialog } from "./AboutDialog";
@@ -196,8 +196,8 @@ export const DocsPage = () => {
           onHomeClick={() => navigate("/")}
           onDocsClick={() => navigate("/docs")}
           onAboutClick={showAbout}
-          title="Documentation"
           active="docs"
+          currentPage="docs"
         />
       </AppBar>
       <Container maxWidth="lg" component="main" sx={{ py: 6, flex: 1 }}>

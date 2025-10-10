@@ -18,14 +18,16 @@ export type PanelDefinition = {
 type DockingLayoutProps = {
   panels: PanelDefinition[];
   onReady?: (api: DockviewApi) => void;
+  workspaceId?: string;
 };
 
-const DOCKING_LAYOUT_STORAGE_KEY = "nulldc-debugger-docking-layout";
+const getDockingLayoutStorageKey = (workspaceId?: string) =>
+  workspaceId ? `nulldc-debugger-docking-layout-${workspaceId}` : "nulldc-debugger-docking-layout";
 
 // Store panel components in a Map
 const panelComponentsMap = new Map<string, ReactElement>();
 
-export const DockingLayout = ({ panels, onReady }: DockingLayoutProps) => {
+export const DockingLayout = ({ panels, onReady, workspaceId }: DockingLayoutProps) => {
   const apiRef = useRef<DockviewApi | null>(null);
   const { mode } = useThemeMode();
   const isDarkMode = mode === "dark";
@@ -58,7 +60,7 @@ export const DockingLayout = ({ panels, onReady }: DockingLayoutProps) => {
       apiRef.current = event.api;
 
       // Try to load saved layout
-      const savedLayout = loadLayout();
+      const savedLayout = loadLayout(workspaceId);
 
       if (savedLayout) {
         try {
@@ -73,7 +75,7 @@ export const DockingLayout = ({ panels, onReady }: DockingLayoutProps) => {
 
       // Save layout on changes
       const disposable = event.api.onDidLayoutChange(() => {
-        saveLayout(event.api.toJSON());
+        saveLayout(event.api.toJSON(), workspaceId);
       });
 
       // Cleanup
@@ -81,7 +83,7 @@ export const DockingLayout = ({ panels, onReady }: DockingLayoutProps) => {
         disposable.dispose();
       };
     },
-    [panels]
+    [panels, workspaceId]
   );
 
   useEffect(() => {
@@ -145,21 +147,21 @@ function createDefaultLayout(api: DockviewApi, panels: PanelDefinition[]) {
   }
 }
 
-function saveLayout(layout: any) {
+function saveLayout(layout: any, workspaceId?: string) {
   if (typeof window === "undefined") return;
 
   try {
-    window.localStorage.setItem(DOCKING_LAYOUT_STORAGE_KEY, JSON.stringify(layout));
+    window.localStorage.setItem(getDockingLayoutStorageKey(workspaceId), JSON.stringify(layout));
   } catch (error) {
     console.warn("Failed to save docking layout", error);
   }
 }
 
-function loadLayout(): any | null {
+function loadLayout(workspaceId?: string): any | null {
   if (typeof window === "undefined") return null;
 
   try {
-    const raw = window.localStorage.getItem(DOCKING_LAYOUT_STORAGE_KEY);
+    const raw = window.localStorage.getItem(getDockingLayoutStorageKey(workspaceId));
     return raw ? JSON.parse(raw) : null;
   } catch (error) {
     console.warn("Failed to load docking layout", error);
@@ -167,11 +169,11 @@ function loadLayout(): any | null {
   }
 }
 
-export function clearDockingLayout() {
+export function clearDockingLayout(workspaceId?: string) {
   if (typeof window === "undefined") return;
 
   try {
-    window.localStorage.removeItem(DOCKING_LAYOUT_STORAGE_KEY);
+    window.localStorage.removeItem(getDockingLayoutStorageKey(workspaceId));
   } catch (error) {
     console.warn("Failed to clear docking layout", error);
   }

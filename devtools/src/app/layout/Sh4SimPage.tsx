@@ -16,8 +16,8 @@ export const Sh4SimPage = () => {
           onHomeClick={() => navigate("/")}
           onDocsClick={() => navigate("/docs")}
           onAboutClick={showAbout}
-          title="SH4 Simulator"
           active="workspace"
+          currentPage="sh4-sim"
         />
       </AppBar>
       <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>

@@ -16,8 +16,8 @@ export const Clx2CoreLogAnalyzerPage = () => {
           onHomeClick={() => navigate("/")}
           onDocsClick={() => navigate("/docs")}
           onAboutClick={showAbout}
-          title="CLX2/CORE Log Analyzer"
           active="workspace"
+          currentPage="core-log-analyzer"
         />
       </AppBar>
       <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
