@@ -116,11 +116,11 @@ pub fn step(step_num: i32) {
             let mut b = if bsel != 0 {
                 ACC
             } else {
-                let temp_val = get_temp(((tra + MDEC_CT) & 0x7F) as usize) << 2;
+                let temp_val = get_temp((tra.wrapping_add(MDEC_CT) & 0x7F) as usize) << 2;
                 (temp_val << 6) >> 6 // Sign extend to 26 bits
             };
             if negb != 0 {
-                b = -b;
+                b = b.wrapping_neg();
             }
             b
         } else {
@@ -131,7 +131,7 @@ pub fn step(step_num: i32) {
         X = if xsel != 0 {
             INPUTS
         } else {
-            let temp_val = get_temp(((tra + MDEC_CT) & 0x7F) as usize);
+            let temp_val = get_temp((tra.wrapping_add(MDEC_CT) & 0x7F) as usize);
             (temp_val << 8) >> 8 // Sign extend
         };
 
@@ -182,15 +182,15 @@ pub fn step(step_num: i32) {
         };
 
         // ACCUM
-        let y_signed = (Y << 19) >> 19; // Sign extend 13 bits
-        let v = ((X as i64) * (y_signed as i64)) >> 10;
+        Y = (Y << 19) >> 19; // Sign extend 13 bits
+        let v = (((X as i64) * (Y as i64)) >> 10) as i32;
         let v_26bit = ((v << 6) >> 6) as i32; // Keep only 26 bits
-        ACC = v_26bit + B;
+        ACC = v_26bit.wrapping_add(B);
         ACC = (ACC << 6) >> 6; // Keep only 26 bits
 
         // Write to TEMP
         if twt != 0 {
-            set_temp(((twa + MDEC_CT) & 0x7F) as usize, SHIFTED);
+            set_temp((twa.wrapping_add(MDEC_CT) & 0x7F) as usize, SHIFTED);
         }
 
         // FRC_REG
@@ -272,7 +272,7 @@ pub fn step(step_num: i32) {
         // EFREG
         if ewt != 0 {
             let ewa_idx = ((iptr[2] >> 8) & 0x0F) as usize;
-            dsp.efreg[ewa_idx] = (dsp.efreg[ewa_idx] as i32 + (SHIFTED >> 4)) as u32;
+            dsp.efreg[ewa_idx] = dsp.efreg[ewa_idx].wrapping_add((SHIFTED >> 4) as u32);
         }
     }
 }

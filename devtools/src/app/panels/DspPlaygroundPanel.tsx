@@ -901,39 +901,39 @@ export const DspPlaygroundPanel = () => {
       updateRegister(name, regs[i], i === 0 ? 10 : i >= 4 && i <= 7 ? 24 : 32);
     });
 
-    // Update TEMP registers (128 registers, 16-bit)
+    // Update TEMP registers (128 registers, 24-bit)
     for (let i = 0; i < 128; i++) {
-      updateRegister(`TEMP[${i}]`, aicaDsp.readReg(0x3000 + 0x000 + i * 2), 16);
+      updateRegister(`TEMP[${i}]`, aicaDsp.readReg(0x3000 + 0x1000 + i * 8), 24);
     }
 
     // Update COEF registers (128 registers, 16-bit)
     for (let i = 0; i < 128; i++) {
-      updateRegister(`COEF[${i}]`, aicaDsp.readReg(0x3000 + 0x200 + i * 2), 16);
+      updateRegister(`COEF[${i}]`, aicaDsp.readReg(0x3000 + 0x000 + i * 4), 16);
     }
 
     // Update MADRS registers (64 registers, 16-bit)
     for (let i = 0; i < 64; i++) {
-      updateRegister(`MADRS[${i}]`, aicaDsp.readReg(0x3000 + 0x400 + i * 16), 16);
+      updateRegister(`MADRS[${i}]`, aicaDsp.readReg(0x3000 + 0x200 + i * 4), 16);
     }
 
     // Update MEMS registers (32 registers, 24-bit)
     for (let i = 0; i < 32; i++) {
-      updateRegister(`MEMS[${i}]`, aicaDsp.readReg(0x3000 + 0xE00 + i * 8), 24);
+      updateRegister(`MEMS[${i}]`, aicaDsp.readReg(0x3000 + 0x1400 + i * 8), 24);
     }
 
     // Update MIXS registers (16 registers, 20-bit)
     for (let i = 0; i < 16; i++) {
-      updateRegister(`MIXS[${i}]`, aicaDsp.readReg(0x3000 + 0x1400 + i * 4), 20);
+      updateRegister(`MIXS[${i}]`, aicaDsp.readReg(0x3000 + 0x1500 + i * 8), 20);
     }
 
     // Update EFREG registers (16 registers, 32-bit)
     for (let i = 0; i < 16; i++) {
-      updateRegister(`EFREG[${i}]`, aicaDsp.readReg(0x3000 + 0x1600 + i * 4), 32);
+      updateRegister(`EFREG[${i}]`, aicaDsp.readReg(0x3000 + 0x1580 + i * 4), 32);
     }
 
     // Update EXTS registers (2 registers, 16-bit)
     for (let i = 0; i < 2; i++) {
-      updateRegister(`EXTS[${i}]`, aicaDsp.readReg(0x3000 + 0x1700 + i * 2), 16);
+      updateRegister(`EXTS[${i}]`, aicaDsp.readReg(0x3000 + 0x15C0 + i * 4), 16);
     }
   }, [wasmInitialized, audioPlaying, audioPaused, currentDspStep, currentSample]);
 
