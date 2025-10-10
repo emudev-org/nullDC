@@ -286,6 +286,46 @@ export const AppLayout = () => {
           onAboutClick={showAbout}
           onResetLayout={handleResetLayout}
           title="Debugger"
+          centerSection={
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Tooltip title="Run">
+                <span>
+                  <IconButton
+                    size="small"
+                    color={connectionState === "connected" && executionState === "paused" ? "success" : "default"}
+                    disabled={connectionState !== "connected" || executionState === "running"}
+                    onClick={handleRun}
+                  >
+                    <PlayArrowIcon />
+                  </IconButton>
+                </span>
+              </Tooltip>
+              <Tooltip title="Pause">
+                <span>
+                  <IconButton
+                    size="small"
+                    color={connectionState === "connected" && executionState === "running" ? "warning" : "default"}
+                    disabled={connectionState !== "connected" || executionState === "paused"}
+                    onClick={handlePause}
+                  >
+                    <PauseIcon />
+                  </IconButton>
+                </span>
+              </Tooltip>
+              <Tooltip title="Run to next breakpoint">
+                <span>
+                  <IconButton
+                    size="small"
+                    color={connectionState === "connected" && executionState === "paused" ? "primary" : "default"}
+                    disabled={connectionState !== "connected" || executionState === "running"}
+                    onClick={handleRunToBreakpoint}
+                  >
+                    <SkipNextIcon />
+                  </IconButton>
+                </span>
+              </Tooltip>
+            </Stack>
+          }
           rightSection={
             <Stack direction="row" spacing={1.5} alignItems="center">
               <Stack direction="row" spacing={0.5} alignItems="center">
@@ -327,48 +367,6 @@ export const AppLayout = () => {
         </Alert>
       )}
       <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-        <Box sx={{ px: 1, pt: 1, pb: 0.5 }}>
-          <Box sx={{ display: "flex", justifyContent: "center", mb: 0.5 }}>
-            <Stack direction="row" spacing={1} alignItems="center">
-              <Tooltip title="Run">
-                <span>
-                  <IconButton
-                    size="small"
-                    color={connectionState === "connected" && executionState === "paused" ? "success" : "default"}
-                    disabled={connectionState !== "connected" || executionState === "running"}
-                    onClick={handleRun}
-                  >
-                    <PlayArrowIcon />
-                  </IconButton>
-                </span>
-              </Tooltip>
-              <Tooltip title="Pause">
-                <span>
-                  <IconButton
-                    size="small"
-                    color={connectionState === "connected" && executionState === "running" ? "warning" : "default"}
-                    disabled={connectionState !== "connected" || executionState === "paused"}
-                    onClick={handlePause}
-                  >
-                    <PauseIcon />
-                  </IconButton>
-                </span>
-              </Tooltip>
-              <Tooltip title="Run to next breakpoint">
-                <span>
-                  <IconButton
-                    size="small"
-                    color={connectionState === "connected" && executionState === "paused" ? "primary" : "default"}
-                    disabled={connectionState !== "connected" || executionState === "running"}
-                    onClick={handleRunToBreakpoint}
-                  >
-                    <SkipNextIcon />
-                  </IconButton>
-                </span>
-              </Tooltip>
-            </Stack>
-          </Box>
-        </Box>
         <Box
           sx={{
             flex: 1,

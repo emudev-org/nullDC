@@ -7,6 +7,7 @@ interface TopNavProps {
   onAboutClick: () => void;
   onResetLayout?: () => void;
   rightSection?: ReactNode;
+  centerSection?: ReactNode;
   active?: "home" | "docs" | "workspace";
   title?: string;
 }
@@ -17,6 +18,7 @@ export const TopNav = ({
   onAboutClick,
   onResetLayout,
   rightSection,
+  centerSection,
   active,
   title = "nullDC DevTools",
 }: TopNavProps) => {
@@ -24,7 +26,7 @@ export const TopNav = ({
   const docsVariant = active === "docs" ? "contained" : "text";
 
   return (
-    <Toolbar sx={{ gap: 2 }}>
+    <Toolbar sx={{ gap: 2, position: "relative" }}>
       <Stack direction="row" spacing={1.5} alignItems="center" sx={{ flexShrink: 0 }}>
         <Typography variant="h6">{title}</Typography>
         <Divider orientation="vertical" flexItem />
@@ -43,6 +45,11 @@ export const TopNav = ({
           </Button>
         )}
       </Stack>
+      {centerSection && (
+        <Box sx={{ position: "absolute", left: "50%", transform: "translateX(-50%)" }}>
+          {centerSection}
+        </Box>
+      )}
       <Box sx={{ flexGrow: 1 }} />
       {rightSection}
     </Toolbar>
