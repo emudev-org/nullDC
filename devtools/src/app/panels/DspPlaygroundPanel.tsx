@@ -28,6 +28,8 @@ import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import ZoomInIcon from "@mui/icons-material/ZoomIn";
+import FullscreenIcon from "@mui/icons-material/Fullscreen";
+import FullscreenExitIcon from "@mui/icons-material/FullscreenExit";
 import { deflate, inflate } from "pako";
 import { Panel } from "../layout/Panel";
 import { DspAssemblyEditor } from "../components/DspAssemblyEditor";
@@ -241,8 +243,9 @@ export const DspPlaygroundPanel = () => {
   const editorContainerRef = useRef<HTMLDivElement | null>(null);
   const editorInnerContainerRef = useRef<HTMLDivElement | null>(null);
   const dspSectionRef = useRef<HTMLDivElement | null>(null);
-  const editorFullscreenRef = useRef(false);
-  const editorToggleButtonRef = useRef<HTMLButtonElement | null>(null);
+  const editorFocusModeRef = useRef(false);
+  const [editorFocusMode, setEditorFocusMode] = useState(false);
+  const editorFocusButtonRef = useRef<HTMLButtonElement | null>(null);
   const inputPlotterRefs = useRef<Array<WaveformPlotterRef | null>>(
     Array(16).fill(null)
   );
@@ -1075,13 +1078,34 @@ export const DspPlaygroundPanel = () => {
     updateOutputVisualStates();
   }, [updateOutputVisualStates]);
 
-  const handleEditorFullscreenToggle = useCallback(() => {
-    editorFullscreenRef.current = !editorFullscreenRef.current;
-    const isFullscreen = editorFullscreenRef.current;
+  const handleEditorFocusToggle = useCallback(async () => {
+    const newFocusMode = !editorFocusModeRef.current;
+    editorFocusModeRef.current = newFocusMode;
+    setEditorFocusMode(newFocusMode);
+
+    if (newFocusMode) {
+      // Enter fullscreen
+      try {
+        if (editorContainerRef.current) {
+          await editorContainerRef.current.requestFullscreen();
+        }
+      } catch (err) {
+        console.error('Failed to enter fullscreen:', err);
+      }
+    } else {
+      // Exit fullscreen
+      try {
+        if (document.fullscreenElement) {
+          await document.exitFullscreen();
+        }
+      } catch (err) {
+        console.error('Failed to exit fullscreen:', err);
+      }
+    }
 
     // Toggle CSS on containers
     if (editorContainerRef.current) {
-      if (isFullscreen) {
+      if (newFocusMode) {
         editorContainerRef.current.style.flex = '1';
         editorContainerRef.current.style.minHeight = '0';
       } else {
@@ -1091,7 +1115,7 @@ export const DspPlaygroundPanel = () => {
     }
 
     if (editorInnerContainerRef.current) {
-      if (isFullscreen) {
+      if (newFocusMode) {
         editorInnerContainerRef.current.style.flex = '1';
         editorInnerContainerRef.current.style.minHeight = '0';
         editorInnerContainerRef.current.style.height = '100%';
@@ -1103,19 +1127,7 @@ export const DspPlaygroundPanel = () => {
     }
 
     if (dspSectionRef.current) {
-      dspSectionRef.current.style.display = isFullscreen ? 'none' : 'flex';
-    }
-
-    // Toggle button icon
-    if (editorToggleButtonRef.current) {
-      const icon = editorToggleButtonRef.current.querySelector('svg');
-      if (icon) {
-        if (isFullscreen) {
-          icon.innerHTML = '<path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"></path>';
-        } else {
-          icon.innerHTML = '<path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"></path>';
-        }
-      }
+      dspSectionRef.current.style.display = newFocusMode ? 'none' : 'flex';
     }
 
     // Trigger editor layout after DOM updates
@@ -1921,23 +1933,25 @@ export const DspPlaygroundPanel = () => {
           {/* Source Header */}
           <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 2 }}>
             <Typography variant="h6">Source</Typography>
-            <IconButton
-              size="small"
-              onClick={(e) => {
-                sourceExpandedRef.current = !sourceExpandedRef.current;
-                if (sourceContainerRef.current) {
-                  sourceContainerRef.current.style.display = sourceExpandedRef.current ? 'block' : 'none';
-                }
-                const btn = e.currentTarget;
-                btn.style.transform = sourceExpandedRef.current ? 'rotate(180deg)' : 'rotate(0deg)';
-              }}
-              sx={{
-                transform: 'rotate(180deg)',
-                transition: 'transform 0.2s',
-              }}
-            >
-              <KeyboardArrowDownIcon />
-            </IconButton>
+            <Tooltip title="Collapse/Expand section">
+              <IconButton
+                size="small"
+                onClick={(e) => {
+                  sourceExpandedRef.current = !sourceExpandedRef.current;
+                  if (sourceContainerRef.current) {
+                    sourceContainerRef.current.style.display = sourceExpandedRef.current ? 'block' : 'none';
+                  }
+                  const btn = e.currentTarget;
+                  btn.style.transform = sourceExpandedRef.current ? 'rotate(180deg)' : 'rotate(0deg)';
+                }}
+                sx={{
+                  transform: 'rotate(180deg)',
+                  transition: 'transform 0.2s',
+                }}
+              >
+                <KeyboardArrowDownIcon />
+              </IconButton>
+            </Tooltip>
           </Box>
 
           <Box ref={sourceContainerRef}>
@@ -2000,23 +2014,25 @@ export const DspPlaygroundPanel = () => {
                     />
                   )}
                 </Box>
-                <IconButton
-                  ref={editorToggleButtonRef}
-                  size="small"
-                  onClick={handleEditorFullscreenToggle}
-                  sx={{
-                    mt: 1,
-                    backgroundColor: 'background.paper',
-                    opacity: 0.7,
-                    flexShrink: 0,
-                    '&:hover': {
-                      opacity: 1,
+                <Tooltip title="Enter/Exit focus mode">
+                  <IconButton
+                    ref={editorFocusButtonRef}
+                    size="small"
+                    onClick={handleEditorFocusToggle}
+                    sx={{
+                      mt: 1,
                       backgroundColor: 'background.paper',
-                    },
-                  }}
-                >
-                  <KeyboardArrowDownIcon />
-                </IconButton>
+                      opacity: 0.7,
+                      flexShrink: 0,
+                      '&:hover': {
+                        opacity: 1,
+                        backgroundColor: 'background.paper',
+                      },
+                    }}
+                  >
+                    {editorFocusMode ? <FullscreenExitIcon /> : <FullscreenIcon />}
+                  </IconButton>
+                </Tooltip>
               </Box>
           </Box>
         </Box>
@@ -2026,23 +2042,25 @@ export const DspPlaygroundPanel = () => {
           {/* Debugger Header */}
           <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 2 }}>
             <Typography variant="h6">Debugger</Typography>
-            <IconButton
-              size="small"
-              onClick={(e) => {
-                debuggerExpandedRef.current = !debuggerExpandedRef.current;
-                if (debuggerContainerRef.current) {
-                  debuggerContainerRef.current.style.display = debuggerExpandedRef.current ? 'block' : 'none';
-                }
-                const btn = e.currentTarget;
-                btn.style.transform = debuggerExpandedRef.current ? 'rotate(180deg)' : 'rotate(0deg)';
-              }}
-              sx={{
-                transform: 'rotate(0deg)',
-                transition: 'transform 0.2s',
-              }}
-            >
-              <KeyboardArrowDownIcon />
-            </IconButton>
+            <Tooltip title="Collapse/Expand section">
+              <IconButton
+                size="small"
+                onClick={(e) => {
+                  debuggerExpandedRef.current = !debuggerExpandedRef.current;
+                  if (debuggerContainerRef.current) {
+                    debuggerContainerRef.current.style.display = debuggerExpandedRef.current ? 'block' : 'none';
+                  }
+                  const btn = e.currentTarget;
+                  btn.style.transform = debuggerExpandedRef.current ? 'rotate(180deg)' : 'rotate(0deg)';
+                }}
+                sx={{
+                  transform: 'rotate(0deg)',
+                  transition: 'transform 0.2s',
+                }}
+              >
+                <KeyboardArrowDownIcon />
+              </IconButton>
+            </Tooltip>
           </Box>
 
           <Box ref={debuggerContainerRef} sx={{ display: 'none' }}>
@@ -2217,23 +2235,25 @@ export const DspPlaygroundPanel = () => {
           {/* Waveforms Header */}
           <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 2 }}>
             <Typography variant="h6">Waveforms</Typography>
-            <IconButton
-              size="small"
-              onClick={(e) => {
-                waveformsExpandedRef.current = !waveformsExpandedRef.current;
-                if (waveformsContainerRef.current) {
-                  waveformsContainerRef.current.style.display = waveformsExpandedRef.current ? 'block' : 'none';
-                }
-                const btn = e.currentTarget;
-                btn.style.transform = waveformsExpandedRef.current ? 'rotate(180deg)' : 'rotate(0deg)';
-              }}
-              sx={{
-                transform: 'rotate(180deg)',
-                transition: 'transform 0.2s',
-              }}
-            >
-              <KeyboardArrowDownIcon />
-            </IconButton>
+            <Tooltip title="Collapse/Expand section">
+              <IconButton
+                size="small"
+                onClick={(e) => {
+                  waveformsExpandedRef.current = !waveformsExpandedRef.current;
+                  if (waveformsContainerRef.current) {
+                    waveformsContainerRef.current.style.display = waveformsExpandedRef.current ? 'block' : 'none';
+                  }
+                  const btn = e.currentTarget;
+                  btn.style.transform = waveformsExpandedRef.current ? 'rotate(180deg)' : 'rotate(0deg)';
+                }}
+                sx={{
+                  transform: 'rotate(180deg)',
+                  transition: 'transform 0.2s',
+                }}
+              >
+                <KeyboardArrowDownIcon />
+              </IconButton>
+            </Tooltip>
           </Box>
 
           <Box ref={waveformsContainerRef}>
@@ -2511,23 +2531,25 @@ export const DspPlaygroundPanel = () => {
           {/* Audio File Sources Header */}
           <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 2 }}>
             <Typography variant="h6">Audio File Sources</Typography>
-            <IconButton
-              size="small"
-              onClick={(e) => {
-                audioFilesExpandedRef.current = !audioFilesExpandedRef.current;
-                if (audioFilesContainerRef.current) {
-                  audioFilesContainerRef.current.style.display = audioFilesExpandedRef.current ? 'block' : 'none';
-                }
-                const btn = e.currentTarget;
-                btn.style.transform = audioFilesExpandedRef.current ? 'rotate(180deg)' : 'rotate(0deg)';
-              }}
-              sx={{
-                transform: 'rotate(180deg)',
-                transition: 'transform 0.2s',
-              }}
-            >
-              <KeyboardArrowDownIcon />
-            </IconButton>
+            <Tooltip title="Collapse/Expand section">
+              <IconButton
+                size="small"
+                onClick={(e) => {
+                  audioFilesExpandedRef.current = !audioFilesExpandedRef.current;
+                  if (audioFilesContainerRef.current) {
+                    audioFilesContainerRef.current.style.display = audioFilesExpandedRef.current ? 'block' : 'none';
+                  }
+                  const btn = e.currentTarget;
+                  btn.style.transform = audioFilesExpandedRef.current ? 'rotate(180deg)' : 'rotate(0deg)';
+                }}
+                sx={{
+                  transform: 'rotate(180deg)',
+                  transition: 'transform 0.2s',
+                }}
+              >
+                <KeyboardArrowDownIcon />
+              </IconButton>
+            </Tooltip>
           </Box>
 
           <Box ref={audioFilesContainerRef}>
