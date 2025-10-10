@@ -21,16 +21,6 @@ export const HomePage = () => {
         action: () => navigate("/arm7-disassembly"),
       },
       {
-        title: "Analyze TA Logs",
-        description: "Review tile accelerator primitives and generated CORE lists to diagnose frame submission issues.",
-        action: () => navigate("/ta"),
-      },
-      {
-        title: "Analyze CORE Logs",
-        description: "Inspect PowerVR CORE primitives, buffers and state changes in a frame to diagnose frame rendering artifacts.",
-        action: () => navigate("/core"),
-      },
-      {
         title: "Debug AICA",
         description: "Monitor AICA channels and waveforms to diagnose audio paths.",
         action: () => navigate("/aica"),
@@ -50,6 +40,16 @@ export const HomePage = () => {
         title: "SH4 Simulator",
         description: "Experiment with scheduling patterns and visualize pipeline hazards.",
         action: () => navigate("/sh4-sim"),
+      },
+      {
+        title: "CLX2/TA Log Analyzer",
+        description: "Review tile accelerator primitives and generated CORE lists to diagnose frame submission issues.",
+        action: () => navigate("/clx2-ta-log-analyzer"),
+      },
+      {
+        title: "CLX2/CORE Log Analyzer",
+        description: "Inspect PowerVR CORE primitives, buffers and state changes in a frame to diagnose frame rendering artifacts.",
+        action: () => navigate("/clx2-core-log-analyzer"),
       },
       {
         title: "DSP Playground",

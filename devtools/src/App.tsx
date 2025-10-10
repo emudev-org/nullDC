@@ -2,6 +2,8 @@
 import { HomePage } from "./app/layout/HomePage";
 import { DocsPage } from "./app/layout/DocsPage";
 import { Sh4SimPage } from "./app/layout/Sh4SimPage";
+import { Clx2TaLogAnalyzerPage } from "./app/layout/Clx2TaLogAnalyzerPage";
+import { Clx2CoreLogAnalyzerPage } from "./app/layout/Clx2CoreLogAnalyzerPage";
 import { DspPlaygroundPage } from "./app/layout/DspPlaygroundPage";
 import { HashRouter, Routes, Route, Navigate } from "react-router-dom";
 
@@ -11,6 +13,8 @@ const App = () => {
       <Routes>
         <Route path="/" element={<HomePage />} />
         <Route path="/sh4-sim" element={<Sh4SimPage />} />
+        <Route path="/clx2-ta-log-analyzer" element={<Clx2TaLogAnalyzerPage />} />
+        <Route path="/clx2-core-log-analyzer" element={<Clx2CoreLogAnalyzerPage />} />
         <Route path="/dsp-playground/*" element={<DspPlaygroundPage />} />
         <Route path="/docs" element={<DocsPage />} />
         <Route path="/:tab" element={<AppLayout />} />
