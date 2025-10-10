@@ -1,5 +1,5 @@
-﻿import { useEffect, useCallback, useMemo, useState, useRef } from "react";
-import { AppBar, Box, Button, Divider, IconButton, Stack, Switch, Tab, Tabs, Tooltip, Typography, Alert } from "@mui/material";
+﻿import { useEffect, useCallback, useMemo, useState } from "react";
+import { AppBar, Box, Button, Divider, IconButton, Stack, Switch, Tooltip, Typography, Alert } from "@mui/material";
 import PowerSettingsNewIcon from "@mui/icons-material/PowerSettingsNew";
 import CloudDoneIcon from "@mui/icons-material/CloudDone";
 import CloudOffIcon from "@mui/icons-material/CloudOff";
@@ -23,12 +23,13 @@ import { AudioPanel } from "../panels/AudioPanel";
 import { TaInspectorPanel } from "../panels/TaInspectorPanel";
 import { CoreInspectorPanel } from "../panels/CoreInspectorPanel";
 import { EventsBreakpointsPanel, Sh4BreakpointsPanel, Arm7BreakpointsPanel, DspBreakpointsPanel } from "../panels/BreakpointsPanel";
-import { useNavigate, useParams, Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { AboutDialog } from "./AboutDialog";
 import { useAboutModal } from "./useAboutModal";
 import { TopNav } from "./TopNav";
 import { useThemeMode } from "../../theme/ThemeModeProvider";
 import { DEBUGGER_VERSION } from "./aboutVersion";
+import { DockingLayout, clearDockingLayout, type PanelDefinition } from "./DockingLayout";
 
 const LAYOUT_STORAGE_KEY = "nulldc-debugger-layout";
 
@@ -63,27 +64,27 @@ const loadLayoutPrefs = (): StoredLayoutPrefs => {
   }
 };
 
-const mainTabs = [
-  { value: "events", label: "Events: Log", component: <EventLogPanel /> },
-  { value: "events-breakpoints", label: "Events: Breakpoints", component: <EventsBreakpointsPanel /> },
-  { value: "sh4-disassembly", label: "SH4: Disassembly", component: <Sh4DisassemblyPanel /> },
-  { value: "sh4-memory", label: "SH4: Memory", component: <Sh4MemoryPanel /> },
-  { value: "sh4-breakpoints", label: "SH4: Breakpoints", component: <Sh4BreakpointsPanel /> },
-  { value: "arm7-disassembly", label: "ARM7: Disassembly", component: <Arm7DisassemblyPanel /> },
-  { value: "arm7-memory", label: "ARM7: Memory", component: <Arm7MemoryPanel /> },
-  { value: "arm7-breakpoints", label: "ARM7: Breakpoints", component: <Arm7BreakpointsPanel /> },
-  { value: "ta", label: "TA", component: <TaInspectorPanel /> },
-  { value: "core", label: "CORE", component: <CoreInspectorPanel /> },
-  { value: "aica", label: "AICA", component: <AudioPanel /> },
-  { value: "dsp-disassembly", label: "DSP: Disassembly", component: <DspDisassemblyPanel /> },
-  { value: "dsp-breakpoints", label: "DSP: Breakpoints", component: <DspBreakpointsPanel /> },
+const mainTabs: PanelDefinition[] = [
+  { id: "events", title: "Events: Log", component: <EventLogPanel /> },
+  { id: "events-breakpoints", title: "Events: Breakpoints", component: <EventsBreakpointsPanel /> },
+  { id: "sh4-disassembly", title: "SH4: Disassembly", component: <Sh4DisassemblyPanel /> },
+  { id: "sh4-memory", title: "SH4: Memory", component: <Sh4MemoryPanel /> },
+  { id: "sh4-breakpoints", title: "SH4: Breakpoints", component: <Sh4BreakpointsPanel /> },
+  { id: "arm7-disassembly", title: "ARM7: Disassembly", component: <Arm7DisassemblyPanel /> },
+  { id: "arm7-memory", title: "ARM7: Memory", component: <Arm7MemoryPanel /> },
+  { id: "arm7-breakpoints", title: "ARM7: Breakpoints", component: <Arm7BreakpointsPanel /> },
+  { id: "ta", title: "TA", component: <TaInspectorPanel /> },
+  { id: "core", title: "CORE", component: <CoreInspectorPanel /> },
+  { id: "aica", title: "AICA", component: <AudioPanel /> },
+  { id: "dsp-disassembly", title: "DSP: Disassembly", component: <DspDisassemblyPanel /> },
+  { id: "dsp-breakpoints", title: "DSP: Breakpoints", component: <DspBreakpointsPanel /> },
 ];
 
-const sidePanelTabs = [
-  { value: "device-tree", label: "Device Tree", component: <DeviceTreePanel /> },
-  { value: "watches", label: "Watches", component: <WatchesPanel /> },
-  { value: "sh4-callstack", label: "SH4: Callstack", component: <CallstackPanel target="sh4" showTitle={false} /> },
-  { value: "arm7-callstack", label: "ARM7: Callstack", component: <CallstackPanel target="arm7" showTitle={false} /> },
+const sidePanelTabs: PanelDefinition[] = [
+  { id: "device-tree", title: "Device Tree", component: <DeviceTreePanel /> },
+  { id: "watches", title: "Watches", component: <WatchesPanel /> },
+  { id: "sh4-callstack", title: "SH4: Callstack", component: <CallstackPanel target="sh4" showTitle={false} /> },
+  { id: "arm7-callstack", title: "ARM7: Callstack", component: <CallstackPanel target="arm7" showTitle={false} /> },
 ];
 
 const connectionIcons = {
@@ -113,11 +114,9 @@ export const AppLayout = () => {
   const errorMessage = useDebuggerDataStore((state) => state.errorMessage);
   const clearError = useDebuggerDataStore((state) => state.clearError);
   const navigate = useNavigate();
-  const { tab } = useParams();
   const [leftPanelOpen, setLeftPanelOpen] = useState(() => loadLayoutPrefs().leftPanelOpen);
   const [rightPanelOpen, setRightPanelOpen] = useState(() => loadLayoutPrefs().rightPanelOpen);
   const [isNarrow, setIsNarrow] = useState(window.innerWidth < 1200);
-  const tabsContainerRef = useRef<HTMLDivElement | null>(null);
   const { open: aboutOpen, show: showAbout, hide: hideAbout } = useAboutModal();
   const { mode, toggleMode } = useThemeMode();
   const isDarkMode = mode === "dark";
@@ -127,8 +126,6 @@ export const AppLayout = () => {
     return isNarrow ? [...mainTabs, ...sidePanelTabs] : mainTabs;
   }, [isNarrow]);
 
-  const validValues = useMemo(() => new Set(workspaceTabs.map(t => t.value)), [workspaceTabs]);
-  const currentTab = validValues.has(tab ?? "") ? (tab as string) : workspaceTabs[0].value;
   const showLeftPanel = !isNarrow && leftPanelOpen;
   const showRightPanel = !isNarrow && rightPanelOpen;
   const showLeftToggle = !isNarrow;
@@ -212,29 +209,6 @@ export const AppLayout = () => {
     }
   }, [breakpointHit]);
 
-  useEffect(() => {
-    const container = tabsContainerRef.current;
-    if (!container) {
-      return;
-    }
-    const scroller = container.querySelector<HTMLElement>(".MuiTabs-scroller");
-    if (!scroller) {
-      return;
-    }
-
-    const handleWheel = (event: WheelEvent) => {
-      if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) {
-        return;
-      }
-      event.preventDefault();
-      scroller.scrollLeft -= event.deltaY;
-    };
-
-    scroller.addEventListener("wheel", handleWheel, { passive: false });
-    return () => {
-      scroller.removeEventListener("wheel", handleWheel);
-    };
-  }, [workspaceTabs, isNarrow]);
 
   const handleToggleConnection = useCallback(() => {
     if (connectionState === "connected") {
@@ -258,6 +232,9 @@ export const AppLayout = () => {
 
     try {
       window.localStorage.removeItem(LAYOUT_STORAGE_KEY);
+      clearDockingLayout();
+      // Reload to reset docking layout
+      window.location.reload();
     } catch (error) {
       console.warn("Failed to clear layout preferences", error);
     }
@@ -391,23 +368,6 @@ export const AppLayout = () => {
               </Tooltip>
             </Stack>
           </Box>
-          <Tabs
-            value={currentTab}
-            variant="scrollable"
-            scrollButtons
-            ref={tabsContainerRef}
-            sx={{ border: "1px solid", borderColor: "divider", borderRadius: 1 }}
-          >
-            {workspaceTabs.map((tab) => (
-              <Tab
-                key={tab.value}
-                value={tab.value}
-                label={tab.label}
-                component={Link}
-                to={`/${tab.value}`}
-              />
-            ))}
-          </Tabs>
         </Box>
         <Box
           sx={{
@@ -437,38 +397,10 @@ export const AppLayout = () => {
             sx={{
               minHeight: 0,
               minWidth: 0,
-              display: "flex",
-              flexDirection: "column",
-              gap: 1,
               flex: 1,
-              borderRadius: 1,
-              border: "1px solid",
-              borderColor: "divider",
             }}
           >
-            <Box sx={{ flex: 1, minHeight: 0, p: 1.5, display: "flex" }}>
-              {workspaceTabs.map((tab) => (
-                <Box
-                  key={tab.value}
-                  role="tabpanel"
-                  hidden={currentTab !== tab.value}
-                  sx={{
-                    height: "100%",
-                    minHeight: 0,
-                    flex: 1,
-                    display: currentTab === tab.value ? "flex" : "none",
-                    flexDirection: "column",
-                    minWidth: "0px", maxWidth: "100%"
-                  }}
-                >
-                  {currentTab === tab.value && (
-                    <Box sx={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
-                      {tab.component}
-                    </Box>
-                  )}
-                </Box>
-              ))}
-            </Box>
+            <DockingLayout panels={workspaceTabs} />
           </Box>
           {showRightToggle && (
             <Box sx={{ display: "flex", alignItems: "center" }}>
