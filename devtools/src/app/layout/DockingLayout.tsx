@@ -4,6 +4,7 @@ import {
   type DockviewReadyEvent,
   type IDockviewPanelProps,
   type DockviewApi,
+  type IDockviewHeaderActionsProps,
 } from "dockview";
 import { Box, IconButton, Tooltip } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
@@ -39,6 +40,7 @@ export const DockingLayout = ({ panels, allPanels, onReady, workspaceId, default
   const isDarkMode = mode === "dark";
   const [modalOpen, setModalOpen] = useState(false);
   const [existingPanelIds, setExistingPanelIds] = useState<string[]>([]);
+  const [targetGroupId, setTargetGroupId] = useState<string | null>(null);
 
   // Use allPanels if provided, otherwise use panels
   const availablePanels = allPanels || panels;
@@ -221,17 +223,69 @@ export const DockingLayout = ({ panels, allPanels, onReady, workspaceId, default
       return;
     }
 
-    // Add the panel
-    apiRef.current.addPanel({
-      id: panelId,
-      component: panelId,
-      title: panelDef.title,
-    });
-  }, []);
+    // Add the panel to the target group if specified, otherwise add to the active group
+    if (targetGroupId) {
+      const targetGroup = apiRef.current.groups.find(g => g.id === targetGroupId);
+      if (targetGroup) {
+        apiRef.current.addPanel({
+          id: panelId,
+          component: panelId,
+          title: panelDef.title,
+          position: {
+            referenceGroup: targetGroup,
+            direction: 'within',
+          },
+        });
+      } else {
+        // Fallback if group not found
+        apiRef.current.addPanel({
+          id: panelId,
+          component: panelId,
+          title: panelDef.title,
+        });
+      }
+    } else {
+      // Add the panel to the active group or create a new group
+      apiRef.current.addPanel({
+        id: panelId,
+        component: panelId,
+        title: panelDef.title,
+      });
+    }
+  }, [targetGroupId]);
 
-  const handleOpenModal = useCallback(() => {
+  const handleOpenModal = useCallback((groupId?: string) => {
+    setTargetGroupId(groupId || null);
     setModalOpen(true);
   }, []);
+
+  // Custom header actions component that shows the "+" button for each group
+  const RightHeaderActionsComponent: FunctionComponent<IDockviewHeaderActionsProps> = useCallback(
+    ({ api }) => {
+      const groupId = api.id;
+      return (
+        <Tooltip title="Add Panel">
+          <IconButton
+            onClick={() => handleOpenModal(groupId)}
+            size="small"
+            sx={{
+              height: "100%",
+              borderRadius: 0,
+              padding: "0 8px",
+              marginRight: "4px",
+              color: isDarkMode ? "#cccccc" : "#333333",
+              "&:hover": {
+                backgroundColor: isDarkMode ? "rgba(255, 255, 255, 0.1)" : "rgba(0, 0, 0, 0.05)",
+              },
+            }}
+          >
+            <AddIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      );
+    },
+    [isDarkMode, handleOpenModal]
+  );
 
   return (
     <>
@@ -261,31 +315,8 @@ export const DockingLayout = ({ panels, allPanels, onReady, workspaceId, default
           onReady={onDockviewReady}
           className="dockview-theme"
           disableDnd={false}
+          rightHeaderActionsComponent={RightHeaderActionsComponent}
         />
-
-        {/* Floating Add Panel Button */}
-        <Tooltip title="Add Panel">
-          <IconButton
-            onClick={handleOpenModal}
-            size="small"
-            sx={{
-              position: "absolute",
-              bottom: 8,
-              right: 8,
-              zIndex: 1000,
-              backgroundColor: isDarkMode ? "rgba(45, 45, 48, 0.9)" : "rgba(243, 243, 243, 0.9)",
-              border: `1px solid ${isDarkMode ? "#3e3e42" : "#e0e0e0"}`,
-              boxShadow: isDarkMode
-                ? "0 2px 8px rgba(0, 0, 0, 0.5)"
-                : "0 2px 8px rgba(0, 0, 0, 0.15)",
-              "&:hover": {
-                backgroundColor: isDarkMode ? "rgba(62, 62, 66, 0.95)" : "rgba(224, 224, 224, 0.95)",
-              },
-            }}
-          >
-            <AddIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
       </Box>
 
       {/* Panel Selection Modal */}
