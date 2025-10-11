@@ -280,6 +280,27 @@ export const DspPlaygroundPanel = () => {
           editorContainerRef.current.style.flex = '';
           editorContainerRef.current.style.minHeight = '';
         }
+
+        if (editorInnerContainerRef.current) {
+          editorInnerContainerRef.current.style.flex = '';
+          editorInnerContainerRef.current.style.minHeight = '';
+          editorInnerContainerRef.current.style.height = '';
+        }
+
+        if (dspSectionRef.current) {
+          dspSectionRef.current.style.display = 'flex';
+        }
+
+        // Trigger editor layout after DOM updates
+        setTimeout(() => {
+          if (activeTab === "source") {
+            sourceEditorRef.current?.layout();
+          } else if (activeTab === "compiled") {
+            compiledEditorRef.current?.layout();
+          } else {
+            editorRef.current?.layout();
+          }
+        }, 10);
       }
     };
 
@@ -287,7 +308,7 @@ export const DspPlaygroundPanel = () => {
     return () => {
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
     };
-  }, []);
+  }, [activeTab]);
 
 
   // Save to localStorage (called manually, not reactive)
