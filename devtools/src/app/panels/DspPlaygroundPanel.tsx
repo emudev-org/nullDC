@@ -2103,7 +2103,6 @@ export const DspPlaygroundPanel = () => {
               initialized={wasmInitialized && audioPlaying}
               executionState={audioPlaying && audioPaused ? "paused" : "running"}
               categoryState={undefined}
-              initialUrlAddress={goToPc}
             />
           </Box>
 

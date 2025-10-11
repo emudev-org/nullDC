@@ -88,9 +88,6 @@ const loadLayoutPrefs = (workspaceId: string): StoredLayoutPrefs => {
   }
 };
 
-// Create a ref to store the main panel API for adding panels from the device tree
-let mainPanelApi: DockviewApi | null = null;
-
 const createLeftPanelTabs = (onOpenPanel?: (panelId: PanelId) => void): PanelDefinition[] => [
   { id: PANEL_IDS.DEVICE_TREE, title: "Device Tree", component: <DeviceTreePanel onOpenPanel={onOpenPanel} /> },
 ];

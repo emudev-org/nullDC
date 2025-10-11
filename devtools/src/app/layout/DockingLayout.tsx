@@ -36,7 +36,7 @@ const panelComponentsMap = new Map<string, ReactElement>();
 const panelDefinitionsMap = new Map<string, PanelDefinition>();
 const dockviewApisMap = new Map<string, DockviewApi>();
 
-export const DockingLayout = ({ panels, allPanels, onReady, workspaceId, defaultLayoutMode = 'tabs', onAddPanelRequest }: DockingLayoutProps) => {
+export const DockingLayout = ({ panels, allPanels, onReady, workspaceId, defaultLayoutMode = 'tabs' }: DockingLayoutProps) => {
   const apiRef = useRef<DockviewApi | null>(null);
   const { mode } = useThemeMode();
   const isDarkMode = mode === "dark";
@@ -349,9 +349,8 @@ function createDefaultLayout(api: DockviewApi, panels: PanelDefinition[], mode: 
     });
 
     // Add second panel to the right (ARM7 Disassembly)
-    let secondPanel;
     if (panels.length > 1) {
-      secondPanel = api.addPanel({
+      api.addPanel({
         id: panels[1].id,
         component: panels[1].id,
         title: panels[1].title,
@@ -389,9 +388,8 @@ function createDefaultLayout(api: DockviewApi, panels: PanelDefinition[], mode: 
     });
 
     // Add second panel to the right (SH4 Memory)
-    let secondPanel;
     if (panels.length > 1) {
-      secondPanel = api.addPanel({
+      api.addPanel({
         id: panels[1].id,
         component: panels[1].id,
         title: panels[1].title,
@@ -403,9 +401,8 @@ function createDefaultLayout(api: DockviewApi, panels: PanelDefinition[], mode: 
     }
 
     // Add third panel below second (SH4 Breakpoints)
-    let thirdPanel;
     if (panels.length > 2) {
-      thirdPanel = api.addPanel({
+      api.addPanel({
         id: panels[2].id,
         component: panels[2].id,
         title: panels[2].title,
@@ -441,9 +438,8 @@ function createDefaultLayout(api: DockviewApi, panels: PanelDefinition[], mode: 
     });
 
     // Second panel below first
-    let secondPanel;
     if (panels.length > 1) {
-      secondPanel = api.addPanel({
+      api.addPanel({
         id: panels[1].id,
         component: panels[1].id,
         title: panels[1].title,
@@ -455,9 +451,8 @@ function createDefaultLayout(api: DockviewApi, panels: PanelDefinition[], mode: 
     }
 
     // Third panel below second
-    let thirdPanel;
     if (panels.length > 2) {
-      thirdPanel = api.addPanel({
+      api.addPanel({
         id: panels[2].id,
         component: panels[2].id,
         title: panels[2].title,
