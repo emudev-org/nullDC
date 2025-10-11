@@ -21,14 +21,14 @@ export const HomePage = () => {
         action: () => navigate("/workspace/arm7-debugger"),
       },
       {
-        title: "DSP/AICA Debugger",
-        description: "Inspect DSP state, disassembly, and breakpoints for audio processing.",
-        action: () => navigate("/workspace/dsp-debugger"),
-      },
-      {
         title: "Mixed Mode Debugger",
         description: "Debug SH4 and ARM7 code simultaneously with breakpoints and call stacks.",
         action: () => navigate("/workspace/mixed-mode-debugger"),
+      },
+      {
+        title: "Audio Debugger",
+        description: "Inspect AICA & DSP state, disassembly, and breakpoints for audio processing.",
+        action: () => navigate("/workspace/audio-debugger"),
       },
     ],
     [navigate],
@@ -39,22 +39,22 @@ export const HomePage = () => {
       {
         title: "SH4 Simulator",
         description: "Experiment with scheduling patterns and visualize pipeline hazards.",
-        action: () => navigate("/workspace/sh4-sim"),
+        action: () => navigate("/tool/sh4-sim"),
       },
       {
         title: "CLX2/TA Log Analyzer",
         description: "Review tile accelerator primitives and generated CORE lists to diagnose frame submission issues.",
-        action: () => navigate("/workspace/clx2-ta-log-analyzer"),
+        action: () => navigate("/tool/clx2-ta-log-analyzer"),
       },
       {
         title: "CLX2/CORE Log Analyzer",
         description: "Inspect PowerVR CORE primitives, buffers and state changes in a frame to diagnose frame rendering artifacts.",
-        action: () => navigate("/workspace/clx2-core-log-analyzer"),
+        action: () => navigate("/tool/clx2-core-log-analyzer"),
       },
       {
         title: "DSP Playground",
         description: "Author, debug and preview DSP effects with real-time waveform inspection.",
-        action: () => navigate("/workspace/dsp-playground"),
+        action: () => navigate("/tool/dsp-playground"),
       },
     ],
     [navigate],

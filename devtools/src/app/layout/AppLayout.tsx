@@ -155,10 +155,10 @@ export const AppLayout = ({ workspaceId }: AppLayoutProps) => {
       ];
     }
 
-    if (workspaceId === 'dsp-debugger') {
+    if (workspaceId === 'audio-debugger') {
       return [
-        { id: "dsp-disassembly", title: "DSP: Disassembly", component: <DspDisassemblyPanel /> },
         { id: "aica", title: "AICA", component: <AudioPanel /> },
+        { id: "dsp-disassembly", title: "DSP: Disassembly", component: <DspDisassemblyPanel /> },
         { id: "dsp-breakpoints", title: "DSP: Breakpoints", component: <DspBreakpointsPanel /> },
       ];
     }
@@ -186,7 +186,7 @@ export const AppLayout = ({ workspaceId }: AppLayoutProps) => {
         { id: "arm7-callstack", title: "ARM7: Callstack", component: <CallstackPanel target="arm7" showTitle={false} /> },
       ];
     }
-    if (workspaceId === 'dsp-debugger') {
+    if (workspaceId === 'audio-debugger') {
       return [
         { id: "watches", title: "Watches", component: <WatchesPanel /> },
       ];
@@ -495,7 +495,7 @@ export const AppLayout = ({ workspaceId }: AppLayoutProps) => {
               workspaceId={workspaceId}
               defaultLayoutMode={
                 workspaceId === 'mixed-mode-debugger' ? 'mixed-mode-debugger-layout' :
-                workspaceId === 'sh4-debugger' || workspaceId === 'arm7-debugger' || workspaceId === 'dsp-debugger' ? 'sh4-layout' :
+                workspaceId === 'sh4-debugger' || workspaceId === 'arm7-debugger' || workspaceId === 'audio-debugger' ? 'sh4-layout' :
                 'tabs'
               }
             />
