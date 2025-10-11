@@ -4,6 +4,53 @@ import type { RpcSchema } from "./jsonRpc";
 // Common enums and ID types
 export const TargetProcessorSchema = z.enum(["sh4", "arm7", "dsp"]);
 
+// Panel ID constants
+export const PANEL_IDS = {
+  DOCUMENTATION: "documentation",
+  SH4_SIM: "sh4-sim",
+  EVENTS: "events",
+  EVENTS_BREAKPOINTS: "events-breakpoints",
+  SH4_DISASSEMBLY: "sh4-disassembly",
+  SH4_MEMORY: "sh4-memory",
+  SH4_BREAKPOINTS: "sh4-breakpoints",
+  ARM7_DISASSEMBLY: "arm7-disassembly",
+  ARM7_MEMORY: "arm7-memory",
+  ARM7_BREAKPOINTS: "arm7-breakpoints",
+  TA: "ta",
+  CORE: "core",
+  AICA: "aica",
+  DSP_DISASSEMBLY: "dsp-disassembly",
+  DSP_BREAKPOINTS: "dsp-breakpoints",
+  DSP_PLAYGROUND: "dsp-playground",
+  DEVICE_TREE: "device-tree",
+  WATCHES: "watches",
+  SH4_CALLSTACK: "sh4-callstack",
+  ARM7_CALLSTACK: "arm7-callstack",
+} as const;
+
+export const PanelIdSchema = z.enum([
+  PANEL_IDS.DOCUMENTATION,
+  PANEL_IDS.SH4_SIM,
+  PANEL_IDS.EVENTS,
+  PANEL_IDS.EVENTS_BREAKPOINTS,
+  PANEL_IDS.SH4_DISASSEMBLY,
+  PANEL_IDS.SH4_MEMORY,
+  PANEL_IDS.SH4_BREAKPOINTS,
+  PANEL_IDS.ARM7_DISASSEMBLY,
+  PANEL_IDS.ARM7_MEMORY,
+  PANEL_IDS.ARM7_BREAKPOINTS,
+  PANEL_IDS.TA,
+  PANEL_IDS.CORE,
+  PANEL_IDS.AICA,
+  PANEL_IDS.DSP_DISASSEMBLY,
+  PANEL_IDS.DSP_BREAKPOINTS,
+  PANEL_IDS.DSP_PLAYGROUND,
+  PANEL_IDS.DEVICE_TREE,
+  PANEL_IDS.WATCHES,
+  PANEL_IDS.SH4_CALLSTACK,
+  PANEL_IDS.ARM7_CALLSTACK,
+]);
+
 // ID schemas - using integers for efficiency
 export const BreakpointIdSchema = z.number().int().nonnegative();
 export const WatchIdSchema = z.number().int().nonnegative();
@@ -68,6 +115,7 @@ export const DeviceNodeDescriptorSchema: z.ZodType<DeviceNodeDescriptor> = z.laz
     description: z.string().optional(),
     registers: z.array(RegisterValueSchema).optional(),
     events: z.array(z.string()).optional(),
+    actions: z.array(PanelIdSchema).optional(),
     children: z.array(DeviceNodeDescriptorSchema).optional(),
   })
 );
@@ -169,6 +217,7 @@ export type TargetProcessor = z.infer<typeof TargetProcessorSchema>;
 export type RpcMethodName = z.infer<typeof RpcMethodNameSchema>;
 export type BreakpointId = z.infer<typeof BreakpointIdSchema>;
 export type WatchId = z.infer<typeof WatchIdSchema>;
+export type PanelId = z.infer<typeof PanelIdSchema>;
 export type RegisterValue = z.infer<typeof RegisterValueSchema>;
 export type DeviceNodeDescriptor = {
   path: string;
@@ -177,6 +226,7 @@ export type DeviceNodeDescriptor = {
   description?: string;
   registers?: RegisterValue[];
   events?: string[];
+  actions?: PanelId[];
   children?: DeviceNodeDescriptor[];
 };
 export type MemorySlice = z.infer<typeof MemorySliceSchema>;

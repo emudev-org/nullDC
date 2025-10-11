@@ -29,6 +29,7 @@ import type {
 import {
   DebuggerRpcMethodSchemas,
   DebuggerTickSchema,
+  PANEL_IDS,
 } from "../src/lib/debuggerSchema";
 
 const PORT = Number(process.env.PORT ?? 5173);
@@ -181,6 +182,7 @@ const buildDeviceTree = (): DeviceNodeDescriptor[] => [
           "dc.sh4.exception",
           "dc.sh4.tlb_miss",
         ],
+        actions: [PANEL_IDS.SH4_DISASSEMBLY, PANEL_IDS.SH4_MEMORY, PANEL_IDS.SH4_BREAKPOINTS],
         children: [
           {
             path: "dc.sh4.cpu",
@@ -300,6 +302,7 @@ const buildDeviceTree = (): DeviceNodeDescriptor[] => [
             registers: [
               { name: "PC", value: getRegisterValue("dc.aica.arm7", "PC"), width: 32 },
             ],
+            actions: [PANEL_IDS.ARM7_DISASSEMBLY, PANEL_IDS.ARM7_MEMORY, PANEL_IDS.ARM7_BREAKPOINTS],
           },
           {
             path: "dc.aica.channels",
@@ -326,6 +329,7 @@ const buildDeviceTree = (): DeviceNodeDescriptor[] => [
             events: [
               "dc.aica.dsp.step",
             ],
+            actions: [PANEL_IDS.DSP_DISASSEMBLY, PANEL_IDS.DSP_BREAKPOINTS, PANEL_IDS.DSP_PLAYGROUND],
           },
         ],
       },

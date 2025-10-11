@@ -24,6 +24,7 @@ type DockingLayoutProps = {
   onReady?: (api: DockviewApi) => void;
   workspaceId?: string;
   defaultLayoutMode?: 'tabs' | 'vertical-stack' | 'sh4-layout' | 'mixed-mode-debugger-layout'; // How to layout initial panels
+  onAddPanelRequest?: (panelId: string) => void;
 };
 
 const getDockingLayoutStorageKey = (workspaceId?: string) =>
@@ -34,7 +35,7 @@ const panelComponentsMap = new Map<string, ReactElement>();
 const panelDefinitionsMap = new Map<string, PanelDefinition>();
 const dockviewApisMap = new Map<string, DockviewApi>();
 
-export const DockingLayout = ({ panels, allPanels, onReady, workspaceId, defaultLayoutMode = 'tabs' }: DockingLayoutProps) => {
+export const DockingLayout = ({ panels, allPanels, onReady, workspaceId, defaultLayoutMode = 'tabs', onAddPanelRequest }: DockingLayoutProps) => {
   const apiRef = useRef<DockviewApi | null>(null);
   const { mode } = useThemeMode();
   const isDarkMode = mode === "dark";

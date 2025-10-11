@@ -3,16 +3,21 @@ import type { ReactNode } from "react";
 import { SimpleTreeView } from "@mui/x-tree-view/SimpleTreeView";
 import { TreeItem } from "@mui/x-tree-view/TreeItem";
 import { Panel } from "../layout/Panel";
-import type { DeviceNodeDescriptor, RegisterValue } from "../../lib/debuggerSchema";
+import type { DeviceNodeDescriptor, RegisterValue, PanelId } from "../../lib/debuggerSchema";
 import { Box, Divider, IconButton, Stack, TextField, Tooltip, Typography } from "@mui/material";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import AddIcon from "@mui/icons-material/Add";
 import SearchIcon from "@mui/icons-material/Search";
 import { useDebuggerDataStore } from "../../state/debuggerDataStore";
+import { PANEL_REGISTRY } from "../layout/panelRegistry";
 
 
-export const DeviceTreePanel = () => {
+interface DeviceTreePanelProps {
+  onOpenPanel?: (panelId: PanelId) => void;
+}
+
+export const DeviceTreePanel = ({ onOpenPanel }: DeviceTreePanelProps = {}) => {
   const initialized = useDebuggerDataStore((state) => state.initialized);
   const deviceTree = useDebuggerDataStore((state) => state.deviceTree);
   const registersByPath = useDebuggerDataStore((state) => state.registersByPath);
@@ -169,13 +174,38 @@ export const DeviceTreePanel = () => {
         key={node.path}
         itemId={node.path}
         label={
-          <Stack direction="row" spacing={0.5} alignItems="center" sx={{ py: 0 }}>
-            <Typography variant="body2" fontWeight={500} sx={{ fontSize: "0.813rem", lineHeight: 1.4 }}>
-              {node.label}
-            </Typography>
-            <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.688rem", lineHeight: 1.4 }}>
-              {node.kind}
-            </Typography>
+          <Stack direction="row" spacing={0.5} alignItems="center" justifyContent="space-between" sx={{ py: 0, width: "100%" }}>
+            <Stack direction="row" spacing={0.5} alignItems="center" sx={{ flex: 1, minWidth: 0 }}>
+              <Typography variant="body2" fontWeight={500} sx={{ fontSize: "0.813rem", lineHeight: 1.4 }}>
+                {node.label}
+              </Typography>
+              {!node.actions && (
+                <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.688rem", lineHeight: 1.4 }}>
+                  {node.kind}
+                </Typography>
+              )}
+            </Stack>
+            {node.actions && node.actions.length > 0 && (
+              <Stack direction="row" spacing={0.25} alignItems="center">
+                {node.actions.map((panelId) => {
+                  const panelInfo = PANEL_REGISTRY[panelId];
+                  return (
+                    <Tooltip key={panelId} title={`Open ${panelInfo.name}`}>
+                      <IconButton
+                        size="small"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onOpenPanel?.(panelId);
+                        }}
+                        sx={{ padding: "2px" }}
+                      >
+                        {panelInfo.icon}
+                      </IconButton>
+                    </Tooltip>
+                  );
+                })}
+              </Stack>
+            )}
           </Stack>
         }
         sx={{
@@ -189,7 +219,7 @@ export const DeviceTreePanel = () => {
         {node.children?.map((child) => renderNode(child))}
       </TreeItem>
     ),
-    [renderRegister],
+    [renderRegister, onOpenPanel],
   );
 
   return (

@@ -32,6 +32,8 @@ import { TopNav } from "./TopNav";
 import { useThemeMode } from "../../theme/ThemeModeProvider";
 import { DEBUGGER_VERSION } from "./aboutVersion";
 import { DockingLayout, clearDockingLayout, type PanelDefinition } from "./DockingLayout";
+import type { DockviewApi } from "dockview";
+import { PANEL_IDS, type PanelId } from "../../lib/debuggerSchema";
 
 type StoredLayoutPrefs = {
   leftPanelOpen: boolean;
@@ -66,33 +68,36 @@ const loadLayoutPrefs = (workspaceId: string): StoredLayoutPrefs => {
   }
 };
 
-const leftPanelTabs: PanelDefinition[] = [
-  { id: "device-tree", title: "Device Tree", component: <DeviceTreePanel /> },
+// Create a ref to store the main panel API for adding panels from the device tree
+let mainPanelApi: DockviewApi | null = null;
+
+const createLeftPanelTabs = (onOpenPanel?: (panelId: PanelId) => void): PanelDefinition[] => [
+  { id: PANEL_IDS.DEVICE_TREE, title: "Device Tree", component: <DeviceTreePanel onOpenPanel={onOpenPanel} /> },
 ];
 
 const mainTabs: PanelDefinition[] = [
-  { id: "documentation", title: "Documentation", component: <DocumentationPanel /> },
-  { id: "sh4-sim", title: "SH4: Simulator", component: <Sh4SimPanel /> },
-  { id: "events", title: "Events: Log", component: <EventLogPanel /> },
-  { id: "events-breakpoints", title: "Events: Breakpoints", component: <EventsBreakpointsPanel /> },
-  { id: "sh4-disassembly", title: "SH4: Disassembly", component: <Sh4DisassemblyPanel /> },
-  { id: "sh4-memory", title: "SH4: Memory", component: <Sh4MemoryPanel /> },
-  { id: "sh4-breakpoints", title: "SH4: Breakpoints", component: <Sh4BreakpointsPanel /> },
-  { id: "arm7-disassembly", title: "ARM7: Disassembly", component: <Arm7DisassemblyPanel /> },
-  { id: "arm7-memory", title: "ARM7: Memory", component: <Arm7MemoryPanel /> },
-  { id: "arm7-breakpoints", title: "ARM7: Breakpoints", component: <Arm7BreakpointsPanel /> },
-  { id: "ta", title: "TA", component: <TaInspectorPanel /> },
-  { id: "core", title: "CORE", component: <CoreInspectorPanel /> },
-  { id: "aica", title: "AICA", component: <AudioPanel /> },
-  { id: "dsp-disassembly", title: "DSP: Disassembly", component: <DspDisassemblyPanel /> },
-  { id: "dsp-breakpoints", title: "DSP: Breakpoints", component: <DspBreakpointsPanel /> },
-  { id: "dsp-playground", title: "DSP: Playground", component: <DspPlaygroundPanel /> },
+  { id: PANEL_IDS.DOCUMENTATION, title: "Documentation", component: <DocumentationPanel /> },
+  { id: PANEL_IDS.SH4_SIM, title: "SH4: Simulator", component: <Sh4SimPanel /> },
+  { id: PANEL_IDS.EVENTS, title: "Events: Log", component: <EventLogPanel /> },
+  { id: PANEL_IDS.EVENTS_BREAKPOINTS, title: "Events: Breakpoints", component: <EventsBreakpointsPanel /> },
+  { id: PANEL_IDS.SH4_DISASSEMBLY, title: "SH4: Disassembly", component: <Sh4DisassemblyPanel /> },
+  { id: PANEL_IDS.SH4_MEMORY, title: "SH4: Memory", component: <Sh4MemoryPanel /> },
+  { id: PANEL_IDS.SH4_BREAKPOINTS, title: "SH4: Breakpoints", component: <Sh4BreakpointsPanel /> },
+  { id: PANEL_IDS.ARM7_DISASSEMBLY, title: "ARM7: Disassembly", component: <Arm7DisassemblyPanel /> },
+  { id: PANEL_IDS.ARM7_MEMORY, title: "ARM7: Memory", component: <Arm7MemoryPanel /> },
+  { id: PANEL_IDS.ARM7_BREAKPOINTS, title: "ARM7: Breakpoints", component: <Arm7BreakpointsPanel /> },
+  { id: PANEL_IDS.TA, title: "TA", component: <TaInspectorPanel /> },
+  { id: PANEL_IDS.CORE, title: "CORE", component: <CoreInspectorPanel /> },
+  { id: PANEL_IDS.AICA, title: "AICA", component: <AudioPanel /> },
+  { id: PANEL_IDS.DSP_DISASSEMBLY, title: "DSP: Disassembly", component: <DspDisassemblyPanel /> },
+  { id: PANEL_IDS.DSP_BREAKPOINTS, title: "DSP: Breakpoints", component: <DspBreakpointsPanel /> },
+  { id: PANEL_IDS.DSP_PLAYGROUND, title: "DSP: Playground", component: <DspPlaygroundPanel /> },
 ];
 
 const rightPanelTabs: PanelDefinition[] = [
-  { id: "watches", title: "Watches", component: <WatchesPanel /> },
-  { id: "sh4-callstack", title: "SH4: Callstack", component: <CallstackPanel target="sh4" showTitle={false} /> },
-  { id: "arm7-callstack", title: "ARM7: Callstack", component: <CallstackPanel target="arm7" showTitle={false} /> },
+  { id: PANEL_IDS.WATCHES, title: "Watches", component: <WatchesPanel /> },
+  { id: PANEL_IDS.SH4_CALLSTACK, title: "SH4: Callstack", component: <CallstackPanel target="sh4" showTitle={false} /> },
+  { id: PANEL_IDS.ARM7_CALLSTACK, title: "ARM7: Callstack", component: <CallstackPanel target="arm7" showTitle={false} /> },
 ];
 
 const connectionIcons = {
@@ -132,6 +137,42 @@ export const AppLayout = ({ workspaceId }: AppLayoutProps) => {
   const { mode, toggleMode } = useThemeMode();
   const isDarkMode = mode === "dark";
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [mainPanelApiState, setMainPanelApiState] = useState<DockviewApi | null>(null);
+
+  const allPanels = useMemo(() => {
+    return [...createLeftPanelTabs(), ...mainTabs, ...rightPanelTabs];
+  }, []);
+
+  const handleOpenPanelInMain = useCallback((panelId: PanelId) => {
+    if (!mainPanelApiState) {
+      console.warn("Main panel API not ready");
+      return;
+    }
+
+    // Check if panel already exists
+    const existingPanel = mainPanelApiState.getPanel(panelId);
+    if (existingPanel) {
+      // Focus the existing panel
+      existingPanel.api.setActive();
+      return;
+    }
+
+    // Find panel definition
+    const panelDef = allPanels.find(p => p.id === panelId);
+    if (!panelDef) {
+      console.warn(`Panel ${panelId} not found in panel definitions`);
+      return;
+    }
+
+    // Add the panel to the main view
+    mainPanelApiState.addPanel({
+      id: panelId,
+      component: panelId,
+      title: panelDef.title,
+    });
+  }, [mainPanelApiState, allPanels]);
+
+  const leftPanelTabs = useMemo(() => createLeftPanelTabs(handleOpenPanelInMain), [handleOpenPanelInMain]);
 
   const workspaceTabs = useMemo(() => {
     if (isNarrow) {
@@ -141,32 +182,32 @@ export const AppLayout = ({ workspaceId }: AppLayoutProps) => {
     // Custom initial panels based on workspace
     if (workspaceId === 'sh4-debugger') {
       return [
-        { id: "sh4-disassembly", title: "SH4: Disassembly", component: <Sh4DisassemblyPanel /> },
-        { id: "sh4-memory", title: "SH4: Memory", component: <Sh4MemoryPanel /> },
-        { id: "sh4-breakpoints", title: "SH4: Breakpoints", component: <Sh4BreakpointsPanel /> },
+        { id: PANEL_IDS.SH4_DISASSEMBLY, title: "SH4: Disassembly", component: <Sh4DisassemblyPanel /> },
+        { id: PANEL_IDS.SH4_MEMORY, title: "SH4: Memory", component: <Sh4MemoryPanel /> },
+        { id: PANEL_IDS.SH4_BREAKPOINTS, title: "SH4: Breakpoints", component: <Sh4BreakpointsPanel /> },
       ];
     }
 
     if (workspaceId === 'arm7-debugger') {
       return [
-        { id: "arm7-disassembly", title: "ARM7: Disassembly", component: <Arm7DisassemblyPanel /> },
-        { id: "arm7-memory", title: "ARM7: Memory", component: <Arm7MemoryPanel /> },
-        { id: "arm7-breakpoints", title: "ARM7: Breakpoints", component: <Arm7BreakpointsPanel /> },
+        { id: PANEL_IDS.ARM7_DISASSEMBLY, title: "ARM7: Disassembly", component: <Arm7DisassemblyPanel /> },
+        { id: PANEL_IDS.ARM7_MEMORY, title: "ARM7: Memory", component: <Arm7MemoryPanel /> },
+        { id: PANEL_IDS.ARM7_BREAKPOINTS, title: "ARM7: Breakpoints", component: <Arm7BreakpointsPanel /> },
       ];
     }
 
     if (workspaceId === 'audio-debugger') {
       return [
-        { id: "aica", title: "AICA", component: <AudioPanel /> },
-        { id: "dsp-disassembly", title: "DSP: Disassembly", component: <DspDisassemblyPanel /> },
-        { id: "dsp-breakpoints", title: "DSP: Breakpoints", component: <DspBreakpointsPanel /> },
+        { id: PANEL_IDS.AICA, title: "AICA", component: <AudioPanel /> },
+        { id: PANEL_IDS.DSP_DISASSEMBLY, title: "DSP: Disassembly", component: <DspDisassemblyPanel /> },
+        { id: PANEL_IDS.DSP_BREAKPOINTS, title: "DSP: Breakpoints", component: <DspBreakpointsPanel /> },
       ];
     }
 
     if (workspaceId === 'mixed-mode-debugger') {
       return [
-        { id: "sh4-disassembly", title: "SH4: Disassembly", component: <Sh4DisassemblyPanel /> },
-        { id: "arm7-disassembly", title: "ARM7: Disassembly", component: <Arm7DisassemblyPanel /> },
+        { id: PANEL_IDS.SH4_DISASSEMBLY, title: "SH4: Disassembly", component: <Sh4DisassemblyPanel /> },
+        { id: PANEL_IDS.ARM7_DISASSEMBLY, title: "ARM7: Disassembly", component: <Arm7DisassemblyPanel /> },
       ];
     }
 
@@ -176,34 +217,30 @@ export const AppLayout = ({ workspaceId }: AppLayoutProps) => {
   const rightPanelTabsForWorkspace = useMemo(() => {
     if (workspaceId === 'sh4-debugger') {
       return [
-        { id: "watches", title: "Watches", component: <WatchesPanel /> },
-        { id: "sh4-callstack", title: "SH4: Callstack", component: <CallstackPanel target="sh4" showTitle={false} /> },
+        { id: PANEL_IDS.WATCHES, title: "Watches", component: <WatchesPanel /> },
+        { id: PANEL_IDS.SH4_CALLSTACK, title: "SH4: Callstack", component: <CallstackPanel target="sh4" showTitle={false} /> },
       ];
     }
     if (workspaceId === 'arm7-debugger') {
       return [
-        { id: "watches", title: "Watches", component: <WatchesPanel /> },
-        { id: "arm7-callstack", title: "ARM7: Callstack", component: <CallstackPanel target="arm7" showTitle={false} /> },
+        { id: PANEL_IDS.WATCHES, title: "Watches", component: <WatchesPanel /> },
+        { id: PANEL_IDS.ARM7_CALLSTACK, title: "ARM7: Callstack", component: <CallstackPanel target="arm7" showTitle={false} /> },
       ];
     }
     if (workspaceId === 'audio-debugger') {
       return [
-        { id: "watches", title: "Watches", component: <WatchesPanel /> },
+        { id: PANEL_IDS.WATCHES, title: "Watches", component: <WatchesPanel /> },
       ];
     }
     if (workspaceId === 'mixed-mode-debugger') {
       return [
-        { id: "watches", title: "Watches", component: <WatchesPanel /> },
-        { id: "sh4-callstack", title: "SH4: Callstack", component: <CallstackPanel target="sh4" showTitle={false} /> },
-        { id: "arm7-callstack", title: "ARM7: Callstack", component: <CallstackPanel target="arm7" showTitle={false} /> },
+        { id: PANEL_IDS.WATCHES, title: "Watches", component: <WatchesPanel /> },
+        { id: PANEL_IDS.SH4_CALLSTACK, title: "SH4: Callstack", component: <CallstackPanel target="sh4" showTitle={false} /> },
+        { id: PANEL_IDS.ARM7_CALLSTACK, title: "ARM7: Callstack", component: <CallstackPanel target="arm7" showTitle={false} /> },
       ];
     }
     return rightPanelTabs;
   }, [workspaceId]);
-
-  const allPanels = useMemo(() => {
-    return [...leftPanelTabs, ...mainTabs, ...rightPanelTabs];
-  }, []);
 
   const showLeftPanel = !isNarrow && leftPanelOpen;
   const showRightPanel = !isNarrow && rightPanelOpen;
@@ -493,6 +530,7 @@ export const AppLayout = ({ workspaceId }: AppLayoutProps) => {
               panels={workspaceTabs}
               allPanels={allPanels}
               workspaceId={workspaceId}
+              onReady={setMainPanelApiState}
               defaultLayoutMode={
                 workspaceId === 'mixed-mode-debugger' ? 'mixed-mode-debugger-layout' :
                 workspaceId === 'sh4-debugger' || workspaceId === 'arm7-debugger' || workspaceId === 'audio-debugger' ? 'sh4-layout' :
