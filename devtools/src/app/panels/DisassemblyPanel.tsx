@@ -6,6 +6,7 @@ import { useDebuggerDataStore } from "../../state/debuggerDataStore";
 import { categoryStates, syncCategoryStatesToServer, type BreakpointCategory } from "../../state/breakpointCategoryState";
 import { DisassemblyView, type DisassemblyViewConfig, type DisassemblyViewCallbacks, type DisassemblyViewRef } from "../components/DisassemblyView";
 import { disassemblyNavigationService } from "../../state/disassemblyNavigationService";
+import { generateUUID } from "../../lib/uuid";
 
 const formatHexAddress = (value: number) => `0x${value.toString(16).toUpperCase().padStart(8, "0")}`;
 
@@ -59,7 +60,7 @@ const DisassemblyPanel = ({ target, defaultAddress }: DisassemblyPanelProps) => 
   const removeBreakpoint = useDebuggerDataStore((state) => state.removeBreakpoint);
   const toggleBreakpoint = useDebuggerDataStore((state) => state.toggleBreakpoint);
   const viewRef = useRef<DisassemblyViewRef>(null);
-  const panelIdRef = useRef(crypto.randomUUID());
+  const panelIdRef = useRef(generateUUID());
 
   // Get current PC/STEP value
   const currentPc = useMemo(() => {
