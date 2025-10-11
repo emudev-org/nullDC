@@ -1,9 +1,9 @@
-import { memo, useMemo } from "react";
-import { Link } from "react-router-dom";
+import { memo, useCallback, useMemo } from "react";
 import { Panel } from "../layout/Panel";
 import { Box, List, ListItem, ListItemText, Stack, Typography } from "@mui/material";
 import { useDebuggerDataStore } from "../../state/debuggerDataStore";
 import type { CallstackFrame } from "../../lib/debuggerSchema";
+import { disassemblyNavigationService } from "../../state/disassemblyNavigationService";
 
 interface CallstackPanelProps {
   target: "sh4" | "arm7";
@@ -12,14 +12,16 @@ interface CallstackPanelProps {
 
 interface CallstackFrameItemProps {
   frame: CallstackFrame;
-  target: string;
+  target: "sh4" | "arm7";
+  onNavigate: (address: number) => void;
 }
 
-const CallstackFrameItem = memo(({ frame, target }: CallstackFrameItemProps) => {
+const CallstackFrameItem = memo(({ frame, onNavigate }: CallstackFrameItemProps) => {
   const addressHex = `0x${frame.pc.toString(16).toUpperCase().padStart(8, "0")}`;
-  // Add action_guid to force re-navigation even when clicking same address
-  const actionGuid = crypto.randomUUID();
-  const disassemblyPath = `/${target}-disassembly?address=${addressHex}&action_guid=${actionGuid}`;
+
+  const handleClick = useCallback(() => {
+    onNavigate(frame.pc);
+  }, [frame.pc, onNavigate]);
 
   return (
     <ListItem disablePadding sx={{ py: 0 }}>
@@ -30,27 +32,20 @@ const CallstackFrameItem = memo(({ frame, target }: CallstackFrameItemProps) => 
             <Typography variant="caption" color="text.secondary" sx={{ minWidth: 28 }}>
               #{frame.index}
             </Typography>
-            <Link
-              to={disassemblyPath}
-              style={{
-                textDecoration: "none",
-                color: "inherit",
+            <Typography
+              variant="body2"
+              onClick={handleClick}
+              sx={{
                 fontFamily: "monospace",
+                cursor: "pointer",
+                "&:hover": {
+                  textDecoration: "underline",
+                  color: "primary.main",
+                },
               }}
             >
-              <Typography
-                variant="body2"
-                sx={{
-                  fontFamily: "monospace",
-                  "&:hover": {
-                    textDecoration: "underline",
-                    color: "primary.main",
-                  },
-                }}
-              >
-                {addressHex}
-              </Typography>
-            </Link>
+              {addressHex}
+            </Typography>
             {frame.symbol && (
               <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
                 {frame.symbol}
@@ -79,6 +74,10 @@ const CallstackPanel = ({ target, showTitle = false }: CallstackPanelProps) => {
 
   const title = target === "sh4" ? "SH4: Callstack" : "ARM7: Callstack";
 
+  const handleNavigate = useCallback((address: number) => {
+    disassemblyNavigationService.navigateToAddress(target, address);
+  }, [target]);
+
   return (
     <Panel title={showTitle ? title : undefined}>
       {!initialized ? (
@@ -95,7 +94,7 @@ const CallstackPanel = ({ target, showTitle = false }: CallstackPanelProps) => {
         <Box sx={{ p: 1 }}>
           <List dense disablePadding>
             {frames.map((f) => (
-              <CallstackFrameItem key={f.index} frame={f} target={target} />
+              <CallstackFrameItem key={f.index} frame={f} target={target} onNavigate={handleNavigate} />
             ))}
           </List>
         </Box>

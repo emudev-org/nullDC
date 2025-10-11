@@ -1,11 +1,11 @@
-import { useMemo } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useEffect, useMemo, useRef } from "react";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import SubdirectoryArrowRightIcon from "@mui/icons-material/SubdirectoryArrowRight";
 import { useSessionStore } from "../../state/sessionStore";
 import { useDebuggerDataStore } from "../../state/debuggerDataStore";
 import { categoryStates, syncCategoryStatesToServer, type BreakpointCategory } from "../../state/breakpointCategoryState";
-import { DisassemblyView, type DisassemblyViewConfig, type DisassemblyViewCallbacks } from "../components/DisassemblyView";
+import { DisassemblyView, type DisassemblyViewConfig, type DisassemblyViewCallbacks, type DisassemblyViewRef } from "../components/DisassemblyView";
+import { disassemblyNavigationService } from "../../state/disassemblyNavigationService";
 
 const formatHexAddress = (value: number) => `0x${value.toString(16).toUpperCase().padStart(8, "0")}`;
 
@@ -50,7 +50,6 @@ interface DisassemblyPanelProps {
 }
 
 const DisassemblyPanel = ({ target, defaultAddress }: DisassemblyPanelProps) => {
-  const [searchParams] = useSearchParams();
   const client = useSessionStore((state) => state.client);
   const executionState = useSessionStore((state) => state.executionState);
   const initialized = useDebuggerDataStore((state) => state.initialized);
@@ -59,6 +58,8 @@ const DisassemblyPanel = ({ target, defaultAddress }: DisassemblyPanelProps) => 
   const addBreakpoint = useDebuggerDataStore((state) => state.addBreakpoint);
   const removeBreakpoint = useDebuggerDataStore((state) => state.removeBreakpoint);
   const toggleBreakpoint = useDebuggerDataStore((state) => state.toggleBreakpoint);
+  const viewRef = useRef<DisassemblyViewRef>(null);
+  const panelIdRef = useRef(crypto.randomUUID());
 
   // Get current PC/STEP value
   const currentPc = useMemo(() => {
@@ -186,20 +187,20 @@ const DisassemblyPanel = ({ target, defaultAddress }: DisassemblyPanelProps) => 
     [client, target, executionState, addBreakpoint, removeBreakpoint, toggleBreakpoint, category],
   );
 
-  // Get initial URL address
-  const initialUrlAddress = useMemo(() => {
-    const addressParam = searchParams.get(config.urlParamName);
-    if (addressParam) {
-      const parsed = parseAddressInput(target, addressParam);
-      if (parsed !== undefined) {
-        return { address: parsed, fromUrl: true };
-      }
+  // Register with navigation service
+  useEffect(() => {
+    const panelId = panelIdRef.current;
+    if (viewRef.current) {
+      disassemblyNavigationService.register(panelId, viewRef.current);
     }
-    return undefined;
-  }, [searchParams, config.urlParamName, target]);
+    return () => {
+      disassemblyNavigationService.unregister(panelId);
+    };
+  }, []);
 
   return (
     <DisassemblyView
+      ref={viewRef}
       config={config}
       callbacks={callbacks}
       defaultAddress={defaultAddress}
@@ -208,7 +209,7 @@ const DisassemblyPanel = ({ target, defaultAddress }: DisassemblyPanelProps) => 
       initialized={initialized}
       executionState={executionState}
       categoryState={categoryState}
-      initialUrlAddress={initialUrlAddress}
+      target={target}
     />
   );
 };

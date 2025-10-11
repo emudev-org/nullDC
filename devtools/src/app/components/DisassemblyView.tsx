@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { Box, Button, CircularProgress, IconButton, InputAdornment, Paper, Stack, TextField, Tooltip, Typography } from "@mui/material";
 import CircleIcon from "@mui/icons-material/Circle";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
@@ -104,8 +104,15 @@ export interface DisassemblyViewProps {
   executionState: "running" | "paused";
   /** Category state (muted/soloed) */
   categoryState?: { muted: boolean; soloed: boolean };
-  /** Initial address from URL if any */
-  initialUrlAddress?: { address: number; fromUrl: boolean; highlight?: boolean };
+  /** Target CPU type for registration in navigation service */
+  target?: "sh4" | "arm7" | "dsp";
+}
+
+export interface DisassemblyViewRef {
+  scrollToAddress: (address: number, highlight?: boolean) => void;
+  focus: () => void;
+  getSize: () => { width: number; height: number };
+  getTarget: () => string;
 }
 
 const normalizeAddress = (value: number, max: number, step: number) => {
@@ -206,7 +213,7 @@ const DisassemblyLineItem = memo(({
 
 DisassemblyLineItem.displayName = "DisassemblyLineItem";
 
-export const DisassemblyView = ({
+export const DisassemblyView = forwardRef<DisassemblyViewRef, DisassemblyViewProps>(({
   config,
   callbacks,
   defaultAddress,
@@ -215,32 +222,15 @@ export const DisassemblyView = ({
   initialized,
   executionState,
   categoryState,
-  initialUrlAddress,
-}: DisassemblyViewProps) => {
+  target,
+}, ref) => {
   const [lines, setLines] = useState<DisassemblyLine[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | undefined>();
 
-  // Initialize address from URL or default
-  const initialAddress = initialUrlAddress?.address ?? defaultAddress;
-  const [address, setAddress] = useState(initialAddress);
-  const [addressInput, setAddressInput] = useState(config.formatAddressInput(initialAddress));
-
-  // Update address when URL changes (only on navigation, not on every render)
-  useEffect(() => {
-    if (initialUrlAddress?.fromUrl) {
-      const contextOffset = config.instructionSize * 10;
-      const targetAddress = Math.max(0, initialUrlAddress.address - contextOffset);
-      const normalizedTarget = normalizeAddress(targetAddress, config.maxAddress, config.instructionSize);
-      setAddress(normalizedTarget);
-
-      // Set target for highlighting (default to true if not specified)
-      if (initialUrlAddress.highlight !== false) {
-        targetAddressRef.current = initialUrlAddress.address;
-        targetTimestampRef.current = Date.now();
-      }
-    }
-  }, [initialUrlAddress?.address, initialUrlAddress?.fromUrl, initialUrlAddress?.highlight, config.instructionSize, config.maxAddress]);
+  // Initialize address from default
+  const [address, setAddress] = useState(defaultAddress);
+  const [addressInput, setAddressInput] = useState(config.formatAddressInput(defaultAddress));
 
   const requestIdRef = useRef(0);
   const wheelRemainder = useRef(0);
@@ -254,6 +244,60 @@ export const DisassemblyView = ({
 
   // Track previous execution state for detecting pauses
   const prevExecutionStateRef = useRef(executionState);
+
+  // Helper to apply highlight with auto-removal
+  const applyHighlight = useCallback((targetAddr: number) => {
+    const element = lineRefsMap.current.get(targetAddr);
+    if (element) {
+      element.classList.remove("target-address");
+      // Force reflow to restart animation
+      void element.offsetWidth;
+      element.classList.add("target-address");
+
+      // Remove class after animation completes (2s animation duration)
+      setTimeout(() => {
+        element.classList.remove("target-address");
+      }, 2000);
+    } else {
+      // Address not visible yet, try again when it loads
+      setTimeout(() => {
+        const el = lineRefsMap.current.get(targetAddr);
+        if (el) {
+          el.classList.remove("target-address");
+          void el.offsetWidth;
+          el.classList.add("target-address");
+          setTimeout(() => {
+            el.classList.remove("target-address");
+          }, 2000);
+        }
+      }, 100);
+    }
+  }, []);
+
+  // Expose methods via ref
+  useImperativeHandle(ref, () => ({
+    scrollToAddress: (targetAddr: number, highlight: boolean = true) => {
+      const contextOffset = config.instructionSize * 10;
+      const scrollAddr = Math.max(0, targetAddr - contextOffset);
+      const normalizedAddr = normalizeAddress(scrollAddr, config.maxAddress, config.instructionSize);
+      setAddress(normalizedAddr);
+
+      if (highlight) {
+        applyHighlight(targetAddr);
+      }
+    },
+    focus: () => {
+      containerRef.current?.focus();
+    },
+    getSize: () => {
+      const rect = containerRef.current?.getBoundingClientRect();
+      return {
+        width: rect?.width ?? 0,
+        height: rect?.height ?? 0,
+      };
+    },
+    getTarget: () => target ?? "unknown",
+  }), [config.instructionSize, config.maxAddress, target, applyHighlight]);
 
   // Update DOM directly when PC or execution state changes
   useEffect(() => {
@@ -344,47 +388,6 @@ export const DisassemblyView = ({
       void fetchDisassembly(normalized);
     }
   }, [address, fetchDisassembly, config, initialized]);
-
-  // Trigger highlight effect when URL address changes (or action_guid changes for re-clicks)
-  useEffect(() => {
-    if (!initialUrlAddress?.fromUrl || !initialized) {
-      return;
-    }
-
-    // Skip highlighting if explicitly disabled
-    if (initialUrlAddress.highlight === false) {
-      return;
-    }
-
-    const targetAddr = initialUrlAddress.address;
-
-    // Helper to apply highlight with auto-removal
-    const applyHighlight = (el: HTMLDivElement) => {
-      el.classList.remove("target-address");
-      // Force reflow to restart animation
-      void el.offsetWidth;
-      el.classList.add("target-address");
-
-      // Remove class after animation completes (2s animation duration)
-      setTimeout(() => {
-        el.classList.remove("target-address");
-      }, 2000);
-    };
-
-    // Check if element is already in DOM
-    const element = lineRefsMap.current.get(targetAddr);
-    if (element) {
-      applyHighlight(element);
-    } else {
-      // Address not visible yet, try again when it loads
-      setTimeout(() => {
-        const el = lineRefsMap.current.get(targetAddr);
-        if (el) {
-          applyHighlight(el);
-        }
-      }, 100);
-    }
-  }, [initialUrlAddress, initialized]);
 
   // Process pending scroll steps after loading completes
   useEffect(() => {
@@ -824,4 +827,6 @@ export const DisassemblyView = ({
       </Box>
     </Paper>
   );
-};
+});
+
+DisassemblyView.displayName = "DisassemblyView";
