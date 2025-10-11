@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use std::ptr;
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -24,8 +23,8 @@ use winit::window::WindowAttributes;
 use git_version::git_version;
 use wgpu::util::DeviceExt;
 
-mod dreamcast;
-use dreamcast::{Dreamcast, init_dreamcast, run_dreamcast};
+pub mod dreamcast;
+use dreamcast::{Dreamcast, run_slice_dreamcast};
 
 const GIT_HASH: &str = git_version!();
 
@@ -504,10 +503,10 @@ use std::cell::RefCell;
 struct AppHandle(Rc<RefCell<App>>);
 
 impl AppHandle {
-    fn new() -> Self {
+    fn new(dreamcast: *mut Dreamcast) -> Self {
         AppHandle(Rc::new(RefCell::new(App {
             state: None,
-            dreamcast: ptr::null_mut(),
+            dreamcast: dreamcast,
         })))
     }
 }
@@ -553,12 +552,6 @@ impl ApplicationHandler for AppHandle {
         let window = Arc::new(
             event_loop.create_window(window_attributes).unwrap()
         );
-        
-        {
-            let mut app = self.0.borrow_mut();
-            app.dreamcast = Box::into_raw(Box::new(Dreamcast::default()));
-            init_dreamcast(app.dreamcast);
-        }
 
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -619,8 +612,7 @@ impl ApplicationHandler for AppHandle {
                         if !app.dreamcast.is_null() {
                             let dreamcast = app.dreamcast;
                             unsafe {
-                                (*dreamcast).ctx.remaining_cycles += 2_000_000;
-                                run_dreamcast(dreamcast);
+                                run_slice_dreamcast(dreamcast);
 
                                 let base_u8: *const u8 = (*dreamcast).video_ram.as_ptr().add(0x0000); // add offset if needed
 
@@ -669,7 +661,7 @@ impl ApplicationHandler for AppHandle {
 }
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
-pub async fn run() {
+pub async fn run(dreamcast: *mut Dreamcast) {
     // Setup logging and panic hooks for wasm
     #[cfg(target_arch = "wasm32")]
     {
@@ -682,6 +674,6 @@ pub async fn run() {
 
 
     let event_loop = EventLoop::new().unwrap();
-    let mut app = AppHandle::new();
+    let mut app = AppHandle::new(dreamcast);
     event_loop.run_app(&mut app).unwrap();
 }

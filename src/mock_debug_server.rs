@@ -1,11 +1,10 @@
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::thread;
-use sha2::{Sha256, Digest};
-use uuid::Uuid;
-use axum::extract::ws::{WebSocket, Message};
+use std::time::{SystemTime, UNIX_EPOCH};
+use sha2::{Digest, Sha256};
+use axum::extract::ws::{Message, WebSocket};
 use futures::stream::StreamExt;
 use futures::SinkExt;
 
@@ -55,6 +54,10 @@ struct RegisterValue {
     name: String,
     value: String,
     width: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    flags: Option<HashMap<String, bool>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    metadata: Option<HashMap<String, serde_json::Value>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -74,79 +77,12 @@ struct DeviceNodeDescriptor {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct BreakpointDescriptor {
-    id: String,
-    location: String,
-    kind: String,
+    id: u32,
+    event: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    address: Option<u64>,
+    kind: String, // "code" or "event"
     enabled: bool,
-    #[serde(rename = "hitCount")]
-    hit_count: u32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct ThreadInfo {
-    id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    name: Option<String>,
-    state: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    core: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    priority: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    backtrace: Option<Vec<BacktraceFrame>>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct BacktraceFrame {
-    index: u32,
-    pc: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    symbol: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    location: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct DisassemblyLine {
-    address: u64,
-    bytes: String,
-    mnemonic: String,
-    operands: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    comment: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "isCurrent")]
-    is_current: Option<bool>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct MemorySlice {
-    #[serde(rename = "baseAddress")]
-    base_address: u64,
-    #[serde(rename = "wordSize")]
-    word_size: u32,
-    encoding: String,
-    data: String,
-    validity: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct WaveformChunk {
-    #[serde(rename = "channelId")]
-    channel_id: String,
-    #[serde(rename = "sampleRate")]
-    sample_rate: u32,
-    format: String,
-    samples: Vec<f32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    label: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct FrameLogEntry {
-    timestamp: u64,
-    subsystem: String,
-    severity: String,
-    message: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -161,21 +97,89 @@ struct CallstackFrame {
     location: Option<String>,
 }
 
-// Client context
-#[derive(Clone)]
-struct ClientContext {
-    session_id: String,
-    topics: Arc<Mutex<HashSet<String>>>,
-    watches: Arc<Mutex<HashSet<String>>>,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct DisassemblyLine {
+    address: u64,
+    bytes: String,
+    disassembly: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct MemorySlice {
+    #[serde(rename = "baseAddress")]
+    base_address: u64,
+    data: Vec<u8>,
+    validity: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct EventLogEntry {
+    #[serde(rename = "eventId")]
+    event_id: String,
+    timestamp: u64,
+    subsystem: String,
+    severity: String,
+    message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    metadata: Option<HashMap<String, serde_json::Value>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct WatchDescriptor {
+    id: u32,
+    expression: String,
+    value: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct DebuggerTick {
+    #[serde(rename = "tickId")]
+    tick_id: u32,
+    timestamp: u64,
+    #[serde(rename = "executionState")]
+    execution_state: ExecutionState,
+    registers: HashMap<String, Vec<RegisterValue>>,
+    breakpoints: HashMap<String, BreakpointDescriptor>,
+    #[serde(rename = "eventLog")]
+    event_log: Vec<EventLogEntry>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    watches: Option<Vec<WatchDescriptor>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    callstacks: Option<HashMap<String, Vec<CallstackFrame>>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ExecutionState {
+    state: String, // "running" or "paused"
+    #[serde(rename = "breakpointId", skip_serializing_if = "Option::is_none")]
+    breakpoint_id: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BreakpointCategoryState {
+    muted: bool,
+    soloed: bool,
+}
+
+// Server watch structure
+#[derive(Debug, Clone)]
+struct ServerWatch {
+    id: u32,
+    expression: String,
 }
 
 // Server state
 struct ServerState {
-    clients: Arc<Mutex<Vec<ClientContext>>>,
-    breakpoints: Arc<Mutex<HashMap<String, BreakpointDescriptor>>>,
-    watches: Arc<Mutex<HashSet<String>>>,
+    breakpoints: Arc<Mutex<HashMap<u32, BreakpointDescriptor>>>,
+    watches: Arc<Mutex<HashMap<u32, ServerWatch>>>,
     register_values: Arc<Mutex<HashMap<String, String>>>,
-    frame_log: Arc<Mutex<Vec<FrameLogEntry>>>,
+    event_log: Arc<Mutex<Vec<EventLogEntry>>>,
+    category_states: Arc<Mutex<HashMap<String, BreakpointCategoryState>>>,
+    is_running: Arc<Mutex<bool>>,
+    tick_id: Arc<Mutex<u32>>,
+    next_event_id: Arc<Mutex<u64>>,
+    next_watch_id: Arc<Mutex<u32>>,
+    next_breakpoint_id: Arc<Mutex<u32>>,
 }
 
 impl ServerState {
@@ -200,19 +204,65 @@ impl ServerState {
         register_values.insert("dc.holly.core.pvr_status".to_string(), "0x00010000".to_string());
         register_values.insert("dc.aica.aica_ctrl".to_string(), "0x00000002".to_string());
         register_values.insert("dc.aica.aica_status".to_string(), "0x00000001".to_string());
+        register_values.insert("dc.aica.arm7.pc".to_string(), "0x00200010".to_string());
         register_values.insert("dc.aica.channels.ch0_vol".to_string(), "0x7F".to_string());
         register_values.insert("dc.aica.channels.ch1_vol".to_string(), "0x6A".to_string());
-        register_values.insert("dc.aica.dsp.step".to_string(), "0x020".to_string());
+        register_values.insert("dc.aica.dsp.step".to_string(), "0x000".to_string());
         register_values.insert("dc.aica.dsp.dsp_acc".to_string(), "0x1F".to_string());
         register_values.insert("dc.sysclk".to_string(), "200MHz".to_string());
         register_values.insert("dc.asic_rev".to_string(), "0x0001".to_string());
 
+        // Initialize default watches
+        let mut watches = HashMap::new();
+        let default_expressions = vec!["dc.sh4.cpu.pc", "dc.sh4.dmac.dmaor"];
+        let mut next_watch_id = 1;
+        for expr in default_expressions {
+            watches.insert(next_watch_id, ServerWatch {
+                id: next_watch_id,
+                expression: expr.to_string(),
+            });
+            next_watch_id += 1;
+        }
+
+        // Initialize category states
+        let mut category_states = HashMap::new();
+        for category in &["events", "sh4", "arm7", "dsp"] {
+            category_states.insert(
+                category.to_string(),
+                BreakpointCategoryState {
+                    muted: false,
+                    soloed: false,
+                },
+            );
+        }
+
+        // Initialize event log with some entries
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        let event_log = vec![
+            EventLogEntry {
+                event_id: "1".to_string(),
+                timestamp,
+                subsystem: "sh4".to_string(),
+                severity: "info".to_string(),
+                message: "SH4 initialized".to_string(),
+                metadata: None,
+            },
+        ];
+
         Self {
-            clients: Arc::new(Mutex::new(Vec::new())),
             breakpoints: Arc::new(Mutex::new(HashMap::new())),
-            watches: Arc::new(Mutex::new(HashSet::new())),
+            watches: Arc::new(Mutex::new(watches)),
             register_values: Arc::new(Mutex::new(register_values)),
-            frame_log: Arc::new(Mutex::new(Vec::new())),
+            event_log: Arc::new(Mutex::new(event_log)),
+            category_states: Arc::new(Mutex::new(category_states)),
+            is_running: Arc::new(Mutex::new(true)),
+            tick_id: Arc::new(Mutex::new(0)),
+            next_event_id: Arc::new(Mutex::new(2)),
+            next_watch_id: Arc::new(Mutex::new(next_watch_id)),
+            next_breakpoint_id: Arc::new(Mutex::new(1)),
         }
     }
 
@@ -231,22 +281,57 @@ impl ServerState {
         self.register_values.lock().unwrap().insert(key, value);
     }
 
+    fn evaluate_watch_expression(&self, dreamcast_ptr: usize, expression: &str) -> String {
+        // Expression format: "dc.sh4.cpu.PC" or just "PC" (defaults to dc.sh4.cpu)
+        // Split into path and register name
+        let parts: Vec<&str> = expression.split('.').collect();
+
+        if parts.is_empty() {
+            return "0x00000000".to_string();
+        }
+
+        // If expression is a full path like "dc.sh4.cpu.R0"
+        let (path, name) = if parts.len() > 1 {
+            let name = parts.last().unwrap();
+            let path = parts[..parts.len() - 1].join(".");
+            (path, name.to_string())
+        } else {
+            // Default to dc.sh4.cpu if just register name
+            ("dc.sh4.cpu".to_string(), parts[0].to_string())
+        };
+
+        // Try to get value from actual emulator if available
+        if dreamcast_ptr != 0 && path == "dc.sh4.cpu" {
+            let dreamcast = dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
+            if let Some(value) = nulldc::dreamcast::get_sh4_register(dreamcast, &name) {
+                return format!("0x{:08X}", value);
+            }
+        }
+
+        // Fall back to mock values
+        self.get_register_value(&path, &name)
+    }
+
     fn build_device_tree(&self) -> Vec<DeviceNodeDescriptor> {
         vec![DeviceNodeDescriptor {
             path: "dc".to_string(),
             label: "Dreamcast".to_string(),
-            kind: "bus".to_string(),
+            kind: "beloved console".to_string(),
             description: Some("Sega Dreamcast system bus".to_string()),
             registers: Some(vec![
                 RegisterValue {
                     name: "SYSCLK".to_string(),
                     value: self.get_register_value("dc", "SYSCLK"),
                     width: 0,
+                    flags: None,
+                    metadata: None,
                 },
                 RegisterValue {
                     name: "ASIC_REV".to_string(),
                     value: self.get_register_value("dc", "ASIC_REV"),
                     width: 16,
+                    flags: None,
+                    metadata: None,
                 },
             ]),
             events: None,
@@ -261,16 +346,22 @@ impl ServerState {
                             name: "VBR".to_string(),
                             value: self.get_register_value("dc.sh4", "VBR"),
                             width: 32,
+                            flags: None,
+                            metadata: None,
                         },
                         RegisterValue {
                             name: "SR".to_string(),
                             value: self.get_register_value("dc.sh4", "SR"),
                             width: 32,
+                            flags: None,
+                            metadata: None,
                         },
                         RegisterValue {
                             name: "FPSCR".to_string(),
                             value: self.get_register_value("dc.sh4", "FPSCR"),
                             width: 32,
+                            flags: None,
+                            metadata: None,
                         },
                     ]),
                     events: Some(vec![
@@ -284,18 +375,84 @@ impl ServerState {
                             label: "Core".to_string(),
                             kind: "processor".to_string(),
                             description: Some("Integer pipeline".to_string()),
-                            registers: Some(vec![
-                                RegisterValue {
-                                    name: "PC".to_string(),
-                                    value: self.get_register_value("dc.sh4.cpu", "PC"),
-                                    width: 32,
-                                },
-                                RegisterValue {
-                                    name: "PR".to_string(),
-                                    value: self.get_register_value("dc.sh4.cpu", "PR"),
-                                    width: 32,
-                                },
-                            ]),
+                            registers: Some({
+                                let mut regs = vec![
+                                    RegisterValue {
+                                        name: "PC".to_string(),
+                                        value: self.get_register_value("dc.sh4.cpu", "PC"),
+                                        width: 32,
+                                        flags: None,
+                                        metadata: None,
+                                    },
+                                    RegisterValue {
+                                        name: "PR".to_string(),
+                                        value: self.get_register_value("dc.sh4.cpu", "PR"),
+                                        width: 32,
+                                        flags: None,
+                                        metadata: None,
+                                    },
+                                    RegisterValue {
+                                        name: "SR".to_string(),
+                                        value: self.get_register_value("dc.sh4.cpu", "SR"),
+                                        width: 32,
+                                        flags: None,
+                                        metadata: None,
+                                    },
+                                    RegisterValue {
+                                        name: "GBR".to_string(),
+                                        value: self.get_register_value("dc.sh4.cpu", "GBR"),
+                                        width: 32,
+                                        flags: None,
+                                        metadata: None,
+                                    },
+                                    RegisterValue {
+                                        name: "VBR".to_string(),
+                                        value: self.get_register_value("dc.sh4.cpu", "VBR"),
+                                        width: 32,
+                                        flags: None,
+                                        metadata: None,
+                                    },
+                                    RegisterValue {
+                                        name: "MACH".to_string(),
+                                        value: self.get_register_value("dc.sh4.cpu", "MACH"),
+                                        width: 32,
+                                        flags: None,
+                                        metadata: None,
+                                    },
+                                    RegisterValue {
+                                        name: "MACL".to_string(),
+                                        value: self.get_register_value("dc.sh4.cpu", "MACL"),
+                                        width: 32,
+                                        flags: None,
+                                        metadata: None,
+                                    },
+                                    RegisterValue {
+                                        name: "FPSCR".to_string(),
+                                        value: self.get_register_value("dc.sh4.cpu", "FPSCR"),
+                                        width: 32,
+                                        flags: None,
+                                        metadata: None,
+                                    },
+                                    RegisterValue {
+                                        name: "FPUL".to_string(),
+                                        value: self.get_register_value("dc.sh4.cpu", "FPUL"),
+                                        width: 32,
+                                        flags: None,
+                                        metadata: None,
+                                    },
+                                ];
+                                // Add R0-R15
+                                for i in 0..16 {
+                                    regs.push(RegisterValue {
+                                        name: format!("R{}", i),
+                                        value: self.get_register_value("dc.sh4.cpu", &format!("R{}", i)),
+                                        width: 32,
+                                        flags: None,
+                                        metadata: None,
+                                    });
+                                }
+                                regs
+                            }),
                             events: None,
                             children: None,
                         },
@@ -309,11 +466,63 @@ impl ServerState {
                                     name: "ICRAM".to_string(),
                                     value: "16KB".to_string(),
                                     width: 0,
+                                    flags: None,
+                                    metadata: None,
                                 },
                                 RegisterValue {
                                     name: "ICACHE_CTRL".to_string(),
                                     value: self.get_register_value("dc.sh4.icache", "ICACHE_CTRL"),
                                     width: 32,
+                                    flags: None,
+                                    metadata: None,
+                                },
+                            ]),
+                            events: None,
+                            children: None,
+                        },
+                        DeviceNodeDescriptor {
+                            path: "dc.sh4.dcache".to_string(),
+                            label: "D-Cache".to_string(),
+                            kind: "peripheral".to_string(),
+                            description: Some("Data cache".to_string()),
+                            registers: Some(vec![
+                                RegisterValue {
+                                    name: "DCRAM".to_string(),
+                                    value: "8KB".to_string(),
+                                    width: 0,
+                                    flags: None,
+                                    metadata: None,
+                                },
+                                RegisterValue {
+                                    name: "DCACHE_CTRL".to_string(),
+                                    value: self.get_register_value("dc.sh4.dcache", "DCACHE_CTRL"),
+                                    width: 32,
+                                    flags: None,
+                                    metadata: None,
+                                },
+                            ]),
+                            events: None,
+                            children: None,
+                        },
+                        DeviceNodeDescriptor {
+                            path: "dc.sh4.tlb".to_string(),
+                            label: "TLB".to_string(),
+                            kind: "peripheral".to_string(),
+                            description: Some("Translation lookaside buffer".to_string()),
+                            registers: Some(vec![
+                                RegisterValue {
+                                    name: "UTLB_ENTRIES".to_string(),
+                                    value: "64".to_string(),
+                                    width: 0,
+                                    flags: None,
+                                    metadata: None,
+                                },
+                                RegisterValue {
+                                    name: "ITLB_ENTRIES".to_string(),
+                                    value: "4".to_string(),
+                                    width: 0,
+                                    flags: None,
+                                    metadata: None,
                                 },
                             ]),
                             events: None,
@@ -331,10 +540,62 @@ impl ServerState {
                             name: "AICA_CTRL".to_string(),
                             value: self.get_register_value("dc.aica", "AICA_CTRL"),
                             width: 32,
+                            flags: None,
+                            metadata: None,
+                        },
+                        RegisterValue {
+                            name: "AICA_STATUS".to_string(),
+                            value: self.get_register_value("dc.aica", "AICA_STATUS"),
+                            width: 32,
+                            flags: None,
+                            metadata: None,
                         },
                     ]),
-                    events: Some(vec!["dc.aica.interrupt".to_string()]),
-                    children: None,
+                    events: Some(vec![
+                        "dc.aica.interrupt".to_string(),
+                        "dc.aica.timer".to_string(),
+                    ]),
+                    children: Some(vec![
+                        DeviceNodeDescriptor {
+                            path: "dc.aica.arm7".to_string(),
+                            label: "ARM7".to_string(),
+                            kind: "processor".to_string(),
+                            description: Some("ARM7TDMI sound CPU".to_string()),
+                            registers: Some(vec![RegisterValue {
+                                name: "PC".to_string(),
+                                value: self.get_register_value("dc.aica.arm7", "PC"),
+                                width: 32,
+                                flags: None,
+                                metadata: None,
+                            }]),
+                            events: None,
+                            children: None,
+                        },
+                        DeviceNodeDescriptor {
+                            path: "dc.aica.dsp".to_string(),
+                            label: "DSP".to_string(),
+                            kind: "coprocessor".to_string(),
+                            description: None,
+                            registers: Some(vec![
+                                RegisterValue {
+                                    name: "STEP".to_string(),
+                                    value: self.get_register_value("dc.aica.dsp", "STEP"),
+                                    width: 16,
+                                    flags: None,
+                                    metadata: None,
+                                },
+                                RegisterValue {
+                                    name: "DSP_ACC".to_string(),
+                                    value: self.get_register_value("dc.aica.dsp", "DSP_ACC"),
+                                    width: 16,
+                                    flags: None,
+                                    metadata: None,
+                                },
+                            ]),
+                            events: Some(vec!["dc.aica.dsp.step".to_string()]),
+                            children: None,
+                        },
+                    ]),
                 },
             ]),
         }]
@@ -349,30 +610,58 @@ fn sha256_byte(input: &str) -> u8 {
 }
 
 fn generate_disassembly(target: &str, address: u64, count: usize) -> Vec<DisassemblyLine> {
-    type OperandFn = Box<dyn Fn(u8, u8, u8, u8, u16) -> String>;
+    type OperandFn = fn(u8, u8, u8, u8, u16) -> String;
 
     let sh4_instructions: Vec<(&str, OperandFn, u64)> = vec![
-        ("mov.l", Box::new(|r1, r2, _, _, _| format!("@r{}+, r{}", r1, r2)), 2),
-        ("mov", Box::new(|r1, r2, _, _, _| format!("r{}, r{}", r1, r2)), 2),
-        ("add", Box::new(|r1, r2, _, _, _| format!("r{}, r{}", r1, r2)), 2),
-        ("nop", Box::new(|_, _, _, _, _| "".to_string()), 2),
+        ("mov.l", |r1, r2, _, _, _| format!("@r{}+, r{}", r1, r2), 2),
+        ("mov", |r1, r2, _, _, _| format!("r{}, r{}", r1, r2), 2),
+        ("sts.l", |r1, _, _, _, _| format!("pr, @-r{}", r1), 2),
+        ("add", |r1, r2, _, _, _| format!("r{}, r{}", r1, r2), 2),
+        ("cmp/eq", |r1, r2, _, _, _| format!("r{}, r{}", r1, r2), 2),
+        ("bf", |_, _, _, _, offset| format!("0x{:x}", offset), 2),
+        ("jmp", |r, _, _, _, _| format!("@r{}", r), 2),
+        ("nop", |_, _, _, _, _| String::new(), 2),
     ];
+
+    let arm7_instructions: Vec<(&str, OperandFn, u64)> = vec![
+        ("mov", |r1, _, _, val, _| format!("r{}, #{}", r1, val), 4),
+        ("ldr", |r1, r2, _, _, offset| format!("r{}, [r{}, #{}]", r1, r2, offset), 4),
+        ("str", |r1, r2, _, _, _| format!("r{}, [r{}]", r1, r2), 4),
+        ("add", |r1, r2, r3, _, _| format!("r{}, r{}, r{}", r1, r2, r3), 4),
+        ("sub", |r1, r2, r3, _, _| format!("r{}, r{}, r{}", r1, r2, r3), 4),
+        ("bx", |r, _, _, _, _| format!("r{}", r), 4),
+        ("bl", |_, _, _, _, offset| format!("0x{:x}", offset), 4),
+        ("nop", |_, _, _, _, _| String::new(), 4),
+    ];
+
+    let selected = if target == "arm7" {
+        &arm7_instructions
+    } else {
+        &sh4_instructions
+    };
 
     let mut lines = Vec::new();
     let mut current_addr = address;
 
     for _ in 0..count {
         let hash = sha256_byte(&format!("{}:{:x}", target, current_addr));
-        let instr_index = (hash as usize) % sh4_instructions.len();
-        let (mnemonic, operand_fn, bytes_len) = &sh4_instructions[instr_index];
+        let instr_index = (hash as usize) % selected.len();
+        let (mnemonic, operand_fn, bytes_len) = selected[instr_index];
 
         let r1 = (hash >> 4) % 16;
         let r2 = (hash >> 2) % 16;
         let r3 = hash % 16;
+        let val = (hash.wrapping_mul(3)) & 0xff;
+        let offset = (hash.wrapping_mul(7) as u16) & 0xfff;
 
-        let operands = operand_fn(r1, r2, r3, 0, 0);
+        let operands = operand_fn(r1, r2, r3, val, offset);
+        let disassembly = if operands.is_empty() {
+            mnemonic.to_string()
+        } else {
+            format!("{} {}", mnemonic, operands)
+        };
 
-        let byte_values: Vec<String> = (0..*bytes_len)
+        let byte_values: Vec<String> = (0..bytes_len)
             .map(|b| {
                 format!(
                     "{:02X}",
@@ -384,24 +673,20 @@ fn generate_disassembly(target: &str, address: u64, count: usize) -> Vec<Disasse
         lines.push(DisassemblyLine {
             address: current_addr,
             bytes: byte_values.join(" "),
-            mnemonic: mnemonic.to_string(),
-            operands,
-            comment: None,
-            is_current: Some(false),
+            disassembly,
         });
 
-        current_addr += *bytes_len as u64;
+        current_addr += bytes_len;
     }
 
     lines
 }
 
 fn build_memory_slice(
+    dreamcast_ptr: usize,
     target: &str,
     address: Option<u64>,
     length: Option<usize>,
-    encoding: Option<String>,
-    word_size: Option<u32>,
 ) -> MemorySlice {
     let default_base = match target {
         "sh4" => 0x8c000000u64,
@@ -412,135 +697,70 @@ fn build_memory_slice(
 
     let base_address = address.unwrap_or(default_base);
     let effective_length = length.unwrap_or(64);
-    let effective_word_size = word_size.unwrap_or(4);
-    let effective_encoding = encoding.unwrap_or_else(|| "hex".to_string());
 
-    let bytes: Vec<u8> = (0..effective_length)
-        .map(|i| sha256_byte(&format!("{}:{:x}", target, base_address + i as u64)))
-        .collect();
+    // Try to read from actual emulator memory if pointer is valid
+    let bytes: Vec<u8> = if dreamcast_ptr != 0 {
+        let dreamcast = dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
+        nulldc::dreamcast::read_memory_slice(dreamcast, base_address, effective_length)
+    } else {
+        // Fall back to mock data if no emulator context
+        (0..effective_length)
+            .map(|i| sha256_byte(&format!("{}:{:x}", target, base_address + i as u64)))
+            .collect()
+    };
 
     MemorySlice {
         base_address,
-        word_size: effective_word_size,
-        encoding: effective_encoding,
-        data: bytes.iter().map(|b| format!("{:02x}", b)).collect::<String>(),
+        data: bytes,
         validity: "ok".to_string(),
     }
 }
 
-fn build_waveform(channel_id: &str, window: usize) -> WaveformChunk {
-    let samples: Vec<f32> = (0..window)
-        .map(|i| ((i as f32 / window as f32) * std::f32::consts::PI * 4.0).sin())
-        .collect();
-
-    WaveformChunk {
-        channel_id: channel_id.to_string(),
-        sample_rate: 44100,
-        format: "pcm_f32".to_string(),
-        samples,
-        label: Some(format!("Channel {}", channel_id)),
+fn collect_registers_from_tree(tree: &[DeviceNodeDescriptor]) -> Vec<(String, Vec<RegisterValue>)> {
+    let mut result = Vec::new();
+    for node in tree {
+        if let Some(ref registers) = node.registers {
+            if !registers.is_empty() {
+                result.push((node.path.clone(), registers.clone()));
+            }
+        }
+        if let Some(ref children) = node.children {
+            result.extend(collect_registers_from_tree(children));
+        }
     }
+    result
 }
 
 fn handle_request(
     state: Arc<ServerState>,
-    context: &ClientContext,
+    dreamcast_ptr: usize,
     request: JsonRpcRequest,
-) -> Result<serde_json::Value, JsonRpcErrorObject> {
+) -> Result<(serde_json::Value, bool), JsonRpcErrorObject> {
     let params = request.params.unwrap_or(json!({}));
 
     match request.method.as_str() {
-        "debugger.handshake" => Ok(json!({
-            "sessionId": context.session_id,
-            "capabilities": ["watches", "step", "breakpoints", "frame-log", "waveforms"]
-        })),
-
         "debugger.describe" => {
-            let threads = vec![ThreadInfo {
-                id: "thread-main".to_string(),
-                name: Some("Main Thread".to_string()),
-                state: "running".to_string(),
-                core: Some("SH4".to_string()),
-                priority: Some(0),
-                backtrace: Some(vec![BacktraceFrame {
-                    index: 0,
-                    pc: 0x8c0000a0,
-                    symbol: Some("_start".to_string()),
-                    location: Some("crt0.S:42".to_string()),
-                }]),
-            }];
-
-            Ok(json!({
-                "emulator": {
-                    "name": "nullDC",
-                    "version": "dev",
-                    "build": "native"
-                },
-                "devices": state.build_device_tree(),
-                "breakpoints": state.breakpoints.lock().unwrap().values().cloned().collect::<Vec<_>>(),
-                "threads": threads
-            }))
-        }
-
-        "debugger.subscribe" => {
-            let topics = params["topics"]
-                .as_array()
-                .unwrap_or(&vec![])
-                .iter()
-                .filter_map(|v| v.as_str())
-                .map(|s| s.to_string())
-                .collect::<Vec<_>>();
-
-            for topic in &topics {
-                context.topics.lock().unwrap().insert(topic.clone());
-            }
-
-            Ok(json!({ "acknowledged": topics }))
-        }
-
-        "debugger.unsubscribe" => {
-            let topics = params["topics"]
-                .as_array()
-                .unwrap_or(&vec![])
-                .iter()
-                .filter_map(|v| v.as_str())
-                .map(|s| s.to_string())
-                .collect::<Vec<_>>();
-
-            for topic in &topics {
-                context.topics.lock().unwrap().remove(topic);
-            }
-
-            Ok(json!({ "acknowledged": topics }))
-        }
-
-        "state.getRegisters" => {
-            let path = params["path"].as_str().unwrap_or("dc.sh4.cpu");
-            let registers = vec![
-                RegisterValue {
-                    name: "PC".to_string(),
-                    value: state.get_register_value(path, "PC"),
-                    width: 32,
-                },
-                RegisterValue {
-                    name: "R0".to_string(),
-                    value: "0x00000000".to_string(),
-                    width: 32,
-                },
-            ];
-
-            Ok(json!({ "path": path, "registers": registers }))
+            let device_tree = state.build_device_tree();
+            Ok((
+                json!({
+                    "emulator": {
+                        "name": "mockServer",
+                        "version": "unspecified",
+                        "build": "native"
+                    },
+                    "deviceTree": device_tree,
+                }),
+                true, // Send initial tick
+            ))
         }
 
         "state.getMemorySlice" => {
             let target = params["target"].as_str().unwrap_or("sh4");
             let address = params["address"].as_u64();
             let length = params["length"].as_u64().map(|l| l as usize);
-            let encoding = params["encoding"].as_str().map(|s| s.to_string());
-            let word_size = params["wordSize"].as_u64().map(|w| w as u32);
 
-            let slice = build_memory_slice(target, address, length, encoding, word_size);
-            Ok(serde_json::to_value(slice).unwrap())
+            let slice = build_memory_slice(dreamcast_ptr, target, address, length);
+            Ok((serde_json::to_value(slice).unwrap(), false))
         }
 
         "state.getDisassembly" => {
@@ -548,8 +768,23 @@ fn handle_request(
             let address = params["address"].as_u64().unwrap_or(0);
             let count = params["count"].as_u64().unwrap_or(128) as usize;
 
-            let lines = generate_disassembly(target, address, count);
-            Ok(json!({ "lines": lines }))
+            let lines = if dreamcast_ptr != 0 && target == "sh4" {
+                // Use actual disassembler for SH4
+                let dreamcast = dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
+                let disasm_lines = nulldc::dreamcast::disassemble_sh4(dreamcast, address, count);
+
+                // Convert to JSON-compatible format
+                disasm_lines.into_iter().map(|line| DisassemblyLine {
+                    address: line.address,
+                    bytes: line.bytes,
+                    disassembly: line.disassembly,
+                }).collect::<Vec<_>>()
+            } else {
+                // Fall back to mock data
+                generate_disassembly(target, address, count)
+            };
+
+            Ok((json!({ "lines": lines }), false))
         }
 
         "state.getCallstack" => {
@@ -566,7 +801,7 @@ fn handle_request(
                 })
                 .collect();
 
-            Ok(json!({ "target": target, "frames": frames }))
+            Ok((json!({ "target": target, "frames": frames }), false))
         }
 
         "state.watch" => {
@@ -578,129 +813,209 @@ fn handle_request(
                 .map(|s| s.to_string())
                 .collect::<Vec<_>>();
 
-            for expr in &expressions {
-                context.watches.lock().unwrap().insert(expr.clone());
-                state.watches.lock().unwrap().insert(expr.clone());
+            let mut watches = state.watches.lock().unwrap();
+            let mut next_id = state.next_watch_id.lock().unwrap();
+
+            for expr in expressions {
+                let id = *next_id;
+                watches.insert(id, ServerWatch { id, expression: expr });
+                *next_id += 1;
             }
 
-            let all_watches: Vec<String> = state.watches.lock().unwrap().iter().cloned().collect();
-            Ok(json!({ "accepted": expressions, "all": all_watches }))
+            Ok((json!({}), true))
         }
 
         "state.unwatch" => {
-            let expressions = params["expressions"]
+            let watch_ids = params["watchIds"]
                 .as_array()
                 .unwrap_or(&vec![])
                 .iter()
-                .filter_map(|v| v.as_str())
-                .map(|s| s.to_string())
+                .filter_map(|v| v.as_u64())
+                .map(|id| id as u32)
                 .collect::<Vec<_>>();
 
-            for expr in &expressions {
-                context.watches.lock().unwrap().remove(expr);
-                state.watches.lock().unwrap().remove(expr);
+            let mut watches = state.watches.lock().unwrap();
+            for id in watch_ids {
+                watches.remove(&id);
             }
 
-            let all_watches: Vec<String> = state.watches.lock().unwrap().iter().cloned().collect();
-            Ok(json!({ "accepted": expressions, "all": all_watches }))
+            Ok((json!({}), true))
         }
 
-        "control.step" => {
-            let target = params["target"].as_str().unwrap_or("sh4");
-            Ok(json!({ "target": target, "state": "halted" }))
+        "state.editWatch" => {
+            let watch_id = params["watchId"].as_u64().map(|id| id as u32);
+            let value = params["value"].as_str().unwrap_or("");
+
+            if let Some(id) = watch_id {
+                let expression = {
+                    let watches = state.watches.lock().unwrap();
+                    watches.get(&id).map(|w| w.expression.clone())
+                };
+
+                if let Some(expr) = expression {
+                    // Parse expression to get path and register name
+                    let parts: Vec<&str> = expr.split('.').collect();
+                    let (path, name) = if parts.len() > 1 {
+                        let name = parts.last().unwrap();
+                        let path = parts[..parts.len() - 1].join(".");
+                        (path, name.to_string())
+                    } else {
+                        ("dc.sh4.cpu".to_string(), parts[0].to_string())
+                    };
+
+                    state.set_register_value(&path, &name, value.to_string());
+                    return Ok((json!({}), true));
+                }
+            }
+
+            Err(JsonRpcErrorObject {
+                code: -32602,
+                message: "Watch not found or cannot edit".to_string(),
+                data: None,
+            })
+        }
+
+        "state.modifyWatchExpression" => {
+            let watch_id = params["watchId"].as_u64().map(|id| id as u32);
+            let new_expression = params["newExpression"].as_str().unwrap_or("");
+
+            if let Some(id) = watch_id {
+                let mut watches = state.watches.lock().unwrap();
+                if let Some(watch) = watches.get_mut(&id) {
+                    watch.expression = new_expression.to_string();
+                    return Ok((json!({}), true));
+                }
+            }
+
+            Err(JsonRpcErrorObject {
+                code: -32602,
+                message: "Watch not found".to_string(),
+                data: None,
+            })
+        }
+
+        "control.pause" => {
+            if dreamcast_ptr != 0 {
+                let dreamcast = dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
+                nulldc::dreamcast::set_dreamcast_running(dreamcast, false);
+            } else {
+                *state.is_running.lock().unwrap() = false;
+            }
+            Ok((json!({}), true))
+        }
+
+        "control.step" | "control.stepOver" | "control.stepOut" => {
+            if dreamcast_ptr != 0 {
+                let dreamcast = dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
+                // Use step_dreamcast for single instruction stepping
+                nulldc::dreamcast::step_dreamcast(dreamcast);
+                // Ensure we're paused after step
+                nulldc::dreamcast::set_dreamcast_running(dreamcast, false);
+            } else {
+                // Mock implementation
+                *state.is_running.lock().unwrap() = false;
+                let target = params["target"].as_str().unwrap_or("sh4");
+
+                if target.contains("sh4") {
+                    let pc_value = state.get_register_value("dc.sh4.cpu", "PC");
+                    if let Some(stripped) = pc_value.strip_prefix("0x") {
+                        if let Ok(pc) = u64::from_str_radix(stripped, 16) {
+                            let base = 0x8C0000A0;
+                            let offset = pc - base;
+                            let new_offset = (offset + 2) % 16;
+                            let new_pc = base + new_offset;
+                            state.set_register_value("dc.sh4.cpu", "PC", format!("0x{:08X}", new_pc));
+                        }
+                    }
+                }
+            }
+
+            Ok((json!({}), true))
         }
 
         "control.runUntil" => {
-            let target = params["target"].as_str().unwrap_or("sh4");
-            Ok(json!({ "target": target, "state": "running", "reason": "breakpoint" }))
+            if dreamcast_ptr != 0 {
+                let dreamcast = dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
+                nulldc::dreamcast::set_dreamcast_running(dreamcast, true);
+            } else {
+                *state.is_running.lock().unwrap() = true;
+            }
+            Ok((json!({}), true))
         }
 
         "breakpoints.add" => {
-            let location = params["location"].as_str().unwrap_or("");
+            let event = params["event"].as_str().unwrap_or("");
+            let address = params["address"].as_u64();
             let kind = params["kind"].as_str().unwrap_or("code");
             let enabled = params["enabled"].as_bool().unwrap_or(true);
-            let id = format!("bp-{}", Uuid::new_v4().to_string()[..8].to_string());
+
+            let mut next_id = state.next_breakpoint_id.lock().unwrap();
+            let id = *next_id;
+            *next_id += 1;
 
             let breakpoint = BreakpointDescriptor {
-                id: id.clone(),
-                location: location.to_string(),
+                id,
+                event: event.to_string(),
+                address,
                 kind: kind.to_string(),
                 enabled,
-                hit_count: 0,
             };
 
-            state
-                .breakpoints
-                .lock()
-                .unwrap()
-                .insert(id, breakpoint.clone());
-
-            let all: Vec<_> = state
-                .breakpoints
-                .lock()
-                .unwrap()
-                .values()
-                .cloned()
-                .collect();
-
-            Ok(json!({ "breakpoint": breakpoint, "all": all }))
+            state.breakpoints.lock().unwrap().insert(id, breakpoint);
+            Ok((json!({}), true))
         }
 
         "breakpoints.remove" => {
-            let id = params["id"].as_str().unwrap_or("");
-            let removed = state.breakpoints.lock().unwrap().remove(id).is_some();
-            let all: Vec<_> = state
-                .breakpoints
-                .lock()
-                .unwrap()
-                .values()
-                .cloned()
-                .collect();
-
-            Ok(json!({ "removed": removed, "all": all }))
+            let id = params["id"].as_u64().map(|id| id as u32);
+            if let Some(id) = id {
+                let removed = state.breakpoints.lock().unwrap().remove(&id).is_some();
+                if !removed {
+                    return Err(JsonRpcErrorObject {
+                        code: -32000,
+                        message: format!("Breakpoint {} not found", id),
+                        data: None,
+                    });
+                }
+            }
+            Ok((json!({}), true))
         }
 
         "breakpoints.toggle" => {
-            let id = params["id"].as_str().unwrap_or("");
+            let id = params["id"].as_u64().map(|id| id as u32);
             let enabled = params["enabled"].as_bool().unwrap_or(true);
 
-            let mut breakpoints = state.breakpoints.lock().unwrap();
-            if let Some(bp) = breakpoints.get_mut(id) {
-                bp.enabled = enabled;
-                let updated = bp.clone();
-                let all: Vec<_> = breakpoints.values().cloned().collect();
-                Ok(json!({ "breakpoint": updated, "all": all }))
-            } else {
-                Err(JsonRpcErrorObject {
-                    code: -32000,
-                    message: format!("Breakpoint {} not found", id),
-                    data: None,
-                })
+            if let Some(id) = id {
+                let mut breakpoints = state.breakpoints.lock().unwrap();
+                if let Some(bp) = breakpoints.get_mut(&id) {
+                    bp.enabled = enabled;
+                    return Ok((json!({}), true));
+                }
             }
+
+            Err(JsonRpcErrorObject {
+                code: -32000,
+                message: "Breakpoint not found".to_string(),
+                data: None,
+            })
         }
 
-        "breakpoints.list" => {
-            let all: Vec<_> = state
-                .breakpoints
-                .lock()
-                .unwrap()
-                .values()
-                .cloned()
-                .collect();
-            Ok(json!({ "breakpoints": all }))
-        }
-
-        "audio.requestWaveform" => {
-            let channel_id = params["channelId"].as_str().unwrap_or("0");
-            let window = params["window"].as_u64().unwrap_or(256) as usize;
-            let waveform = build_waveform(channel_id, window);
-            Ok(serde_json::to_value(waveform).unwrap())
-        }
-
-        "logs.fetchFrameLog" => {
-            let frame = params["frame"].as_u64().unwrap_or(0);
-            let entries = state.frame_log.lock().unwrap().clone();
-            Ok(json!({ "frame": frame, "entries": entries }))
+        "breakpoints.setCategoryStates" => {
+            let categories = params["categories"].as_object();
+            if let Some(categories) = categories {
+                let mut category_states = state.category_states.lock().unwrap();
+                for (category, state_value) in categories {
+                    if let (Some(muted), Some(soloed)) = (
+                        state_value["muted"].as_bool(),
+                        state_value["soloed"].as_bool(),
+                    ) {
+                        category_states.insert(
+                            category.clone(),
+                            BreakpointCategoryState { muted, soloed },
+                        );
+                    }
+                }
+            }
+            Ok((json!({}), true))
         }
 
         _ => Err(JsonRpcErrorObject {
@@ -711,56 +1026,24 @@ fn handle_request(
     }
 }
 
-use std::sync::OnceLock;
+pub async fn handle_websocket_connection(socket: WebSocket, dreamcast_ptr: usize) {
+    use std::sync::OnceLock;
+    static STATE: OnceLock<Arc<ServerState>> = OnceLock::new();
+    let state = STATE.get_or_init(|| Arc::new(ServerState::new())).clone();
 
-static STATE: OnceLock<Arc<ServerState>> = OnceLock::new();
+    // Convert usize back to *mut Dreamcast when needed to access emulator state
+    // let _dreamcast = dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
+    // TODO: Use dreamcast pointer to read/write actual emulator state instead of mock data
 
-fn get_or_init_state() -> Arc<ServerState> {
-    STATE.get_or_init(|| {
-        let state = Arc::new(ServerState::new());
-
-        // Start broadcast tick - simulate execution
-        let tick_state = state.clone();
-        thread::spawn(move || {
-            loop {
-                thread::sleep(std::time::Duration::from_secs(1));
-
-                // Update PC register
-                let pc_key = "dc.sh4.cpu.pc";
-                if let Some(pc_value) = tick_state.register_values.lock().unwrap().get(pc_key) {
-                    if let Some(stripped) = pc_value.strip_prefix("0x") {
-                        if let Ok(pc) = u64::from_str_radix(stripped, 16) {
-                            let new_pc = format!("0x{:08X}", pc + 2);
-                            tick_state.register_values.lock().unwrap().insert(pc_key.to_string(), new_pc);
-                        }
-                    }
-                }
-            }
-        });
-
-        state
-    }).clone()
-}
-
-pub async fn handle_websocket_connection(socket: WebSocket) {
-    let state = get_or_init_state();
     let (mut sender, mut receiver) = socket.split();
-
-    let context = ClientContext {
-        session_id: Uuid::new_v4().to_string(),
-        topics: Arc::new(Mutex::new(HashSet::new())),
-        watches: Arc::new(Mutex::new(HashSet::new())),
-    };
-
-    state.clients.lock().unwrap().push(context.clone());
 
     while let Some(Ok(msg)) = receiver.next().await {
         match msg {
             Message::Text(text) => {
                 if let Ok(request) = serde_json::from_str::<JsonRpcRequest>(&text) {
                     let id = request.id.clone();
-                    match handle_request(state.clone(), &context, request) {
-                        Ok(result) => {
+                    match handle_request(state.clone(), dreamcast_ptr, request) {
+                        Ok((result, should_broadcast)) => {
                             let response = JsonRpcSuccess {
                                 jsonrpc: JSON_RPC_VERSION.to_string(),
                                 id,
@@ -768,6 +1051,163 @@ pub async fn handle_websocket_connection(socket: WebSocket) {
                             };
                             if let Ok(json) = serde_json::to_string(&response) {
                                 let _ = sender.send(Message::Text(json.into())).await;
+                            }
+
+                            if should_broadcast {
+                                // Build and send tick
+                                let device_tree = state.build_device_tree();
+                                let all_registers = collect_registers_from_tree(&device_tree);
+
+                                let mut registers_by_id: HashMap<String, Vec<RegisterValue>> = HashMap::new();
+                                for (path, registers) in all_registers {
+                                    registers_by_id.insert(path, registers);
+                                }
+
+                                // Override with actual register values from emulator if available
+                                if dreamcast_ptr != 0 {
+                                    let dreamcast = dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
+                                    let sh4_registers = vec![
+                                        ("PC", 32),
+                                        ("PR", 32),
+                                        ("SR", 32),
+                                        ("GBR", 32),
+                                        ("VBR", 32),
+                                        ("MACH", 32),
+                                        ("MACL", 32),
+                                        ("FPSCR", 32),
+                                        ("FPUL", 32),
+                                    ];
+
+                                    let mut cpu_regs = Vec::new();
+                                    for (name, width) in &sh4_registers {
+                                        if let Some(value) = nulldc::dreamcast::get_sh4_register(dreamcast, name) {
+                                            cpu_regs.push(RegisterValue {
+                                                name: name.to_string(),
+                                                value: format!("0x{:08X}", value),
+                                                width: *width,
+                                                flags: None,
+                                                metadata: None,
+                                            });
+                                        }
+                                    }
+
+                                    // Add general purpose registers R0-R15
+                                    for i in 0..16 {
+                                        let reg_name = format!("R{}", i);
+                                        if let Some(value) = nulldc::dreamcast::get_sh4_register(dreamcast, &reg_name) {
+                                            cpu_regs.push(RegisterValue {
+                                                name: reg_name,
+                                                value: format!("0x{:08X}", value),
+                                                width: 32,
+                                                flags: None,
+                                                metadata: None,
+                                            });
+                                        }
+                                    }
+
+                                    registers_by_id.insert("dc.sh4.cpu".to_string(), cpu_regs);
+                                }
+
+                                let mut breakpoints_by_id: HashMap<String, BreakpointDescriptor> = HashMap::new();
+                                for (id, bp) in state.breakpoints.lock().unwrap().iter() {
+                                    breakpoints_by_id.insert(id.to_string(), bp.clone());
+                                }
+
+                                let watches: Vec<WatchDescriptor> = state
+                                    .watches
+                                    .lock()
+                                    .unwrap()
+                                    .values()
+                                    .map(|w| WatchDescriptor {
+                                        id: w.id,
+                                        expression: w.expression.clone(),
+                                        value: json!(state.evaluate_watch_expression(dreamcast_ptr, &w.expression)),
+                                    })
+                                    .collect();
+
+                                let mut callstacks: HashMap<String, Vec<CallstackFrame>> = HashMap::new();
+
+                                // SH4 callstack
+                                let sh4_pc_value = state.get_register_value("dc.sh4.cpu", "PC");
+                                let sh4_pc = if let Some(stripped) = sh4_pc_value.strip_prefix("0x") {
+                                    u64::from_str_radix(stripped, 16).unwrap_or(0x8c0000a0)
+                                } else {
+                                    0x8c0000a0
+                                };
+                                let sh4_frames: Vec<CallstackFrame> = (0..16)
+                                    .map(|i| CallstackFrame {
+                                        index: i,
+                                        pc: if i == 0 { sh4_pc } else { 0x8c000000 + (i - 1) as u64 * 4 },
+                                        sp: Some(0x0cfe0000 - i as u64 * 16),
+                                        symbol: Some(format!("SH4_func_{}", i)),
+                                        location: Some(format!("sh4.c:{}", 100 + i)),
+                                    })
+                                    .collect();
+                                callstacks.insert("sh4".to_string(), sh4_frames);
+
+                                // ARM7 callstack
+                                let arm7_pc_value = state.get_register_value("dc.aica.arm7", "PC");
+                                let arm7_pc = if let Some(stripped) = arm7_pc_value.strip_prefix("0x") {
+                                    u64::from_str_radix(stripped, 16).unwrap_or(0x00200010)
+                                } else {
+                                    0x00200010
+                                };
+                                let arm7_frames: Vec<CallstackFrame> = (0..16)
+                                    .map(|i| CallstackFrame {
+                                        index: i,
+                                        pc: if i == 0 { arm7_pc } else { 0x00200000 + (i - 1) as u64 * 4 },
+                                        sp: Some(0x00280000 - i as u64 * 16),
+                                        symbol: Some(format!("ARM7_func_{}", i)),
+                                        location: Some(format!("arm7.c:{}", 100 + i)),
+                                    })
+                                    .collect();
+                                callstacks.insert("arm7".to_string(), arm7_frames);
+
+                                let current_tick_id = {
+                                    let mut tick_id = state.tick_id.lock().unwrap();
+                                    let id = *tick_id;
+                                    *tick_id += 1;
+                                    id
+                                };
+                                let timestamp = SystemTime::now()
+                                    .duration_since(UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_millis() as u64;
+                                // Get execution state from actual emulator or mock
+                                let is_running = if dreamcast_ptr != 0 {
+                                    let dreamcast = dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
+                                    nulldc::dreamcast::is_dreamcast_running(dreamcast)
+                                } else {
+                                    *state.is_running.lock().unwrap()
+                                };
+
+                                let tick = DebuggerTick {
+                                    tick_id: current_tick_id,
+                                    timestamp,
+                                    execution_state: ExecutionState {
+                                        state: if is_running {
+                                            "running".to_string()
+                                        } else {
+                                            "paused".to_string()
+                                        },
+                                        breakpoint_id: None,
+                                    },
+                                    registers: registers_by_id,
+                                    breakpoints: breakpoints_by_id,
+                                    event_log: state.event_log.lock().unwrap().clone(),
+                                    watches: if watches.is_empty() { None } else { Some(watches) },
+                                    callstacks: Some(callstacks),
+                                };
+
+                                let notification = JsonRpcNotification {
+                                    jsonrpc: JSON_RPC_VERSION.to_string(),
+                                    method: "event.tick".to_string(),
+                                    params: serde_json::to_value(tick).unwrap(),
+                                };
+
+                                if let Ok(json) = serde_json::to_string(&notification) {
+                                    let _ = sender.send(Message::Text(json.into())).await;
+                                }
                             }
                         }
                         Err(error) => {
@@ -787,7 +1227,4 @@ pub async fn handle_websocket_connection(socket: WebSocket) {
             _ => {}
         }
     }
-
-    // Remove client from list
-    state.clients.lock().unwrap().retain(|c| c.session_id != context.session_id);
 }

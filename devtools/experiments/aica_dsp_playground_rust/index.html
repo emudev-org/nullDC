@@ -1,0 +1,782 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>aica-dsp playground (Rust/WASM)</title>
+    <style>
+        canvas {
+            border: 1px solid black;
+        }
+    </style>
+    <style>
+        .tab-container {
+            border: 1px solid #ccc;
+        }
+
+        .tab-header {
+            display: flex;
+            cursor: pointer;
+            background: #f4f4f4;
+            border-bottom: 1px solid #ccc;
+        }
+
+        .tab-header div {
+            padding: 10px 20px;
+            border-right: 1px solid #ccc;
+        }
+
+        .tab-header div:last-child {
+            border-right: none;
+        }
+
+        .tab-header .active {
+            background: white;
+            border-bottom: 2px solid white;
+        }
+
+        .tab-content {
+            display: none;
+            padding: 20px;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+    </style>
+    <script src="pako.min.js"></script>
+    <script type="module">
+        import init, { ReadReg, WriteReg, Step, Step128, Step128Start, Step128End } from './pkg/aica_dsp.js';
+
+        // Initialize WASM module
+        await init();
+
+        // Export to global scope for use in inline scripts
+        window.dsp = {
+            ReadReg,
+            WriteReg,
+            Step,
+            Step128,
+            Step128Start,
+            Step128End
+        };
+
+        // Trigger initialization event
+        window.dispatchEvent(new Event('wasmReady'));
+    </script>
+  </head>
+  <body>
+    <label for="reg-file-input">Regs</label> <input type="file" id="reg-file-input" />
+    <button id="download-btn">Download regs</button>
+    <button id="start-btn">Start Keyboard Midi (zxcvbnmasdfghjkl) / Play Wav</button>
+    <button id="stop-btn" style="display: none;">Stop</button>
+    <label for="wav-file-input">WAV:</label> <input type="file" id="wav-file-input" />
+    <div id="container">
+        <textarea id="source" style="width: 100%; height: 200px;">
+# Simple effect that just replicates input channel 0 to output channel 0, 1
+# COEF[0] = 32768
+# COEF[2] = 32768
+
+# MPRO[0] = XSEL:1 YSEL:1 IRA:32 ZERO:1
+# MPRO[1] = EWT:1 EWA:0
+
+# MPRO[2] = XSEL:1 YSEL:1 IRA:32 ZERO:1
+# MPRO[3] = EWT:1 EWA:1
+
+# Simple effect that just replicates input channel 0 to output channel 0, 1
+
+
+# Simple delay using the RBL/RBP
+COEF[0] = 16384
+COEF[2] = 16384
+COEF[6] = 16384
+
+MPRO[0] = XSEL:1 YSEL:1 IRA:32 ZERO:1
+MPRO[1] = EWT:1 EWA:0
+
+MPRO[2] = XSEL:1 YSEL:1 IRA:32 ZERO:1
+MPRO[3] = MWT:1 MRD:1
+
+#MPRO[4] =
+
+MPRO[5] = IWT:1 IWA:0
+
+MPRO[6] = XSEL:1 YSEL:1 IRA:0 ZERO:1
+MPRO[7] = EWT:1 EWA:0
+        </textarea>
+    </div>
+    <script>
+        class WaveformPlotter {
+            constructor(container, width = 800, height = 400) {
+                // Create and set up canvas
+                this.canvas = document.createElement('canvas');
+                this.canvas.width = width;
+                this.canvas.height = height;
+                container.appendChild(this.canvas);
+                this.ctx = this.canvas.getContext('2d');
+
+                // Initialize variables
+                this.width = width;
+                this.height = height;
+                this.midY = height / 2;
+                this.maxSamples = 800;
+                this.maxAmplitude = 32767; // 16-bit signed range
+                this.samples = Array(this.maxSamples).fill(0);
+                this.currentX = 0;
+
+                // Initial draw
+                this.draw();
+            }
+
+            draw() {
+                const ctx = this.ctx;
+
+                // Clear canvas
+                ctx.clearRect(0, 0, this.width, this.height);
+
+                // Draw blue waveform
+                ctx.beginPath();
+                ctx.strokeStyle = 'blue';
+                ctx.lineWidth = 2;
+                for (let x = 0; x < this.maxSamples; x++) {
+                    const y = this.midY - (this.samples[x] / this.maxAmplitude) * (this.height / 2);
+                    if (x === 0) {
+                        ctx.moveTo(x, y);
+                    } else {
+                        ctx.lineTo(x, y);
+                    }
+                }
+                ctx.stroke();
+            }
+
+            appendSample(sample) {
+                this.samples[this.currentX] = sample;
+                this.currentX = (this.currentX + 1) % this.maxSamples; // Wrap around
+                // this.draw();
+            }
+        }
+
+        // Usage Example
+        const container = document.getElementById('container');
+        const plotter = new WaveformPlotter(container);
+        const plotterDsp = [];
+
+        for (let i = 0; i < 16; i++) {
+            plotterDsp.push(new WaveformPlotter(container));
+        }
+
+        setInterval(() => {
+            plotter.draw();
+            for(let i = 0; i < 16; i++) {
+                plotterDsp[i].draw();
+            }
+        }, 50);
+    </script>
+
+    <script>
+        class TabbedContainer {
+            constructor(container, tabs) {
+                this.container = container;
+                this.tabs = tabs;
+
+                // Create elements
+                this.tabHeader = document.createElement('div');
+                this.tabHeader.className = 'tab-header';
+                this.tabContentContainer = document.createElement('div');
+                this.tabContentContainer.className = 'tab-container';
+
+                // Append to the main container
+                this.container.appendChild(this.tabHeader);
+                this.container.appendChild(this.tabContentContainer);
+
+                // Initialize tabs
+                this.activeIndex = 0;
+                this.initTabs();
+            }
+
+            initTabs() {
+                this.tabs.forEach((tab, index) => {
+                    // Create tab header
+                    const tabHeader = document.createElement('div');
+                    tabHeader.textContent = tab.title;
+                    tabHeader.className = index === this.activeIndex ? 'active' : '';
+                    tabHeader.addEventListener('click', () => this.switchTab(index));
+
+                    // Create tab content
+                    const tabContent = document.createElement('div');
+                    tabContent.className = `tab-content ${index === this.activeIndex ? 'active' : ''}`;
+                    tabContent.appendChild(tab.content); // Append provided HTML element
+
+                    // Append to containers
+                    this.tabHeader.appendChild(tabHeader);
+                    this.tabContentContainer.appendChild(tabContent);
+                });
+            }
+
+            switchTab(index) {
+                // Update active tab
+                this.tabHeader.querySelectorAll('div').forEach((tab, idx) => {
+                    tab.classList.toggle('active', idx === index);
+                });
+
+                this.tabContentContainer.querySelectorAll('.tab-content').forEach((content, idx) => {
+                    content.classList.toggle('active', idx === index);
+                });
+
+                this.activeIndex = index;
+            }
+        }
+
+        // const tabs = [];
+        // for (let i = 0; i < 128; i++) {
+        //     const tab1Content = document.createElement('div');
+        //     tab1Content.innerHTML = '<p>Content for Tab ' + i + '</p>';
+        //     tabs.push({ title: 'Tab ' + i, content: tab1Content });
+        // }
+
+        // const tabbedContainer = new TabbedContainer(container, tabs);
+    </script>
+
+    <script>
+        function decodeInst(Inst) {
+            const i = {
+                TRA: (Inst[0] >> 9) & 0x7F,
+                TWT: (Inst[0] >> 8) & 0x01,
+                TWA: (Inst[0] >> 1) & 0x7F,
+
+                XSEL: (Inst[1] >> 15) & 0x01,
+                YSEL: (Inst[1] >> 13) & 0x03,
+                IRA: (Inst[1] >> 7) & 0x3F,
+                IWT: (Inst[1] >> 6) & 0x01,
+                IWA: (Inst[1] >> 1) & 0x1F,
+
+                TABLE: (Inst[2] >> 15) & 0x01,
+                MWT: (Inst[2] >> 14) & 0x01,
+                MRD: (Inst[2] >> 13) & 0x01,
+                EWT: (Inst[2] >> 12) & 0x01,
+                EWA: (Inst[2] >> 8) & 0x0F,
+                ADRL: (Inst[2] >> 7) & 0x01,
+                FRCL: (Inst[2] >> 6) & 0x01,
+                SHIFT: (Inst[2] >> 4) & 0x03,
+                YRL: (Inst[2] >> 3) & 0x01,
+                NEGB: (Inst[2] >> 2) & 0x01,
+                ZERO: (Inst[2] >> 1) & 0x01,
+                BSEL: (Inst[2] >> 0) & 0x01,
+
+                NOFL: (Inst[3] >> 15) & 0x01,
+                MASA: (Inst[3] >> 9) & 0x3F,
+                ADREB: (Inst[3] >> 8) & 0x01,
+                NXADR: (Inst[3] >> 7) & 0x01
+            };
+
+            return i;
+        }
+
+        function encodeInst(Inst, desc) {
+
+            const fields = ["TRA","TWT","TWA","XSEL","YSEL","IRA","IWT","IWA","TABLE","MWT","MRD","EWT","EWA","ADRL","FRCL","SHIFT","YRL","NEGB","ZERO","BSEL","NOFL","MASA","ADREB","NXADR"]
+
+            const keys = Object.keys(desc);
+
+            keys.forEach(key => {
+                if (fields.indexOf(key) == -1) {
+                    throw new Error(`Invalid instruction field: ${key}`);
+                }
+            });
+
+            Inst[0] = 0;
+            Inst[1] = 0;
+            Inst[2] = 0;
+            Inst[3] = 0;
+
+            Inst[0] |= (desc.TRA & 0x7F) << 9;
+            Inst[0] |= (desc.TWT & 0x01) << 8;
+            Inst[0] |= (desc.TWA & 0x7F) << 1;
+
+            Inst[1] |= (desc.XSEL & 0x01) << 15;
+            Inst[1] |= (desc.YSEL & 0x03) << 13;
+            Inst[1] |= (desc.IRA & 0x3F) << 7;
+            Inst[1] |= (desc.IWT & 0x01) << 6;
+            Inst[1] |= (desc.IWA & 0x1F) << 1;
+
+            Inst[2] |= (desc.TABLE & 0x01) << 15;
+            Inst[2] |= (desc.MWT & 0x01) << 14;
+            Inst[2] |= (desc.MRD & 0x01) << 13;
+            Inst[2] |= (desc.EWT & 0x01) << 12;
+            Inst[2] |= (desc.EWA & 0x0F) << 8;
+            Inst[2] |= (desc.ADRL & 0x01) << 7;
+            Inst[2] |= (desc.FRCL & 0x01) << 6;
+            Inst[2] |= (desc.SHIFT & 0x03) << 4;
+            Inst[2] |= (desc.YRL & 0x01) << 3;
+            Inst[2] |= (desc.NEGB & 0x01) << 2;
+            Inst[2] |= (desc.ZERO & 0x01) << 1;
+            Inst[2] |= (desc.BSEL & 0x01) << 0;
+
+            Inst[3] |= (desc.NOFL & 0x01) << 15;
+            Inst[3] |= (desc.MASA & 0x3F) << 9;
+            Inst[3] |= (desc.ADREB & 0x01) << 8;
+            Inst[3] |= (desc.NXADR & 0x01) << 7;
+        }
+
+        function disassembleDesc(desc) {
+            return Object.entries(desc)
+                .filter(([key, value]) => value !== 0)
+                .map(([key, value]) => `${key}:${value}`)
+                .join(' ');
+        }
+
+        function assembleDesc(text) {
+            const rv = getDefaultInst();
+            const tokens = text.split(' ');
+
+            tokens.forEach(token => {
+                const split = token.split(':');
+
+                const key = split[0];
+                if (!key) {
+                    throw new Error(`Invalid asm ${text}`);
+                }
+
+                let value = split[1];
+
+                // Default to 1 if value is not provided
+                if (value === undefined) {
+                    value = "1";
+                }
+                rv[key] = parseInt(value, 10);
+            });
+
+            return rv;
+        }
+
+        function getDefaultInst() {
+            return {
+                TRA: 0, TWT: 0, TWA: 0, XSEL: 0, YSEL: 0, IRA: 0, IWT: 0, IWA: 0,
+                TABLE: 0, MWT: 0, MRD: 0, EWT: 0, EWA: 0, ADRL: 0, FRCL: 0, SHIFT: 0,
+                YRL: 0, NEGB: 0, ZERO: 0, BSEL: 0, NOFL: 0, MASA: 0, ADREB: 0, NXADR: 0
+            };
+        }
+
+        function parseDecOrHex16(str) {
+            let rv = parseInt(str);
+
+            return rv & 0xFFFF;
+        }
+
+
+        function assembleSource(source) {
+            const parsedData = {
+                COEF: [],
+                MADRS: [],
+                MEMS: [],
+                MPRO: []
+            };
+
+            source.forEach((line, lineNumber) => {
+                line = line.trim();
+
+                // Skip empty lines and comments
+                if (line === '' || line.startsWith('#')) {
+                    return;
+                }
+
+                // Determine the type of data and parse accordingly
+                const coefMatch = line.match(/^COEF\[(\d+)\] = (\d+|[-0-9a-fA-Fx]+)$/);
+                const madrsMatch = line.match(/^MADRS\[(\d+)\] = (\d+|[-0-9a-fA-Fx]+)$/);
+                const memsLMatch = line.match(/^MEMS_L\[(\d+)\] = (\d+|[-0-9a-fA-Fx]+)$/);
+                const memsHMatch = line.match(/^MEMS_H\[(\d+)\] = (\d+|[-0-9a-fA-Fx]+)$/);
+                const mproMatch = line.match(/^MPRO\[(\d+)\] = (.+)$/);
+
+                if (coefMatch) {
+                    parsedData.COEF.push({
+                        index: parseInt(coefMatch[1], 10),
+                        value: parseDecOrHex16(coefMatch[2])
+                    });
+                } else if (madrsMatch) {
+                    parsedData.MADRS.push({
+                        index: parseInt(madrsMatch[1], 10),
+                        value: parseDecOrHex16(madrsMatch[2])
+                    });
+                } else if (memsLMatch) {
+                    const index = parseInt(memsLMatch[1], 10);
+                    const valueL = parseDecOrHex16(memsLMatch[2]);
+
+                    // Add MEMS_L or pair with existing MEMS_H
+                    const existingEntry = parsedData.MEMS.find((entry) => entry.index === index);
+                    if (existingEntry) {
+                        existingEntry.low = valueL;
+                    } else {
+                        parsedData.MEMS.push({ index, low: valueL });
+                    }
+                } else if (memsHMatch) {
+                    const index = parseInt(memsHMatch[1], 10);
+                    const valueH = parseDecOrHex16(memsHMatch[2]);
+
+                    // Add MEMS_H or pair with existing MEMS_L
+                    const existingEntry = parsedData.MEMS.find((entry) => entry.index === index);
+                    if (existingEntry) {
+                        existingEntry.high = valueH;
+                    } else {
+                        parsedData.MEMS.push({ index, high: valueH });
+                    }
+                } else if (mproMatch) {
+                    const index = parseInt(mproMatch[1], 10);
+                    const encodedDesc = mproMatch[2];
+
+                    try {
+                        // Use `assembleDesc` to parse the description into an object
+                        const desc = assembleDesc(encodedDesc);
+
+                        // Use `encodeInst` to encode the description into instruction data
+                        const inst = new Uint32Array(4);
+                        encodeInst(inst, desc);
+
+                        parsedData.MPRO.push({
+                            index,
+                            encoded: Array.from(inst)
+                        });
+                    } catch (error) {
+                        throw new Error(
+                            `Error processing MPRO line at line ${lineNumber + 1}: ${line}. ${error.message}`
+                        );
+                    }
+                } else {
+                    throw new Error(`Invalid data line at line ${lineNumber + 1}: ${line}`);
+                }
+            });
+
+            return parsedData;
+        }
+
+        // Wait for WASM to be ready before setting up event handlers
+        window.addEventListener('wasmReady', () => {
+            const dsp = window.dsp;
+
+            function writeRegisters(parsedData) {
+                // Write COEF registers
+                for (let i = 0; i < 128; i++) {
+                    dsp.WriteReg(0x3000 + i * 4, 0);
+                }
+                parsedData.COEF.forEach(({ index, value }) => {
+                    dsp.WriteReg(0x3000 + index * 4, value);
+                });
+
+                // Write MADRS registers
+                for (let i = 0; i < 64; i++) {
+                    dsp.WriteReg(0x3200 + i * 4, 0);
+                }
+                parsedData.MADRS.forEach(({ index, value }) => {
+                    dsp.WriteReg(0x3200 + index * 4, value);
+                });
+
+                // Write MEMS registers
+                for (let i = 0; i < 32; i++) {
+                    dsp.WriteReg(0x4400 + i * 8 + 0, 0);
+                    dsp.WriteReg(0x4400 + i * 8 + 4, 0);
+                }
+                parsedData.MEMS.forEach(({ index, low, high }) => {
+                    if (low !== undefined) {
+                        dsp.WriteReg(0x4400 + index * 8 + 0, low);
+                    }
+                    if (high !== undefined) {
+                        dsp.WriteReg(0x4400 + index * 8 + 4, high);
+                    }
+                });
+
+                // Write MPRO registers
+                for (let i = 0; i < 128; i++) {
+                    for (let j = 0; j < 4; j++) {
+                        dsp.WriteReg(0x3000 + 0x400 + i * 4 * 4 + j * 4, 0);
+                    }
+                }
+                parsedData.MPRO.forEach(({ index, encoded }) => {
+                    // Write each part of the encoded instruction
+                    encoded.forEach((value, offset) => {
+                        dsp.WriteReg(0x3000 + 0x400 + index * 4 * 4 + offset * 4, value);
+                    });
+                });
+            }
+
+            const fileInput = document.getElementById('reg-file-input');
+
+            fileInput.addEventListener('change', async (event) => {
+                const file = event.target.files[0];
+                if (!file) {
+                    output.textContent = "No file selected.";
+                    return;
+                }
+
+                try {
+                    const arrayBuffer = await file.arrayBuffer();
+                    const uint32Array = arrayBufferToUint32Array(arrayBuffer);
+
+                    for (let i = 0; i < uint32Array.length; i ++) {
+                        dsp.WriteReg(i * 4, uint32Array[i]);
+                    }
+
+                    let source = [];
+                    source.push('# AICA-DSP');
+                    source.push('');
+                    source.push('# COEF');
+                    for (let i = 0; i < 128; i++) {
+                        if (dsp.ReadReg(0x3000 + i * 4)) {
+                            source.push(`COEF[${i}] = ${dsp.ReadReg(0x3000 + i * 4)}`);
+                        }
+                    }
+                    source.push('');
+                    source.push('# MADRS');
+                    for (let i = 0; i < 64; i++) {
+                        if (dsp.ReadReg(0x3200 + i * 4)) {
+                            source.push(`MADRS[${i}] = ${dsp.ReadReg(0x3200 + i * 4)}`);
+                        }
+                    }
+
+                    source.push('');
+                    source.push('# MEMS');
+                    for (let i = 0; i < 32; i++) {
+                        if (dsp.ReadReg(0x4400 + i * 8 + 0) | dsp.ReadReg(0x4400 + i * 8 + 4)) {
+                            source.push(`MEMS_L[${i}] = ${dsp.ReadReg(0x4400 + i * 8 + 0)}`);
+                            source.push(`MEMS_H[${i}] = ${dsp.ReadReg(0x4400 + i * 8 + 4)}`);
+                        }
+                    }
+                    source.push('');
+
+                    source.push('# MPRO');
+                    for (let i = 0; i < 128; i++) {
+                        const dwords = [
+                            dsp.ReadReg(0x3000 + 0x400 + i * 4 * 4 + 0),
+                            dsp.ReadReg(0x3000 + 0x400 + i * 4 * 4 + 4),
+                            dsp.ReadReg(0x3000 + 0x400 + i * 4 * 4 + 8),
+                            dsp.ReadReg(0x3000 + 0x400 + i * 4 * 4 + 12)
+                        ];
+                        if (disassembleDesc(decodeInst(dwords))) {
+                            source.push(`MPRO[${i}] = ${disassembleDesc(decodeInst(dwords))}`);
+                        }
+                    }
+                    document.getElementById('source').value = source.join('\n');
+
+                    document.getElementById('source').dispatchEvent(new Event('keyup'));
+                } catch (error) {
+                    alert(`Error processing file: ${error.message}`);
+                }
+            });
+
+            function arrayBufferToUint32Array(buffer) {
+                const uint32Array = [];
+                const dataView = new DataView(buffer);
+
+                for (let i = 0; i < buffer.byteLength; i += 4) {
+                    // Read 4 bytes as a uint32_t (little-endian by default)
+                    uint32Array.push(dataView.getUint32(i, true));
+                }
+
+                return uint32Array;
+            }
+
+            function assemble(source) {
+                document.body.style.backgroundColor = 'transparent';
+                try {
+                    const parsedData = assembleSource(source);
+                    writeRegisters(parsedData);
+                } catch (error) {
+                    console.log(error);
+                    document.body.style.backgroundColor = 'red';
+                }
+            }
+
+            document.getElementById('source').addEventListener('keyup', (event) => {
+                let data = pako.deflate(new TextEncoder().encode(event.target.value));
+                let currentUrl = new URL(window.location.href);
+                let binaryString = Array.from(data).map(byte => String.fromCharCode(byte)).join('');
+                let urlParams = new URLSearchParams(window.location.search);
+                let base64string = btoa(binaryString);
+
+                if (!urlParams.has("source") || urlParams.get("source") != base64string) {
+                    window.history.replaceState({}, '', `${currentUrl.pathname}?source=${encodeURIComponent(base64string)}`);
+                }
+
+                assemble(event.target.value.split('\n'));
+            });
+
+            function readAllChunks() {
+                const totalSize = 0x8000;
+                const chunkSize = 4;
+                const buffer = new Uint8Array(totalSize);
+
+                for (let offset = 0; offset < totalSize; offset += chunkSize) {
+                    const value = dsp.ReadReg(offset);
+                    const bytes = new Uint8Array([
+                        value & 0xFF,
+                        (value >> 8) & 0xFF,
+                        (value >> 16) & 0xFF,
+                        (value >> 24) & 0xFF
+                    ]);
+                    buffer.set(bytes, offset);
+                }
+
+                return buffer;
+            }
+
+            function downloadFile(data, filename) {
+                const blob = new Blob([data], { type: "application/octet-stream" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            }
+
+            document.getElementById("download-btn").addEventListener("click", async () => {
+                const data = await readAllChunks();
+                downloadFile(data, "memory_dump.bin");
+            });
+
+            const wavFileInput = document.getElementById('wav-file-input');
+
+            wavFileInput.addEventListener('change', async (event) => {
+                const file = event.target.files[0];
+                window.wavBuffer = new DataView(await file.arrayBuffer());
+                window.wavIndex = 0;
+            });
+
+            let audioContext;
+            let scriptNode;
+            let isPlaying = false;
+
+            frequency = 441; // Frequency in Hz
+            const sampleRate = 44100; // Audio sample rate
+            amplitude = 0.5; // Amplitude of the sine wave
+            let phase = 0; // Phase of the sine wave
+            const TWO_PI = Math.PI * 2;
+
+            const startButton = document.getElementById('start-btn');
+            const stopButton = document.getElementById('stop-btn');
+
+            function startSineWave() {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)({sampleRate: 44100});
+                scriptNode = audioContext.createScriptProcessor(1024, 0, 1);
+
+                scriptNode.onaudioprocess = (event) => {
+                    const outputBuffer = event.outputBuffer.getChannelData(0);
+
+                    for (let i = 0; i < outputBuffer.length; i++) {
+                        // Generate sine wave sample
+                        let sample = amplitude * Math.sin(phase);
+
+                        if (window.wavBuffer) {
+                            sample = window.wavBuffer.getInt16(window.wavIndex, true) / 32768;
+                            window.wavIndex = (window.wavIndex + 2) % window.wavBuffer.byteLength;
+                        }
+
+                        const sampleInt = Math.round(sample * 32767);
+
+                        plotter.appendSample(sampleInt);
+
+
+                        for (let j = 0; j < 2; j++) {
+                            dsp.WriteReg(0x3000 + 0x1500 + 0 + j * 8, (sampleInt >> 0) & 0xF);
+                            dsp.WriteReg(0x3000 + 0x1500 + 4 + j * 8, (sampleInt >> 4) & 0xFFFF);
+                        }
+
+                        dsp.Step128();
+
+                        for(let j = 0; j < 16; j++) {
+
+                            let fxSampleInt = dsp.ReadReg(0x3000 + 0x1580 + j * 4);
+                            fxSampleInt = fxSampleInt & 0xFFFF;
+                            if (fxSampleInt & 0x8000) {
+                                fxSampleInt |= 0xFFFF0000;
+                            }
+                            const fxSample = fxSampleInt / 32767;
+                            // Apply an example effect (distortion)
+                            outputBuffer[i] = outputBuffer[i] + fxSample
+
+                            plotterDsp[j].appendSample(fxSampleInt);
+                        }
+                        // Update the phase
+                        phase += (TWO_PI * frequency) / sampleRate;
+
+                        // Keep phase in the range [0, TWO_PI] to avoid overflow
+                        if (phase >= TWO_PI) {
+                            phase -= TWO_PI;
+                        }
+                    }
+                };
+
+                scriptNode.connect(audioContext.destination);
+                isPlaying = true;
+
+                startButton.style.display = 'none';
+                stopButton.style.display = 'inline-block';
+            }
+
+            function stopSineWave() {
+                if (scriptNode) {
+                    scriptNode.disconnect();
+                }
+                if (audioContext) {
+                    audioContext.close();
+                }
+
+                isPlaying = false;
+                startButton.style.display = 'inline-block';
+                stopButton.style.display = 'none';
+            }
+
+            startButton.addEventListener('click', startSineWave);
+            stopButton.addEventListener('click', stopSineWave);
+
+            // Note frequencies for a wider range of notes
+            const noteFrequencies = {
+                "C3": 130.81, "D3": 146.83, "E3": 164.81, "F3": 174.61, "G3": 196.00,
+                "A3": 220.00, "B3": 246.94, "C4": 261.63, "D4": 293.66, "E4": 329.63,
+                "F4": 349.23, "G4": 392.00, "A4": 440.00, "B4": 493.88, "C5": 523.25,
+                "D5": 587.33, "E5": 659.25, "F5": 698.46
+            };
+
+            const keysPressed = new Set(); // Track keys currently pressed
+
+            document.addEventListener('keydown', (event) => {
+                const note = getNoteFromKey(event.key);
+                if (note && !keysPressed.has(event.key)) {
+                    keysPressed.add(event.key);
+                    frequency = noteFrequencies[note];
+                }
+            });
+
+            document.addEventListener('keyup', (event) => {
+                const note = getNoteFromKey(event.key);
+                if (note && keysPressed.has(event.key)) {
+                    keysPressed.delete(event.key);
+                    if (keysPressed.size === 0) {
+                        frequency = 0; // Set frequency to 0 if no keys are pressed
+                    }
+                }
+            });
+
+            function getNoteFromKey(key) {
+                // Map keyboard keys to notes
+                const keyToNote = {
+                    'z': 'C3', 'x': 'D3', 'c': 'E3', 'v': 'F3', 'b': 'G3', 'n': 'A3', 'm': 'B3',
+                    ',': 'C4', '.': 'D4', '/': 'E4',
+                    'a': 'C4', 's': 'D4', 'd': 'E4', 'f': 'F4', 'g': 'G4', 'h': 'A4', 'j': 'B4', 'k': 'C5',
+                    'l': 'D5', ';': 'E5', '\'': 'F5'
+                };
+                return keyToNote[key.toLowerCase()];
+            }
+
+            // Load from URL if source parameter exists
+            let urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.has("source")) {
+                let compressedData = Uint8Array.from(atob(urlParams.get("source")), c => c.charCodeAt(0));
+                document.getElementById("source").value = new TextDecoder().decode(pako.inflate(compressedData));
+            }
+
+            // Trigger initial assembly
+            document.getElementById('source').dispatchEvent(new Event('keyup'));
+        });
+    </script>
+  </body>
+</html>
