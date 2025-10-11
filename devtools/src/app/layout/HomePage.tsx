@@ -104,7 +104,7 @@ export const HomePage = () => {
           <Stack spacing={4} sx={{ width: "100%" }}>
             <Stack spacing={2}>
               <Typography variant="h5" fontWeight={700} sx={{ color: "text.primary", textAlign: "center" }}>
-                Debugger
+                Workspaces
               </Typography>
               <Box
                 sx={{
