@@ -266,6 +266,29 @@ export const DspPlaygroundPanel = () => {
     });
   }, []);
 
+  // Listen for fullscreen changes (e.g., when user presses ESC)
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const isFullscreen = !!document.fullscreenElement;
+      if (!isFullscreen && editorFocusModeRef.current) {
+        // User exited fullscreen (e.g., pressed ESC)
+        editorFocusModeRef.current = false;
+        setEditorFocusMode(false);
+
+        // Reset container styles
+        if (editorContainerRef.current) {
+          editorContainerRef.current.style.flex = '';
+          editorContainerRef.current.style.minHeight = '';
+        }
+      }
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, []);
+
 
   // Save to localStorage (called manually, not reactive)
   const saveToLocalStorage = useCallback(() => {
