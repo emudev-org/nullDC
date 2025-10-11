@@ -55,27 +55,6 @@ export const PanelIdSchema = z.enum([
 export const BreakpointIdSchema = z.number().int().nonnegative();
 export const WatchIdSchema = z.number().int().nonnegative();
 
-export const RpcMethodNameSchema = z.enum([
-  "debugger.describe",
-  "state.getCallstack",
-  "state.getMemorySlice",
-  "state.getDisassembly",
-  "state.watch",
-  "state.unwatch",
-  "state.editWatch",
-  "state.modifyWatchExpression",
-  "control.step",
-  "control.stepOver",
-  "control.stepOut",
-  "control.runUntil",
-  "control.pause",
-  "breakpoints.add",
-  "breakpoints.remove",
-  "breakpoints.toggle",
-  "breakpoints.setCategoryStates",
-  "event.tick",
-]);
-
 // Enum-style constants for method names (for better discoverability and refactoring)
 export const RpcMethod = {
   DEBUGGER_DESCRIBE: "debugger.describe",
@@ -96,7 +75,28 @@ export const RpcMethod = {
   BREAKPOINTS_TOGGLE: "breakpoints.toggle",
   BREAKPOINTS_SET_CATEGORY_STATES: "breakpoints.setCategoryStates",
   EVENT_TICK: "event.tick",
-} as const satisfies Record<string, RpcMethodName>;
+} as const;
+
+export const RpcMethodNameSchema = z.enum([
+  RpcMethod.DEBUGGER_DESCRIBE,
+  RpcMethod.STATE_GET_CALLSTACK,
+  RpcMethod.STATE_GET_MEMORY_SLICE,
+  RpcMethod.STATE_GET_DISASSEMBLY,
+  RpcMethod.STATE_WATCH,
+  RpcMethod.STATE_UNWATCH,
+  RpcMethod.STATE_EDIT_WATCH,
+  RpcMethod.STATE_MODIFY_WATCH_EXPRESSION,
+  RpcMethod.CONTROL_STEP,
+  RpcMethod.CONTROL_STEP_OVER,
+  RpcMethod.CONTROL_STEP_OUT,
+  RpcMethod.CONTROL_RUN_UNTIL,
+  RpcMethod.CONTROL_PAUSE,
+  RpcMethod.BREAKPOINTS_ADD,
+  RpcMethod.BREAKPOINTS_REMOVE,
+  RpcMethod.BREAKPOINTS_TOGGLE,
+  RpcMethod.BREAKPOINTS_SET_CATEGORY_STATES,
+  RpcMethod.EVENT_TICK,
+]);
 
 // Zod Schemas
 export const RegisterValueSchema = z.object({
@@ -245,7 +245,7 @@ export type RpcError = z.infer<typeof RpcErrorSchema>;
 
 // RPC Method Schemas for validation
 export const DebuggerRpcMethodSchemas = {
-  "state.getCallstack": {
+  [RpcMethod.STATE_GET_CALLSTACK]: {
     params: z.object({
       target: z.enum(["sh4", "arm7"]),
       maxFrames: z.number().optional(),
@@ -255,11 +255,11 @@ export const DebuggerRpcMethodSchemas = {
       frames: z.array(CallstackFrameSchema),
     }),
   },
-  "debugger.describe": {
+  [RpcMethod.DEBUGGER_DESCRIBE]: {
     params: z.object({}),
     result: DebuggerShapeSchema,
   },
-  "state.getMemorySlice": {
+  [RpcMethod.STATE_GET_MEMORY_SLICE]: {
     params: z.object({
       target: TargetProcessorSchema.optional(),
       address: z.number(),
@@ -267,7 +267,7 @@ export const DebuggerRpcMethodSchemas = {
     }),
     result: MemorySliceSchema,
   },
-  "state.getDisassembly": {
+  [RpcMethod.STATE_GET_DISASSEMBLY]: {
     params: z.object({
       target: TargetProcessorSchema.optional(),
       address: z.number(),
@@ -278,61 +278,61 @@ export const DebuggerRpcMethodSchemas = {
       lines: z.array(DisassemblyLineSchema),
     }),
   },
-  "state.watch": {
+  [RpcMethod.STATE_WATCH]: {
     params: z.object({
       expressions: z.array(z.string()),
     }),
     result: RpcErrorSchema,
   },
-  "state.unwatch": {
+  [RpcMethod.STATE_UNWATCH]: {
     params: z.object({
       watchIds: z.array(WatchIdSchema),
     }),
     result: RpcErrorSchema,
   },
-  "state.editWatch": {
+  [RpcMethod.STATE_EDIT_WATCH]: {
     params: z.object({
       watchId: WatchIdSchema,
       value: z.string(),
     }),
     result: RpcErrorSchema,
   },
-  "state.modifyWatchExpression": {
+  [RpcMethod.STATE_MODIFY_WATCH_EXPRESSION]: {
     params: z.object({
       watchId: WatchIdSchema,
       newExpression: z.string(),
     }),
     result: RpcErrorSchema,
   },
-  "control.step": {
+  [RpcMethod.CONTROL_STEP]: {
     params: z.object({
       target: TargetProcessorSchema,
     }),
     result: RpcErrorSchema,
   },
-  "control.stepOver": {
+  [RpcMethod.CONTROL_STEP_OVER]: {
     params: z.object({
       target: TargetProcessorSchema,
     }),
     result: RpcErrorSchema,
   },
-  "control.stepOut": {
+  [RpcMethod.CONTROL_STEP_OUT]: {
     params: z.object({
       target: TargetProcessorSchema,
     }),
     result: RpcErrorSchema,
   },
-  "control.runUntil": {
+  [RpcMethod.CONTROL_RUN_UNTIL]: {
     params: z.object({}),
     result: RpcErrorSchema,
   },
-  "control.pause": {
+  [RpcMethod.CONTROL_PAUSE]: {
     params: z.object({
       target: TargetProcessorSchema.optional(),
     }),
     result: RpcErrorSchema,
   },
-  "breakpoints.add": {
+  [RpcMethod.BREAKPOINTS_ADD]: {
     params: z.object({
       event: z.string(),
       address: z.number().optional(),
@@ -341,26 +341,26 @@ export const DebuggerRpcMethodSchemas = {
     }),
     result: RpcErrorSchema,
   },
-  "breakpoints.setCategoryStates": {
+  [RpcMethod.BREAKPOINTS_SET_CATEGORY_STATES]: {
     params: z.object({
       categories: z.record(z.string(), BreakpointCategoryStateSchema),
     }),
     result: RpcErrorSchema,
   },
-  "breakpoints.remove": {
+  [RpcMethod.BREAKPOINTS_REMOVE]: {
     params: z.object({
       id: BreakpointIdSchema,
     }),
     result: RpcErrorSchema,
   },
-  "breakpoints.toggle": {
+  [RpcMethod.BREAKPOINTS_TOGGLE]: {
     params: z.object({
       id: BreakpointIdSchema,
       enabled: z.boolean(),
     }),
     result: RpcErrorSchema,
   },
-  "event.tick": {
+  [RpcMethod.EVENT_TICK]: {
     params: DebuggerTickSchema,
     result: z.never(),
   },
