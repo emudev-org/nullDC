@@ -25,6 +25,7 @@ import { CoreInspectorPanel } from "../panels/CoreInspectorPanel";
 import { EventsBreakpointsPanel, Sh4BreakpointsPanel, Arm7BreakpointsPanel, DspBreakpointsPanel } from "../panels/BreakpointsPanel";
 import { DocumentationPanel } from "../panels/DocumentationPanel";
 import { Sh4SimPanel } from "../panels/Sh4SimPanel";
+import { DspPlaygroundPanel } from "../panels/DspPlaygroundPanel";
 import { AboutDialog } from "./AboutDialog";
 import { useAboutModal } from "./useAboutModal";
 import { TopNav } from "./TopNav";
@@ -85,6 +86,7 @@ const mainTabs: PanelDefinition[] = [
   { id: "aica", title: "AICA", component: <AudioPanel /> },
   { id: "dsp-disassembly", title: "DSP: Disassembly", component: <DspDisassemblyPanel /> },
   { id: "dsp-breakpoints", title: "DSP: Breakpoints", component: <DspBreakpointsPanel /> },
+  { id: "dsp-playground", title: "DSP: Playground", component: <DspPlaygroundPanel /> },
 ];
 
 const rightPanelTabs: PanelDefinition[] = [

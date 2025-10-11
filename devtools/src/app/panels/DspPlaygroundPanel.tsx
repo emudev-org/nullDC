@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
 import {
   Alert,
   Box,
@@ -176,8 +175,6 @@ interface AudioFile {
 }
 
 export const DspPlaygroundPanel = () => {
-  const navigate = useNavigate();
-  const { subtab } = useParams();
   const [activeTab, setActiveTab] = useState<"source" | "compiled" | "assembly">(resolveInitialTab());
   const dspSourceRef = useRef(resolveInitialDspSource());
   const compiledAssemblyRef = useRef("");
@@ -269,15 +266,6 @@ export const DspPlaygroundPanel = () => {
     });
   }, []);
 
-  // Sync activeTab with URL subtab
-  useEffect(() => {
-    if (subtab === "assembler") {
-      setActiveTab("assembly");
-    } else if (!subtab) {
-      // When navigating to /dsp-playground (no subtab), default to Compiler
-      setActiveTab("source");
-    }
-  }, [subtab]);
 
   // Save to localStorage (called manually, not reactive)
   const saveToLocalStorage = useCallback(() => {
@@ -1969,12 +1957,6 @@ export const DspPlaygroundPanel = () => {
                   value={activeTab}
                   onChange={(_, newValue) => {
                     setActiveTab(newValue);
-                    // Update URL based on tab
-                    if (newValue === "assembly") {
-                      navigate("/dsp-playground/assembler", { replace: true });
-                    } else {
-                      navigate("/dsp-playground", { replace: true });
-                    }
                     // Don't reset editorsReady - let the useEffect handle re-compilation
                   }}
                   sx={{ width: '100%', borderBottom: 1, borderColor: 'divider' }}
