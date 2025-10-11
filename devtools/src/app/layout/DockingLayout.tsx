@@ -6,7 +6,8 @@ import {
   type DockviewApi,
   type IDockviewHeaderActionsProps,
 } from "dockview";
-import { Box, IconButton, Tooltip } from "@mui/material";
+import { Box, IconButton } from "@mui/material";
+import { HideOnHoverTooltip as Tooltip } from "../components";
 import AddIcon from "@mui/icons-material/Add";
 import { useThemeMode } from "../../theme/ThemeModeProvider";
 import { PanelSelectorModal } from "./PanelSelectorModal";

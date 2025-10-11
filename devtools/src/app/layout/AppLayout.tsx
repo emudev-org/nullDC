@@ -1,5 +1,6 @@
 ﻿import { useEffect, useCallback, useMemo, useState, useRef } from "react";
-import { AppBar, Box, Button, Divider, IconButton, Stack, Switch, Tooltip, Typography, Alert } from "@mui/material";
+import { AppBar, Box, Button, Divider, IconButton, Stack, Switch, Typography, Alert } from "@mui/material";
+import { HideOnHoverTooltip as Tooltip } from "../components";
 import PowerSettingsNewIcon from "@mui/icons-material/PowerSettingsNew";
 import CloudDoneIcon from "@mui/icons-material/CloudDone";
 import CloudOffIcon from "@mui/icons-material/CloudOff";
