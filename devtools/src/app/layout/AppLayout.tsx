@@ -228,10 +228,6 @@ export const AppLayout = ({ workspaceId }: AppLayoutProps) => {
   }, [leftPanelTabs]);
 
   const workspaceTabs = useMemo(() => {
-    if (isNarrow) {
-      return [...mainTabs, ...leftPanelTabs, ...rightPanelTabs];
-    }
-
     // Custom initial panels based on workspace
     if (workspaceId === 'sh4-debugger') {
       return [
@@ -265,7 +261,7 @@ export const AppLayout = ({ workspaceId }: AppLayoutProps) => {
     }
 
     return mainTabs;
-  }, [isNarrow, workspaceId]);
+  }, [workspaceId]);
 
   const rightPanelTabsForWorkspace = useMemo(() => {
     if (workspaceId === 'sh4-debugger') {
@@ -399,18 +395,22 @@ export const AppLayout = ({ workspaceId }: AppLayoutProps) => {
   }, [toggleMode]);
 
   const handleResetLayout = useCallback(() => {
-    setLeftPanelOpen(defaultLayoutPrefs.leftPanelOpen);
-    setRightPanelOpen(defaultLayoutPrefs.rightPanelOpen);
-
     if (typeof window === "undefined") {
       return;
     }
 
     try {
+      // Clear all layout storage (including narrow/wide variants)
       window.localStorage.removeItem(getLayoutStorageKey(workspaceId));
-      clearDockingLayout(workspaceId); // Center panel
+      clearDockingLayout(workspaceId); // Center panel (wide)
+      clearDockingLayout(`${workspaceId}-narrow`); // Center panel (narrow)
       clearDockingLayout(`${workspaceId}-left`); // Left panel
       clearDockingLayout(`${workspaceId}-right`); // Right panel
+
+      // Reset panel state to defaults before reload
+      const prefs: StoredLayoutPrefs = defaultLayoutPrefs;
+      window.localStorage.setItem(getLayoutStorageKey(workspaceId), JSON.stringify(prefs));
+
       // Reload to reset docking layout
       window.location.reload();
     } catch (error) {
@@ -579,10 +579,10 @@ export const AppLayout = ({ workspaceId }: AppLayoutProps) => {
             }}
           >
             <DockingLayout
-              key={workspaceId}
+              key={`${workspaceId}${isNarrow ? '-narrow' : ''}`}
               panels={workspaceTabs}
               allPanels={allPanels}
-              workspaceId={workspaceId}
+              workspaceId={`${workspaceId}${isNarrow ? '-narrow' : ''}`}
               onReady={setMainPanelApiState}
               defaultLayoutMode={
                 workspaceId === 'mixed-mode-debugger' ? 'mixed-mode-debugger-layout' :
