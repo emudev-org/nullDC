@@ -13,12 +13,27 @@ export const PANEL_IDS = {
   SH4_DISASSEMBLY: "sh4-disassembly",
   SH4_MEMORY: "sh4-memory",
   SH4_BREAKPOINTS: "sh4-breakpoints",
+  SH4_BSC_REGISTERS: "bsc-registers",
+  SH4_CCN_REGISTERS: "ccn-registers",
+  SH4_CPG_REGISTERS: "cpg-registers",
+  SH4_DMAC_REGISTERS: "dmac-registers",
+  SH4_INTC_REGISTERS: "intc-registers",
+  SH4_RTC_REGISTERS: "rtc-registers",
+  SH4_SCI_REGISTERS: "sci-registers",
+  SH4_SCIF_REGISTERS: "scif-registers",
+  SH4_TMU_REGISTERS: "tmu-registers",
+  SH4_UBC_REGISTERS: "ubc-registers",
+  SH4_SQ_CONTENTS: "sq-contents",
+  SH4_ICACHE_CONTENTS: "icache-contents",
+  SH4_OCACHE_CONTENTS: "ocache-contents",
+  SH4_OCRAM_CONTENTS: "ocram-contents",
+  SH4_TLB_CONTENTS: "tlb-contents",
   ARM7_DISASSEMBLY: "arm7-disassembly",
   ARM7_MEMORY: "arm7-memory",
   ARM7_BREAKPOINTS: "arm7-breakpoints",
-  TA: "ta",
-  CORE: "core",
-  AICA: "aica",
+  CLX2_TA: "clx2-ta",
+  CLX2_CORE: "clx2-core",
+  SGC: "sgc",
   DSP_DISASSEMBLY: "dsp-disassembly",
   DSP_BREAKPOINTS: "dsp-breakpoints",
   DSP_PLAYGROUND: "dsp-playground",
@@ -36,12 +51,27 @@ export const PanelIdSchema = z.enum([
   PANEL_IDS.SH4_DISASSEMBLY,
   PANEL_IDS.SH4_MEMORY,
   PANEL_IDS.SH4_BREAKPOINTS,
+  PANEL_IDS.SH4_BSC_REGISTERS,
+  PANEL_IDS.SH4_CCN_REGISTERS,
+  PANEL_IDS.SH4_CPG_REGISTERS,
+  PANEL_IDS.SH4_DMAC_REGISTERS,
+  PANEL_IDS.SH4_INTC_REGISTERS,
+  PANEL_IDS.SH4_RTC_REGISTERS,
+  PANEL_IDS.SH4_SCI_REGISTERS,
+  PANEL_IDS.SH4_SCIF_REGISTERS,
+  PANEL_IDS.SH4_TMU_REGISTERS,
+  PANEL_IDS.SH4_UBC_REGISTERS,
+  PANEL_IDS.SH4_SQ_CONTENTS,
+  PANEL_IDS.SH4_ICACHE_CONTENTS,
+  PANEL_IDS.SH4_OCACHE_CONTENTS,
+  PANEL_IDS.SH4_OCRAM_CONTENTS,
+  PANEL_IDS.SH4_TLB_CONTENTS,
   PANEL_IDS.ARM7_DISASSEMBLY,
   PANEL_IDS.ARM7_MEMORY,
   PANEL_IDS.ARM7_BREAKPOINTS,
-  PANEL_IDS.TA,
-  PANEL_IDS.CORE,
-  PANEL_IDS.AICA,
+  PANEL_IDS.CLX2_TA,
+  PANEL_IDS.CLX2_CORE,
+  PANEL_IDS.SGC,
   PANEL_IDS.DSP_DISASSEMBLY,
   PANEL_IDS.DSP_BREAKPOINTS,
   PANEL_IDS.DSP_PLAYGROUND,
@@ -107,16 +137,23 @@ export const RegisterValueSchema = z.object({
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
+// Define the base schema without the recursive children
+const BaseDeviceNodeDescriptorSchema = z.object({
+  path: z.string(),
+  label: z.string(),
+  description: z.string(),
+  registers: z.array(RegisterValueSchema).optional(),
+  events: z.array(z.string()).optional(),
+  actions: z.array(PanelIdSchema).optional(),
+});
+
+export type DeviceNodeDescriptor = z.infer<typeof BaseDeviceNodeDescriptorSchema> & {
+  children?: DeviceNodeDescriptor[];
+};
+
 export const DeviceNodeDescriptorSchema: z.ZodType<DeviceNodeDescriptor> = z.lazy(() =>
-  z.object({
-    path: z.string(),
-    label: z.string(),
-    kind: z.string(),
-    description: z.string().optional(),
-    registers: z.array(RegisterValueSchema).optional(),
-    events: z.array(z.string()).optional(),
-    actions: z.array(PanelIdSchema).optional(),
-    children: z.array(DeviceNodeDescriptorSchema).optional(),
+  BaseDeviceNodeDescriptorSchema.extend({
+    children: z.array(z.lazy(() => DeviceNodeDescriptorSchema)).optional(),
   })
 );
 
@@ -219,16 +256,6 @@ export type BreakpointId = z.infer<typeof BreakpointIdSchema>;
 export type WatchId = z.infer<typeof WatchIdSchema>;
 export type PanelId = z.infer<typeof PanelIdSchema>;
 export type RegisterValue = z.infer<typeof RegisterValueSchema>;
-export type DeviceNodeDescriptor = {
-  path: string;
-  label: string;
-  kind: string;
-  description?: string;
-  registers?: RegisterValue[];
-  events?: string[];
-  actions?: PanelId[];
-  children?: DeviceNodeDescriptor[];
-};
 export type MemorySlice = z.infer<typeof MemorySliceSchema>;
 export type DisassemblyLine = z.infer<typeof DisassemblyLineSchema>;
 export type BreakpointCategory = z.infer<typeof BreakpointCategorySchema>;

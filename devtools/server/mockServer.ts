@@ -160,8 +160,7 @@ const buildDeviceTree = (): DeviceNodeDescriptor[] => [
   {
     path: "dc",
     label: "Dreamcast",
-    kind: "beloved console",
-    description: "Sega Dreamcast system bus",
+    description: "beloved console",
     registers: [
       { name: "SYSCLK", value: getRegisterValue("dc", "SYSCLK"), width: 0 },
       { name: "ASIC_REV", value: getRegisterValue("dc", "ASIC_REV"), width: 16 },
@@ -170,66 +169,121 @@ const buildDeviceTree = (): DeviceNodeDescriptor[] => [
       {
         path: "dc.sh4",
         label: "SH4",
-        kind: "processor",
-        description: "Hitachi SH-4 main CPU",
-        registers: [
-          { name: "VBR", value: getRegisterValue("dc.sh4", "VBR"), width: 32 },
-          { name: "SR", value: getRegisterValue("dc.sh4", "SR"), width: 32 },
-          { name: "FPSCR", value: getRegisterValue("dc.sh4", "FPSCR"), width: 32 },
-        ],
+        description: "SH7750-alike SoC",
         events: [
           "dc.sh4.interrupt",
           "dc.sh4.exception",
           "dc.sh4.tlb_miss",
         ],
-        actions: [PANEL_IDS.SH4_DISASSEMBLY, PANEL_IDS.SH4_MEMORY, PANEL_IDS.SH4_BREAKPOINTS],
         children: [
           {
             path: "dc.sh4.cpu",
             label: "Core",
-            kind: "processor",
-            description: "Integer pipeline",
+            description: "SuperH4 CPU Core",
             registers: [
               { name: "PC", value: getRegisterValue("dc.sh4.cpu", "PC"), width: 32 },
               { name: "PR", value: getRegisterValue("dc.sh4.cpu", "PR"), width: 32 },
+              { name: "VBR", value: getRegisterValue("dc.sh4", "VBR"), width: 32 },
+              { name: "SR", value: getRegisterValue("dc.sh4", "SR"), width: 32 },
+              { name: "FPSCR", value: getRegisterValue("dc.sh4", "FPSCR"), width: 32 },
             ],
+            actions: [PANEL_IDS.SH4_DISASSEMBLY, PANEL_IDS.SH4_MEMORY],
+          },
+          {
+            path: "dc.sh4.bsc",
+            label: "BSC",
+            description: "Bus State Controller",
+            actions: [PANEL_IDS.SH4_BSC_REGISTERS],
+          },
+          {
+            path: "dc.sh4.ccn",
+            label: "CCN",
+            description: "Cache Controller",
+            actions: [PANEL_IDS.SH4_CCN_REGISTERS],
+          },
+          {
+            path: "dc.sh4.cpg",
+            label: "CPG",
+            description: "Clock Pulse Generator",
+            actions: [PANEL_IDS.SH4_CPG_REGISTERS],
+          },
+          {
+            path: "dc.sh4.dmac",
+            label: "DMAC",
+            description: "Direct Memory Access Controller",
+            actions: [PANEL_IDS.SH4_DMAC_REGISTERS],
+          },
+          {
+            path: "dc.sh4.intc",
+            label: "INTC",
+            description: "Interrupt Controller",
+            actions: [PANEL_IDS.SH4_INTC_REGISTERS],
+          },
+          {
+            path: "dc.sh4.rtc",
+            label: "RTC",
+            description: "Real Time Clock",
+            actions: [PANEL_IDS.SH4_RTC_REGISTERS],
+          },
+          {
+            path: "dc.sh4.sci",
+            label: "SCI",
+            description: "Serial Communications Interface",
+            actions: [PANEL_IDS.SH4_SCI_REGISTERS],
+          },
+          {
+            path: "dc.sh4.scif",
+            label: "SCIF",
+            description: "Serial Communications Interface w/ FIFO",
+            actions: [PANEL_IDS.SH4_SCIF_REGISTERS],
+          },
+          {
+            path: "dc.sh4.tmu",
+            label: "TMU",
+            description: "Timer Unit",
+            actions: [PANEL_IDS.SH4_TMU_REGISTERS],
+          },
+          {
+            path: "dc.sh4.ubc",
+            label: "UBC",
+            description: "User Break Controller",
+            actions: [PANEL_IDS.SH4_UBC_REGISTERS],
+          },
+          {
+            path: "dc.sh4.sq",
+            label: "SQ",
+            description: "Store Queues",
+            actions: [PANEL_IDS.SH4_SQ_CONTENTS],
           },
           {
             path: "dc.sh4.icache",
-            label: "I-Cache",
-            kind: "peripheral",
-            description: "Instruction cache",
-            registers: [
-              { name: "ICRAM", value: "16KB", width: 0 },
-              { name: "ICACHE_CTRL", value: getRegisterValue("dc.sh4.icache", "ICACHE_CTRL"), width: 32 },
-            ],
+            label: "ICACHE",
+            description: "Instruction Cache",
+            actions: [PANEL_IDS.SH4_ICACHE_CONTENTS],
           },
           {
-            path: "dc.sh4.dcache",
-            label: "D-Cache",
-            kind: "peripheral",
-            description: "Data cache",
-            registers: [
-              { name: "DCRAM", value: "8KB", width: 0 },
-              { name: "DCACHE_CTRL", value: getRegisterValue("dc.sh4.dcache", "DCACHE_CTRL"), width: 32 },
-            ],
+            path: "dc.sh4.ocache",
+            label: "OCACHE",
+            description: "Operand Cache",
+            actions: [PANEL_IDS.SH4_OCACHE_CONTENTS],
+          },
+          {
+            path: "dc.sh4.ocram",
+            label: "OCRAM",
+            description: "Operand RAM",
+            actions: [PANEL_IDS.SH4_OCRAM_CONTENTS],
           },
           {
             path: "dc.sh4.tlb",
             label: "TLB",
-            kind: "peripheral",
-            description: "Translation lookaside buffer",
-            registers: [
-              { name: "UTLB_ENTRIES", value: "64", width: 0 },
-              { name: "ITLB_ENTRIES", value: "4", width: 0 },
-            ],
+            description: "Translation Lookaside Buffer",
+            actions: [PANEL_IDS.SH4_TLB_CONTENTS],
           },
         ],
       },
       {
         path: "dc.holly",
         label: "Holly",
-        kind: "peripheral",
         description: "System ASIC",
         registers: [
           { name: "HOLLY_ID", value: getRegisterValue("dc.holly", "HOLLY_ID"), width: 32 },
@@ -239,7 +293,7 @@ const buildDeviceTree = (): DeviceNodeDescriptor[] => [
           {
             path: "dc.holly.dmac",
             label: "DMA Controller",
-            kind: "peripheral",
+            description: "peripheral",
             registers: [
               { name: "DMAOR", value: getRegisterValue("dc.holly.dmac", "DMAOR"), width: 16 },
               { name: "CHCR0", value: getRegisterValue("dc.holly.dmac", "CHCR0"), width: 32 },
@@ -251,8 +305,9 @@ const buildDeviceTree = (): DeviceNodeDescriptor[] => [
           },
           {
             path: "dc.holly.ta",
-            label: "TA",
-            kind: "pipeline",
+            label: "CLX2/TA",
+            description: "Tile Accelerator",
+            actions: [PANEL_IDS.CLX2_TA],
             registers: [
               { name: "TA_LIST_BASE", value: getRegisterValue("dc.holly.ta", "TA_LIST_BASE"), width: 32 },
               { name: "TA_STATUS", value: getRegisterValue("dc.holly.ta", "TA_STATUS"), width: 32 },
@@ -266,8 +321,9 @@ const buildDeviceTree = (): DeviceNodeDescriptor[] => [
           },
           {
             path: "dc.holly.core",
-            label: "CORE",
-            kind: "pipeline",
+            label: "CLX2/CORE",
+            description: "Depth and Shading Engine",
+            actions: [PANEL_IDS.CLX2_CORE],
             registers: [
               { name: "PVR_CTRL", value: getRegisterValue("dc.holly.core", "PVR_CTRL"), width: 32 },
               { name: "PVR_STATUS", value: getRegisterValue("dc.holly.core", "PVR_STATUS"), width: 32 },
@@ -283,8 +339,7 @@ const buildDeviceTree = (): DeviceNodeDescriptor[] => [
       {
         path: "dc.aica",
         label: "AICA",
-        kind: "coprocessor",
-        description: "Sound processor",
+        description: "Sound SoC",
         registers: [
           { name: "AICA_CTRL", value: getRegisterValue("dc.aica", "AICA_CTRL"), width: 32 },
           { name: "AICA_STATUS", value: getRegisterValue("dc.aica", "AICA_STATUS"), width: 32 },
@@ -297,39 +352,64 @@ const buildDeviceTree = (): DeviceNodeDescriptor[] => [
           {
             path: "dc.aica.arm7",
             label: "ARM7",
-            kind: "processor",
-            description: "ARM7TDMI sound CPU",
+            description: "ARM7DI CPU Core",
             registers: [
               { name: "PC", value: getRegisterValue("dc.aica.arm7", "PC"), width: 32 },
             ],
-            actions: [PANEL_IDS.ARM7_DISASSEMBLY, PANEL_IDS.ARM7_MEMORY, PANEL_IDS.ARM7_BREAKPOINTS],
+            actions: [PANEL_IDS.ARM7_DISASSEMBLY, PANEL_IDS.ARM7_MEMORY],
           },
           {
-            path: "dc.aica.channels",
-            label: "Channels",
-            kind: "channel",
-            registers: [
-              { name: "CH0_VOL", value: getRegisterValue("dc.aica.channels", "CH0_VOL"), width: 8 },
-              { name: "CH1_VOL", value: getRegisterValue("dc.aica.channels", "CH1_VOL"), width: 8 },
-            ],
+            path: "dc.aica.sgc",
+            label: "SGC",
+            description: "Sound Generation Core",
+            actions: [PANEL_IDS.SGC],
             events: [
               "dc.aica.channels.key_on",
               "dc.aica.channels.key_off",
               "dc.aica.channels.loop",
             ],
+            children: [
+              {
+                path: "dc.aica.sgc.0",
+                label: "Channel 0",
+                description: "SGC Channel 0",
+                registers: [
+                  { name: "VOL", value: getRegisterValue("dc.aica.channels", "CH0_VOL"), width: 8 },
+                ],
+                events: [
+                  "dc.aica.channel.0.key_on",
+                  "dc.aica.channel.0.key_off",
+                  "dc.aica.channel.0.loop",
+                ],
+              },
+              {
+                path: "dc.aica.sgc.1",
+                label: "Channel 1",
+                description: "SGC Channel 1",
+                registers: [
+                  { name: "VOL", value: getRegisterValue("dc.aica.channels", "CH1_VOL"), width: 8 },
+                ],
+                events: [
+                  "dc.aica.channel.0.key_on",
+                  "dc.aica.channel.0.key_off",
+                  "dc.aica.channel.0.loop",
+                ],
+              }
+            ]
           },
           {
             path: "dc.aica.dsp",
             label: "DSP",
-            kind: "coprocessor",
+            description: "DSP VLIW Core",
             registers: [
               { name: "STEP", value: getRegisterValue("dc.aica.dsp", "STEP"), width: 16 },
               { name: "DSP_ACC", value: getRegisterValue("dc.aica.dsp", "DSP_ACC"), width: 16 },
             ],
             events: [
               "dc.aica.dsp.step",
+              "dc.aica.dsp.sample_start",
             ],
-            actions: [PANEL_IDS.DSP_DISASSEMBLY, PANEL_IDS.DSP_BREAKPOINTS, PANEL_IDS.DSP_PLAYGROUND],
+            actions: [PANEL_IDS.DSP_DISASSEMBLY],
           },
         ],
       },

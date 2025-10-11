@@ -348,8 +348,9 @@ function createDefaultLayout(api: DockviewApi, panels: PanelDefinition[], mode: 
     });
 
     // Add second panel to the right (ARM7 Disassembly)
+    let secondPanel;
     if (panels.length > 1) {
-      api.addPanel({
+      secondPanel = api.addPanel({
         id: panels[1].id,
         component: panels[1].id,
         title: panels[1].title,
@@ -372,6 +373,9 @@ function createDefaultLayout(api: DockviewApi, panels: PanelDefinition[], mode: 
         },
       });
     }
+
+    // Focus the first panel in the left group
+    firstPanel.api.setActive();
   } else if (mode === 'sh4-layout') {
     // SH4 layout: First panel on left, remaining panels vertically stacked on right
     if (panels.length === 0) return;
@@ -384,8 +388,9 @@ function createDefaultLayout(api: DockviewApi, panels: PanelDefinition[], mode: 
     });
 
     // Add second panel to the right (SH4 Memory)
+    let secondPanel;
     if (panels.length > 1) {
-      api.addPanel({
+      secondPanel = api.addPanel({
         id: panels[1].id,
         component: panels[1].id,
         title: panels[1].title,
@@ -397,8 +402,9 @@ function createDefaultLayout(api: DockviewApi, panels: PanelDefinition[], mode: 
     }
 
     // Add third panel below second (SH4 Breakpoints)
+    let thirdPanel;
     if (panels.length > 2) {
-      api.addPanel({
+      thirdPanel = api.addPanel({
         id: panels[2].id,
         component: panels[2].id,
         title: panels[2].title,
@@ -421,6 +427,9 @@ function createDefaultLayout(api: DockviewApi, panels: PanelDefinition[], mode: 
         },
       });
     }
+
+    // Focus the first panel in the left group
+    firstPanel.api.setActive();
   } else if (mode === 'vertical-stack') {
     // Create panels stacked vertically with specific heights
     // First panel (50% height)
@@ -431,8 +440,9 @@ function createDefaultLayout(api: DockviewApi, panels: PanelDefinition[], mode: 
     });
 
     // Second panel below first
+    let secondPanel;
     if (panels.length > 1) {
-      api.addPanel({
+      secondPanel = api.addPanel({
         id: panels[1].id,
         component: panels[1].id,
         title: panels[1].title,
@@ -444,8 +454,9 @@ function createDefaultLayout(api: DockviewApi, panels: PanelDefinition[], mode: 
     }
 
     // Third panel below second
+    let thirdPanel;
     if (panels.length > 2) {
-      api.addPanel({
+      thirdPanel = api.addPanel({
         id: panels[2].id,
         component: panels[2].id,
         title: panels[2].title,
@@ -459,18 +470,18 @@ function createDefaultLayout(api: DockviewApi, panels: PanelDefinition[], mode: 
       setTimeout(() => {
         const totalHeight = api.height;
         const firstGroup = firstPanel.group;
-        const secondPanel = api.getPanel(panels[1].id);
-        const thirdPanel = api.getPanel(panels[2].id);
+        const secondPanelObj = api.getPanel(panels[1].id);
+        const thirdPanelObj = api.getPanel(panels[2].id);
 
-        if (firstGroup && secondPanel?.group && thirdPanel?.group && totalHeight) {
+        if (firstGroup && secondPanelObj?.group && thirdPanelObj?.group && totalHeight) {
           // Calculate heights: 50%, 25%, 25%
           const firstHeight = totalHeight * 0.5;
           const secondHeight = totalHeight * 0.25;
           const thirdHeight = totalHeight * 0.25;
 
           firstGroup.api.setSize({ height: firstHeight });
-          secondPanel.group.api.setSize({ height: secondHeight });
-          thirdPanel.group.api.setSize({ height: thirdHeight });
+          secondPanelObj.group.api.setSize({ height: secondHeight });
+          thirdPanelObj.group.api.setSize({ height: thirdHeight });
         }
       }, 0);
     }
@@ -487,6 +498,9 @@ function createDefaultLayout(api: DockviewApi, panels: PanelDefinition[], mode: 
         },
       });
     }
+
+    // Focus the first panel in the top group
+    firstPanel.api.setActive();
   } else {
     // Create a single panel group with all panels as tabs
     const firstPanel = api.addPanel({
@@ -506,6 +520,9 @@ function createDefaultLayout(api: DockviewApi, panels: PanelDefinition[], mode: 
         },
       });
     }
+
+    // Focus the first panel
+    firstPanel.api.setActive();
   }
 }
 

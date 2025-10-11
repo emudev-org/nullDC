@@ -176,12 +176,20 @@ export const DeviceTreePanel = ({ onOpenPanel }: DeviceTreePanelProps = {}) => {
         label={
           <Stack direction="row" spacing={0.5} alignItems="center" justifyContent="space-between" sx={{ py: 0, width: "100%" }}>
             <Stack direction="row" spacing={0.5} alignItems="center" sx={{ flex: 1, minWidth: 0 }}>
-              <Typography variant="body2" fontWeight={500} sx={{ fontSize: "0.813rem", lineHeight: 1.4 }}>
-                {node.label}
-              </Typography>
+              {node.actions && node.actions.length > 0 ? (
+                <Tooltip title={node.description} placement="right">
+                  <Typography variant="body2" fontWeight={500} sx={{ fontSize: "0.813rem", lineHeight: 1.4 }}>
+                    {node.label}
+                  </Typography>
+                </Tooltip>
+              ) : (
+                <Typography variant="body2" fontWeight={500} sx={{ fontSize: "0.813rem", lineHeight: 1.4 }}>
+                  {node.label}
+                </Typography>
+              )}
               {!node.actions && (
                 <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.688rem", lineHeight: 1.4 }}>
-                  {node.kind}
+                  {node.description}
                 </Typography>
               )}
             </Stack>
@@ -190,7 +198,7 @@ export const DeviceTreePanel = ({ onOpenPanel }: DeviceTreePanelProps = {}) => {
                 {node.actions.map((panelId) => {
                   const panelInfo = PANEL_REGISTRY[panelId];
                   return (
-                    <Tooltip key={panelId} title={`Open ${panelInfo.name}`}>
+                    <Tooltip key={panelId} title={`Open ${panelInfo.name}`} placement="left">
                       <IconButton
                         size="small"
                         onClick={(event) => {

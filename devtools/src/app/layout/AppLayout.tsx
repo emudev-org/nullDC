@@ -1,4 +1,4 @@
-﻿import { useEffect, useCallback, useMemo, useState } from "react";
+﻿import { useEffect, useCallback, useMemo, useState, useRef } from "react";
 import { AppBar, Box, Button, Divider, IconButton, Stack, Switch, Tooltip, Typography, Alert } from "@mui/material";
 import PowerSettingsNewIcon from "@mui/icons-material/PowerSettingsNew";
 import CloudDoneIcon from "@mui/icons-material/CloudDone";
@@ -26,6 +26,25 @@ import { EventsBreakpointsPanel, Sh4BreakpointsPanel, Arm7BreakpointsPanel, DspB
 import { DocumentationPanel } from "../panels/DocumentationPanel";
 import { Sh4SimPanel } from "../panels/Sh4SimPanel";
 import { DspPlaygroundPanel } from "../panels/DspPlaygroundPanel";
+import {
+  BscRegistersPanel,
+  CcnRegistersPanel,
+  CpgRegistersPanel,
+  DmacRegistersPanel,
+  IntcRegistersPanel,
+  RtcRegistersPanel,
+  SciRegistersPanel,
+  ScifRegistersPanel,
+  TmuRegistersPanel,
+  UbcRegistersPanel,
+} from "../panels/Sh4RegisterPanels";
+import {
+  SqContentsPanel,
+  IcacheContentsPanel,
+  OcacheContentsPanel,
+  OcramContentsPanel,
+  TlbContentsPanel,
+} from "../panels/Sh4CachePanels";
 import { AboutDialog } from "./AboutDialog";
 import { useAboutModal } from "./useAboutModal";
 import { TopNav } from "./TopNav";
@@ -83,12 +102,27 @@ const mainTabs: PanelDefinition[] = [
   { id: PANEL_IDS.SH4_DISASSEMBLY, title: "SH4: Disassembly", component: <Sh4DisassemblyPanel /> },
   { id: PANEL_IDS.SH4_MEMORY, title: "SH4: Memory", component: <Sh4MemoryPanel /> },
   { id: PANEL_IDS.SH4_BREAKPOINTS, title: "SH4: Breakpoints", component: <Sh4BreakpointsPanel /> },
+  { id: PANEL_IDS.SH4_BSC_REGISTERS, title: "SH4: BSC Registers", component: <BscRegistersPanel /> },
+  { id: PANEL_IDS.SH4_CCN_REGISTERS, title: "SH4: CCN Registers", component: <CcnRegistersPanel /> },
+  { id: PANEL_IDS.SH4_CPG_REGISTERS, title: "SH4: CPG Registers", component: <CpgRegistersPanel /> },
+  { id: PANEL_IDS.SH4_DMAC_REGISTERS, title: "SH4: DMAC Registers", component: <DmacRegistersPanel /> },
+  { id: PANEL_IDS.SH4_INTC_REGISTERS, title: "SH4: INTC Registers", component: <IntcRegistersPanel /> },
+  { id: PANEL_IDS.SH4_RTC_REGISTERS, title: "SH4: RTC Registers", component: <RtcRegistersPanel /> },
+  { id: PANEL_IDS.SH4_SCI_REGISTERS, title: "SH4: SCI Registers", component: <SciRegistersPanel /> },
+  { id: PANEL_IDS.SH4_SCIF_REGISTERS, title: "SH4: SCIF Registers", component: <ScifRegistersPanel /> },
+  { id: PANEL_IDS.SH4_TMU_REGISTERS, title: "SH4: TMU Registers", component: <TmuRegistersPanel /> },
+  { id: PANEL_IDS.SH4_UBC_REGISTERS, title: "SH4: UBC Registers", component: <UbcRegistersPanel /> },
+  { id: PANEL_IDS.SH4_SQ_CONTENTS, title: "SH4: Store Queues", component: <SqContentsPanel /> },
+  { id: PANEL_IDS.SH4_ICACHE_CONTENTS, title: "SH4: ICACHE", component: <IcacheContentsPanel /> },
+  { id: PANEL_IDS.SH4_OCACHE_CONTENTS, title: "SH4: OCACHE", component: <OcacheContentsPanel /> },
+  { id: PANEL_IDS.SH4_OCRAM_CONTENTS, title: "SH4: OC-RAM", component: <OcramContentsPanel /> },
+  { id: PANEL_IDS.SH4_TLB_CONTENTS, title: "SH4: TLB", component: <TlbContentsPanel /> },
   { id: PANEL_IDS.ARM7_DISASSEMBLY, title: "ARM7: Disassembly", component: <Arm7DisassemblyPanel /> },
   { id: PANEL_IDS.ARM7_MEMORY, title: "ARM7: Memory", component: <Arm7MemoryPanel /> },
   { id: PANEL_IDS.ARM7_BREAKPOINTS, title: "ARM7: Breakpoints", component: <Arm7BreakpointsPanel /> },
-  { id: PANEL_IDS.TA, title: "TA", component: <TaInspectorPanel /> },
-  { id: PANEL_IDS.CORE, title: "CORE", component: <CoreInspectorPanel /> },
-  { id: PANEL_IDS.AICA, title: "AICA", component: <AudioPanel /> },
+  { id: PANEL_IDS.CLX2_TA, title: "CLX2: TA", component: <TaInspectorPanel /> },
+  { id: PANEL_IDS.CLX2_CORE, title: "CLX2: CORE", component: <CoreInspectorPanel /> },
+  { id: PANEL_IDS.SGC, title: "SGC", component: <AudioPanel /> },
   { id: PANEL_IDS.DSP_DISASSEMBLY, title: "DSP: Disassembly", component: <DspDisassemblyPanel /> },
   { id: PANEL_IDS.DSP_BREAKPOINTS, title: "DSP: Breakpoints", component: <DspBreakpointsPanel /> },
   { id: PANEL_IDS.DSP_PLAYGROUND, title: "DSP: Playground", component: <DspPlaygroundPanel /> },
@@ -139,40 +173,61 @@ export const AppLayout = ({ workspaceId }: AppLayoutProps) => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [mainPanelApiState, setMainPanelApiState] = useState<DockviewApi | null>(null);
 
-  const allPanels = useMemo(() => {
-    return [...createLeftPanelTabs(), ...mainTabs, ...rightPanelTabs];
-  }, []);
+  // Use a ref to avoid stale closures
+  const mainPanelApiRef = useRef<DockviewApi | null>(null);
+
+  useEffect(() => {
+    mainPanelApiRef.current = mainPanelApiState;
+  }, [mainPanelApiState]);
 
   const handleOpenPanelInMain = useCallback((panelId: PanelId) => {
-    if (!mainPanelApiState) {
-      console.warn("Main panel API not ready");
+    const api = mainPanelApiRef.current;
+    if (!api) {
+      return;
+    }
+
+    // Find panel definition
+    const panelDef = mainTabs.find(p => p.id === panelId) || rightPanelTabs.find(p => p.id === panelId);
+    if (!panelDef) {
       return;
     }
 
     // Check if panel already exists
-    const existingPanel = mainPanelApiState.getPanel(panelId);
+    const existingPanel = api.getPanel(panelId);
     if (existingPanel) {
       // Focus the existing panel
       existingPanel.api.setActive();
       return;
     }
 
-    // Find panel definition
-    const panelDef = allPanels.find(p => p.id === panelId);
-    if (!panelDef) {
-      console.warn(`Panel ${panelId} not found in panel definitions`);
-      return;
-    }
+    // Get the currently active group to add the panel next to it
+    const activeGroup = api.activeGroup;
 
     // Add the panel to the main view
-    mainPanelApiState.addPanel({
-      id: panelId,
-      component: panelId,
-      title: panelDef.title,
-    });
-  }, [mainPanelApiState, allPanels]);
+    if (activeGroup) {
+      api.addPanel({
+        id: panelId,
+        component: panelId,
+        title: panelDef.title,
+        position: {
+          referenceGroup: activeGroup,
+          direction: 'within',
+        },
+      });
+    } else {
+      api.addPanel({
+        id: panelId,
+        component: panelId,
+        title: panelDef.title,
+      });
+    }
+  }, []);
 
   const leftPanelTabs = useMemo(() => createLeftPanelTabs(handleOpenPanelInMain), [handleOpenPanelInMain]);
+
+  const allPanels = useMemo(() => {
+    return [...leftPanelTabs, ...mainTabs, ...rightPanelTabs];
+  }, [leftPanelTabs]);
 
   const workspaceTabs = useMemo(() => {
     if (isNarrow) {
@@ -198,7 +253,7 @@ export const AppLayout = ({ workspaceId }: AppLayoutProps) => {
 
     if (workspaceId === 'audio-debugger') {
       return [
-        { id: PANEL_IDS.AICA, title: "AICA", component: <AudioPanel /> },
+        { id: PANEL_IDS.SGC, title: "SGC", component: <AudioPanel /> },
         { id: PANEL_IDS.DSP_DISASSEMBLY, title: "DSP: Disassembly", component: <DspDisassemblyPanel /> },
         { id: PANEL_IDS.DSP_BREAKPOINTS, title: "DSP: Breakpoints", component: <DspBreakpointsPanel /> },
       ];

@@ -12,6 +12,17 @@ import GraphicEqIcon from "@mui/icons-material/GraphicEq";
 import ViewInArIcon from "@mui/icons-material/ViewInAr";
 import SettingsIcon from "@mui/icons-material/Settings";
 import ScienceIcon from "@mui/icons-material/Science";
+import ImageIcon from "@mui/icons-material/Image";
+import StorageIcon from "@mui/icons-material/Storage";
+import CableIcon from "@mui/icons-material/Cable";
+import PowerIcon from "@mui/icons-material/Power";
+import RouterIcon from "@mui/icons-material/Router";
+import NotificationsIcon from "@mui/icons-material/Notifications";
+import AccessTimeIcon from "@mui/icons-material/AccessTime";
+import SerialIcon from "@mui/icons-material/SettingsInputAntenna";
+import TimerIcon from "@mui/icons-material/Timer";
+import PauseCircleIcon from "@mui/icons-material/PauseCircle";
+import LayersIcon from "@mui/icons-material/Layers";
 import { PANEL_IDS, type PanelId } from "../../lib/debuggerSchema";
 
 export type PanelRegistryEntry = {
@@ -44,57 +55,132 @@ export const PANEL_REGISTRY: Record<PanelId, PanelRegistryEntry> = {
   [PANEL_IDS.SH4_DISASSEMBLY]: {
     id: PANEL_IDS.SH4_DISASSEMBLY,
     name: "SH4: Disassembly",
-    icon: <CodeIcon fontSize="small" />,
+    icon: <BugReportIcon fontSize="small" />,
   },
   [PANEL_IDS.SH4_MEMORY]: {
     id: PANEL_IDS.SH4_MEMORY,
     name: "SH4: Memory",
-    icon: <MemoryIcon fontSize="small" />,
+    icon: <StorageIcon fontSize="small" />,
   },
   [PANEL_IDS.SH4_BREAKPOINTS]: {
     id: PANEL_IDS.SH4_BREAKPOINTS,
     name: "SH4: Breakpoints",
-    icon: <BugReportIcon fontSize="small" />,
+    icon: <CodeIcon fontSize="small" />,
+  },
+  [PANEL_IDS.SH4_BSC_REGISTERS]: {
+    id: PANEL_IDS.SH4_BSC_REGISTERS,
+    name: "SH4: BSC Registers",
+    icon: <DeveloperBoardIcon fontSize="small" />,
+  },
+  [PANEL_IDS.SH4_CCN_REGISTERS]: {
+    id: PANEL_IDS.SH4_CCN_REGISTERS,
+    name: "SH4: CCN Registers",
+    icon: <DeveloperBoardIcon fontSize="small" />,
+  },
+  [PANEL_IDS.SH4_CPG_REGISTERS]: {
+    id: PANEL_IDS.SH4_CPG_REGISTERS,
+    name: "SH4: CPG Registers",
+    icon: <DeveloperBoardIcon fontSize="small" />,
+  },
+  [PANEL_IDS.SH4_DMAC_REGISTERS]: {
+    id: PANEL_IDS.SH4_DMAC_REGISTERS,
+    name: "SH4: DMAC Registers",
+    icon: <DeveloperBoardIcon fontSize="small" />,
+  },
+  [PANEL_IDS.SH4_INTC_REGISTERS]: {
+    id: PANEL_IDS.SH4_INTC_REGISTERS,
+    name: "SH4: INTC Registers",
+    icon: <DeveloperBoardIcon fontSize="small" />,
+  },
+  [PANEL_IDS.SH4_RTC_REGISTERS]: {
+    id: PANEL_IDS.SH4_RTC_REGISTERS,
+    name: "SH4: RTC Registers",
+    icon: <DeveloperBoardIcon fontSize="small" />,
+  },
+  [PANEL_IDS.SH4_SCI_REGISTERS]: {
+    id: PANEL_IDS.SH4_SCI_REGISTERS,
+    name: "SH4: SCI Registers",
+    icon: <DeveloperBoardIcon fontSize="small" />,
+  },
+  [PANEL_IDS.SH4_SCIF_REGISTERS]: {
+    id: PANEL_IDS.SH4_SCIF_REGISTERS,
+    name: "SH4: SCIF Registers",
+    icon: <DeveloperBoardIcon fontSize="small" />,
+  },
+  [PANEL_IDS.SH4_TMU_REGISTERS]: {
+    id: PANEL_IDS.SH4_TMU_REGISTERS,
+    name: "SH4: TMU Registers",
+    icon: <DeveloperBoardIcon fontSize="small" />,
+  },
+  [PANEL_IDS.SH4_UBC_REGISTERS]: {
+    id: PANEL_IDS.SH4_UBC_REGISTERS,
+    name: "SH4: UBC Registers",
+    icon: <DeveloperBoardIcon fontSize="small" />,
+  },
+  [PANEL_IDS.SH4_SQ_CONTENTS]: {
+    id: PANEL_IDS.SH4_SQ_CONTENTS,
+    name: "SH4: Store Queues",
+    icon: <StorageIcon fontSize="small" />,
+  },
+  [PANEL_IDS.SH4_ICACHE_CONTENTS]: {
+    id: PANEL_IDS.SH4_ICACHE_CONTENTS,
+    name: "SH4: ICACHE",
+    icon: <LayersIcon fontSize="small" />,
+  },
+  [PANEL_IDS.SH4_OCACHE_CONTENTS]: {
+    id: PANEL_IDS.SH4_OCACHE_CONTENTS,
+    name: "SH4: OCACHE",
+    icon: <LayersIcon fontSize="small" />,
+  },
+  [PANEL_IDS.SH4_OCRAM_CONTENTS]: {
+    id: PANEL_IDS.SH4_OCRAM_CONTENTS,
+    name: "SH4: OC-RAM",
+    icon: <StorageIcon fontSize="small" />,
+  },
+  [PANEL_IDS.SH4_TLB_CONTENTS]: {
+    id: PANEL_IDS.SH4_TLB_CONTENTS,
+    name: "SH4: TLB",
+    icon: <StorageIcon fontSize="small" />,
   },
   [PANEL_IDS.ARM7_DISASSEMBLY]: {
     id: PANEL_IDS.ARM7_DISASSEMBLY,
     name: "ARM7: Disassembly",
-    icon: <CodeIcon fontSize="small" />,
+    icon: <BugReportIcon fontSize="small" />,
   },
   [PANEL_IDS.ARM7_MEMORY]: {
     id: PANEL_IDS.ARM7_MEMORY,
     name: "ARM7: Memory",
-    icon: <MemoryIcon fontSize="small" />,
+    icon: <StorageIcon fontSize="small" />,
   },
   [PANEL_IDS.ARM7_BREAKPOINTS]: {
     id: PANEL_IDS.ARM7_BREAKPOINTS,
     name: "ARM7: Breakpoints",
-    icon: <BugReportIcon fontSize="small" />,
+    icon: <CodeIcon fontSize="small" />,
   },
-  [PANEL_IDS.TA]: {
-    id: PANEL_IDS.TA,
-    name: "TA",
+  [PANEL_IDS.CLX2_TA]: {
+    id: PANEL_IDS.CLX2_TA,
+    name: "CLX2: TA",
     icon: <ViewInArIcon fontSize="small" />,
   },
-  [PANEL_IDS.CORE]: {
-    id: PANEL_IDS.CORE,
-    name: "CORE",
-    icon: <SettingsIcon fontSize="small" />,
+  [PANEL_IDS.CLX2_CORE]: {
+    id: PANEL_IDS.CLX2_CORE,
+    name: "CLX2: CORE",
+    icon: <ImageIcon fontSize="small" />,
   },
-  [PANEL_IDS.AICA]: {
-    id: PANEL_IDS.AICA,
-    name: "AICA",
+  [PANEL_IDS.SGC]: {
+    id: PANEL_IDS.SGC,
+    name: "SGC",
     icon: <GraphicEqIcon fontSize="small" />,
   },
   [PANEL_IDS.DSP_DISASSEMBLY]: {
     id: PANEL_IDS.DSP_DISASSEMBLY,
     name: "DSP: Disassembly",
-    icon: <CodeIcon fontSize="small" />,
+    icon: <BugReportIcon fontSize="small" />,
   },
   [PANEL_IDS.DSP_BREAKPOINTS]: {
     id: PANEL_IDS.DSP_BREAKPOINTS,
     name: "DSP: Breakpoints",
-    icon: <BugReportIcon fontSize="small" />,
+    icon: <CodeIcon fontSize="small" />,
   },
   [PANEL_IDS.DSP_PLAYGROUND]: {
     id: PANEL_IDS.DSP_PLAYGROUND,
