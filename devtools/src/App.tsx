@@ -27,9 +27,9 @@ const App = () => {
         <Route path="/workspace/dsp-debugger/:tab" element={<AppLayout workspaceId="dsp-debugger" />} />
         <Route path="/workspace/dsp-debugger/:tab/:subtab" element={<AppLayout workspaceId="dsp-debugger" />} />
 
-        <Route path="/workspace/custom-debugger" element={<AppLayout workspaceId="custom-debugger" />} />
-        <Route path="/workspace/custom-debugger/:tab" element={<AppLayout workspaceId="custom-debugger" />} />
-        <Route path="/workspace/custom-debugger/:tab/:subtab" element={<AppLayout workspaceId="custom-debugger" />} />
+        <Route path="/workspace/mixed-mode-debugger" element={<AppLayout workspaceId="mixed-mode-debugger" />} />
+        <Route path="/workspace/mixed-mode-debugger/:tab" element={<AppLayout workspaceId="mixed-mode-debugger" />} />
+        <Route path="/workspace/mixed-mode-debugger/:tab/:subtab" element={<AppLayout workspaceId="mixed-mode-debugger" />} />
 
         <Route path="/workspace/sh4-sim" element={<Sh4SimPage />} />
         <Route path="/workspace/dsp-playground/*" element={<DspPlaygroundPage />} />
@@ -41,7 +41,7 @@ const App = () => {
         <Route path="/dsp-playground/*" element={<Navigate to="/workspace/dsp-playground" replace />} />
         <Route path="/clx2-ta-log-analyzer" element={<Navigate to="/workspace/clx2-ta-log-analyzer" replace />} />
         <Route path="/clx2-core-log-analyzer" element={<Navigate to="/workspace/clx2-core-log-analyzer" replace />} />
-        <Route path="/events" element={<Navigate to="/workspace/custom-debugger/events" replace />} />
+        <Route path="/events" element={<Navigate to="/workspace/mixed-mode-debugger/events" replace />} />
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

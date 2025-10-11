@@ -10,7 +10,7 @@ export const createNavigationItems = (navigate: (path: string) => void): Navigat
   { id: "sh4-debugger", label: "SH4 Debugger", category: "Debugger Preset", onClick: () => navigate("/workspace/sh4-debugger") },
   { id: "arm7-debugger", label: "ARM7 Debugger", category: "Debugger Preset", onClick: () => navigate("/workspace/arm7-debugger") },
   { id: "dsp-debugger", label: "DSP Debugger", category: "Debugger Preset", onClick: () => navigate("/workspace/dsp-debugger") },
-  { id: "custom-debugger", label: "Custom Debugger", category: "Debugger Preset", onClick: () => navigate("/workspace/custom-debugger") },
+  { id: "mixed-mode-debugger", label: "Mixed Mode Debugger", category: "Debugger Preset", onClick: () => navigate("/workspace/mixed-mode-debugger") },
   // Tools
   { id: "sh4-sim", label: "SH4 Simulator", category: "Tool", onClick: () => navigate("/workspace/sh4-sim") },
   { id: "dsp-playground", label: "DSP Playground", category: "Tool", onClick: () => navigate("/workspace/dsp-playground") },

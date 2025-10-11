@@ -1,8 +1,5 @@
 import { type ReactNode } from "react";
-import { AppBar, Box, Container, Stack, Typography } from "@mui/material";
-import { TopNav } from "./TopNav";
-import { AboutDialog } from "./AboutDialog";
-import { useAboutModal } from "./useAboutModal";
+import { Box, Container, Stack, Typography } from "@mui/material";
 
 type AnchorHeadingProps = {
   id: string;
@@ -184,18 +181,10 @@ const renderSectionContent = (section: typeof documentationSections[number]) => 
   );
 };
 
-export const DocsPage = () => {
-  const { open: aboutOpen, show: showAbout, hide: hideAbout } = useAboutModal();
-
+export const DocumentationPanel = () => {
   return (
-    <Box sx={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
-      <AppBar position="static" elevation={1} color="default">
-        <TopNav
-          onAboutClick={showAbout}
-          currentPage="docs"
-        />
-      </AppBar>
-      <Container maxWidth="lg" component="main" sx={{ py: 6, flex: 1 }}>
+    <Box sx={{ height: "100%", overflow: "auto" }}>
+      <Container maxWidth="lg" sx={{ py: 4 }}>
         <Stack spacing={4}>
           {documentationSections.map((section) => (
             <AnchorHeading key={section.id} id={section.id} level={section.level} title={section.title}>
@@ -204,14 +193,6 @@ export const DocsPage = () => {
           ))}
         </Stack>
       </Container>
-      <Box component="footer" sx={{ borderTop: "1px solid", borderColor: "divider", py: 2 }}>
-        <Container maxWidth="lg">
-          <Typography variant="caption" color="text.secondary">
-            Documentation reflects mock server capabilities and real hardware integration described in IDEA.md.
-          </Typography>
-        </Container>
-      </Box>
-      <AboutDialog open={aboutOpen} onClose={hideAbout} />
     </Box>
   );
 };

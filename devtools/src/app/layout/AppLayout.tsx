@@ -23,7 +23,8 @@ import { AudioPanel } from "../panels/AudioPanel";
 import { TaInspectorPanel } from "../panels/TaInspectorPanel";
 import { CoreInspectorPanel } from "../panels/CoreInspectorPanel";
 import { EventsBreakpointsPanel, Sh4BreakpointsPanel, Arm7BreakpointsPanel, DspBreakpointsPanel } from "../panels/BreakpointsPanel";
-import { useNavigate } from "react-router-dom";
+import { DocumentationPanel } from "../panels/DocumentationPanel";
+import { Sh4SimPanel } from "../panels/Sh4SimPanel";
 import { AboutDialog } from "./AboutDialog";
 import { useAboutModal } from "./useAboutModal";
 import { TopNav } from "./TopNav";
@@ -64,7 +65,13 @@ const loadLayoutPrefs = (workspaceId: string): StoredLayoutPrefs => {
   }
 };
 
+const leftPanelTabs: PanelDefinition[] = [
+  { id: "device-tree", title: "Device Tree", component: <DeviceTreePanel /> },
+];
+
 const mainTabs: PanelDefinition[] = [
+  { id: "documentation", title: "Documentation", component: <DocumentationPanel /> },
+  { id: "sh4-sim", title: "SH4: Simulator", component: <Sh4SimPanel /> },
   { id: "events", title: "Events: Log", component: <EventLogPanel /> },
   { id: "events-breakpoints", title: "Events: Breakpoints", component: <EventsBreakpointsPanel /> },
   { id: "sh4-disassembly", title: "SH4: Disassembly", component: <Sh4DisassemblyPanel /> },
@@ -80,8 +87,7 @@ const mainTabs: PanelDefinition[] = [
   { id: "dsp-breakpoints", title: "DSP: Breakpoints", component: <DspBreakpointsPanel /> },
 ];
 
-const sidePanelTabs: PanelDefinition[] = [
-  { id: "device-tree", title: "Device Tree", component: <DeviceTreePanel /> },
+const rightPanelTabs: PanelDefinition[] = [
   { id: "watches", title: "Watches", component: <WatchesPanel /> },
   { id: "sh4-callstack", title: "SH4: Callstack", component: <CallstackPanel target="sh4" showTitle={false} /> },
   { id: "arm7-callstack", title: "ARM7: Callstack", component: <CallstackPanel target="arm7" showTitle={false} /> },
@@ -117,7 +123,6 @@ export const AppLayout = ({ workspaceId }: AppLayoutProps) => {
   const breakpointHit = useDebuggerDataStore((state) => state.breakpointHit);
   const errorMessage = useDebuggerDataStore((state) => state.errorMessage);
   const clearError = useDebuggerDataStore((state) => state.clearError);
-  const navigate = useNavigate();
   const [leftPanelOpen, setLeftPanelOpen] = useState(() => loadLayoutPrefs(workspaceId).leftPanelOpen);
   const [rightPanelOpen, setRightPanelOpen] = useState(() => loadLayoutPrefs(workspaceId).rightPanelOpen);
   const [isNarrow, setIsNarrow] = useState(window.innerWidth < 1200);
@@ -127,8 +132,76 @@ export const AppLayout = ({ workspaceId }: AppLayoutProps) => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
   const workspaceTabs = useMemo(() => {
-    return isNarrow ? [...mainTabs, ...sidePanelTabs] : mainTabs;
-  }, [isNarrow]);
+    if (isNarrow) {
+      return [...mainTabs, ...leftPanelTabs, ...rightPanelTabs];
+    }
+
+    // Custom initial panels based on workspace
+    if (workspaceId === 'sh4-debugger') {
+      return [
+        { id: "sh4-disassembly", title: "SH4: Disassembly", component: <Sh4DisassemblyPanel /> },
+        { id: "sh4-memory", title: "SH4: Memory", component: <Sh4MemoryPanel /> },
+        { id: "sh4-breakpoints", title: "SH4: Breakpoints", component: <Sh4BreakpointsPanel /> },
+      ];
+    }
+
+    if (workspaceId === 'arm7-debugger') {
+      return [
+        { id: "arm7-disassembly", title: "ARM7: Disassembly", component: <Arm7DisassemblyPanel /> },
+        { id: "arm7-memory", title: "ARM7: Memory", component: <Arm7MemoryPanel /> },
+        { id: "arm7-breakpoints", title: "ARM7: Breakpoints", component: <Arm7BreakpointsPanel /> },
+      ];
+    }
+
+    if (workspaceId === 'dsp-debugger') {
+      return [
+        { id: "dsp-disassembly", title: "DSP: Disassembly", component: <DspDisassemblyPanel /> },
+        { id: "aica", title: "AICA", component: <AudioPanel /> },
+        { id: "dsp-breakpoints", title: "DSP: Breakpoints", component: <DspBreakpointsPanel /> },
+      ];
+    }
+
+    if (workspaceId === 'mixed-mode-debugger') {
+      return [
+        { id: "sh4-disassembly", title: "SH4: Disassembly", component: <Sh4DisassemblyPanel /> },
+        { id: "arm7-disassembly", title: "ARM7: Disassembly", component: <Arm7DisassemblyPanel /> },
+      ];
+    }
+
+    return mainTabs;
+  }, [isNarrow, workspaceId]);
+
+  const rightPanelTabsForWorkspace = useMemo(() => {
+    if (workspaceId === 'sh4-debugger') {
+      return [
+        { id: "watches", title: "Watches", component: <WatchesPanel /> },
+        { id: "sh4-callstack", title: "SH4: Callstack", component: <CallstackPanel target="sh4" showTitle={false} /> },
+      ];
+    }
+    if (workspaceId === 'arm7-debugger') {
+      return [
+        { id: "watches", title: "Watches", component: <WatchesPanel /> },
+        { id: "arm7-callstack", title: "ARM7: Callstack", component: <CallstackPanel target="arm7" showTitle={false} /> },
+      ];
+    }
+    if (workspaceId === 'dsp-debugger') {
+      return [
+        { id: "watches", title: "Watches", component: <WatchesPanel /> },
+      ];
+    }
+    if (workspaceId === 'mixed-mode-debugger') {
+      return [
+        { id: "watches", title: "Watches", component: <WatchesPanel /> },
+        { id: "sh4-callstack", title: "SH4: Callstack", component: <CallstackPanel target="sh4" showTitle={false} /> },
+        { id: "arm7-callstack", title: "ARM7: Callstack", component: <CallstackPanel target="arm7" showTitle={false} /> },
+      ];
+    }
+    return rightPanelTabs;
+  }, [workspaceId]);
+
+  const allPanels = useMemo(() => {
+    return [...leftPanelTabs, ...mainTabs, ...rightPanelTabs];
+  }, []);
 
   const showLeftPanel = !isNarrow && leftPanelOpen;
   const showRightPanel = !isNarrow && rightPanelOpen;
@@ -243,7 +316,9 @@ export const AppLayout = ({ workspaceId }: AppLayoutProps) => {
 
     try {
       window.localStorage.removeItem(getLayoutStorageKey(workspaceId));
-      clearDockingLayout(workspaceId);
+      clearDockingLayout(workspaceId); // Center panel
+      clearDockingLayout(`${workspaceId}-left`); // Left panel
+      clearDockingLayout(`${workspaceId}-right`); // Right panel
       // Reload to reset docking layout
       window.location.reload();
     } catch (error) {
@@ -292,8 +367,6 @@ export const AppLayout = ({ workspaceId }: AppLayoutProps) => {
     <Box sx={{ height: "100vh", display: "flex", flexDirection: "column" }}>
       <AppBar position="static" elevation={1} color="default">
         <TopNav
-          onHomeClick={() => navigate("/")}
-          onDocsClick={() => navigate("/docs")}
           onAboutClick={showAbout}
           onResetLayout={handleResetLayout}
           currentPage={workspaceId}
@@ -369,7 +442,6 @@ export const AppLayout = ({ workspaceId }: AppLayoutProps) => {
               </Button>
             </Stack>
           }
-          active="workspace"
         />
       </AppBar>
       {connectionError && (
@@ -390,7 +462,12 @@ export const AppLayout = ({ workspaceId }: AppLayoutProps) => {
         >
           {showLeftPanel && (
             <Box sx={{ minHeight: 0, width: 280 }}>
-              <DeviceTreePanel />
+              <DockingLayout
+                key={`${workspaceId}-left`}
+                panels={leftPanelTabs}
+                allPanels={allPanels}
+                workspaceId={`${workspaceId}-left`}
+              />
             </Box>
           )}
           {showLeftToggle && (
@@ -409,7 +486,17 @@ export const AppLayout = ({ workspaceId }: AppLayoutProps) => {
               flex: 1,
             }}
           >
-            <DockingLayout key={workspaceId} panels={workspaceTabs} workspaceId={workspaceId} />
+            <DockingLayout
+              key={workspaceId}
+              panels={workspaceTabs}
+              allPanels={allPanels}
+              workspaceId={workspaceId}
+              defaultLayoutMode={
+                workspaceId === 'mixed-mode-debugger' ? 'mixed-mode-debugger-layout' :
+                workspaceId === 'sh4-debugger' || workspaceId === 'arm7-debugger' || workspaceId === 'dsp-debugger' ? 'sh4-layout' :
+                'tabs'
+              }
+            />
           </Box>
           {showRightToggle && (
             <Box sx={{ display: "flex", alignItems: "center" }}>
@@ -421,18 +508,14 @@ export const AppLayout = ({ workspaceId }: AppLayoutProps) => {
             </Box>
           )}
           {showRightPanel && (
-            <Box
-              sx={{
-                display: "grid",
-                gridTemplateRows: "minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr)",
-                gap: 1,
-                minHeight: 0,
-                width: 340,
-              }}
-            >
-              <WatchesPanel />
-              <CallstackPanel target="sh4" showTitle={true} />
-              <CallstackPanel target="arm7" showTitle={true} />
+            <Box sx={{ minHeight: 0, width: 340 }}>
+              <DockingLayout
+                key={`${workspaceId}-right`}
+                panels={rightPanelTabsForWorkspace}
+                allPanels={allPanels}
+                workspaceId={`${workspaceId}-right`}
+                defaultLayoutMode="vertical-stack"
+              />
             </Box>
           )}
         </Box>

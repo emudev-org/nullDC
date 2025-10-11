@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Box, Button, Card, CardActionArea, CardContent, Container, Stack, Typography } from "@mui/material";
+import { Box, Card, CardActionArea, CardContent, Container, Stack, Typography } from "@mui/material";
 import { useNavigate } from "react-router-dom";
 import { AboutDialog } from "./AboutDialog";
 import { useAboutModal } from "./useAboutModal";
@@ -21,14 +21,14 @@ export const HomePage = () => {
         action: () => navigate("/workspace/arm7-debugger"),
       },
       {
-        title: "DSP Debugger",
+        title: "DSP/AICA Debugger",
         description: "Inspect DSP state, disassembly, and breakpoints for audio processing.",
         action: () => navigate("/workspace/dsp-debugger"),
       },
       {
-        title: "Custom Debugger",
-        description: "Full debugger workspace with all panels for comprehensive system debugging.",
-        action: () => navigate("/workspace/custom-debugger"),
+        title: "Mixed Mode Debugger",
+        description: "Debug SH4 and ARM7 code simultaneously with breakpoints and call stacks.",
+        action: () => navigate("/workspace/mixed-mode-debugger"),
       },
     ],
     [navigate],
@@ -96,13 +96,9 @@ export const HomePage = () => {
               Welcome to the nullDC DevTools
             </Typography>
             <Typography variant="h6" sx={{ color: "text.secondary", maxWidth: 720 }}>
-              Dive into Dreamcast with curated entry points for CPU, GPU, and audio analysis, as well as sh4 simulator and dsp authoring tools.
+              Dive into Dreamcast with curated workspaces points for CPU, GPU, and audio analysis, as well as sh4 simulator and dsp authoring tools.
               Choose a task to get started.
             </Typography>
-            <Stack direction={{ xs: "column", sm: "row" }} spacing={2} sx={{ mt: 2 }}>
-              <Button variant="contained" size="large" onClick={() => navigate("/workspace/custom-debugger/events")}>View Event Log</Button>
-              <Button variant="outlined" size="large" onClick={() => navigate("/workspace/custom-debugger/device-tree")}>Open Device Tree</Button>
-            </Stack>
           </Stack>
 
           <Stack spacing={4} sx={{ width: "100%" }}>
