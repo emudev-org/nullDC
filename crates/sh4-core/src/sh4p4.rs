@@ -1722,12 +1722,12 @@ fn p4_write<T: crate::sh4mem::MemoryData>(_ctx: *mut u8, addr: u32, data: T) {
 
         // Operand cache address array (unimplemented)
         0xF4 => {
-            println!(
-                "Unhandled p4_write::<u{}> [Operand cache address array] {:x} data = {:x}",
-                std::mem::size_of::<T>(),
-                addr,
-                data
-            );
+            // println!(
+            //     "Unhandled p4_write::<u{}> [Operand cache address array] {:x} data = {:x}",
+            //     std::mem::size_of::<T>(),
+            //     addr,
+            //     data
+            // );
         }
 
         0xF5 => {
