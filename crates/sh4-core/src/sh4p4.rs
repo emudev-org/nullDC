@@ -1570,6 +1570,7 @@ pub fn area7_router(mut addr: u32) -> &'static P4Register {
 
 pub fn p4_read<T: crate::sh4mem::MemoryData>(_ctx: *mut u8, addr: u32) -> T {
 
+    println!("p4_read::<u{}> {:08X}", std::mem::size_of::<T>(), addr);
     // Bits [31:24] select the area within P4 space
     let area = (addr >> 24) & 0xFF;
 
@@ -1634,6 +1635,8 @@ pub fn p4_read<T: crate::sh4mem::MemoryData>(_ctx: *mut u8, addr: u32) -> T {
 }
 
 fn p4_write<T: crate::sh4mem::MemoryData>(ctx: *mut u8, addr: u32, data: T) {
+    println!("p4_write::<u{}> {:08X} data = {:08X}", std::mem::size_of::<T>(), addr, data.to_u32());
+
     // Bits [31:24] select the area within P4 space
     let area = (addr >> 24) & 0xFF;
 
@@ -1749,7 +1752,7 @@ fn write_bsc_pctra(ctx: *mut u8, _addr: u32, data: u32) {
 
 fn dreamcast_cable_setting() -> u32 {
     // TODO: plumb real settings once configuration is available
-    0
+    3
 }
 
 fn read_bsc_pdtra(_ctx: *mut u8, _addr: u32) -> u32 {
