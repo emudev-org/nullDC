@@ -907,7 +907,36 @@ pub struct P4Register {
 
 unsafe impl Sync for P4Register {}
 
-const P4REGISTER_UNREACHABLE : P4Register = P4Register { read: |_ctx, addr| { panic!("Unrachable area7 read: {:08X}", addr) }, write: |_ctx, addr, data| { panic!("Unrachable area7 read: {:08X} data = {:08X}", addr, data) }, size: 4, ctx: std::ptr::null_mut() };
+fn area7_unreachable_read(_ctx: *mut u8, addr: u32) -> u32 {
+    panic!("Unreachable area7 read: {:08X}", addr);
+}
+
+fn area7_unreachable_write(_ctx: *mut u8, addr: u32, data: u32) {
+    panic!("Unreachable area7 write: {:08X} data = {:08X}", addr, data);
+}
+
+const P4REGISTER_UNREACHABLE : P4Register = P4Register {
+    read: area7_unreachable_read,
+    write: area7_unreachable_write,
+    size: 0,
+    ctx: std::ptr::null_mut(),
+};
+
+fn area7_dram_cfg_read(_ctx: *mut u8, addr: u32) -> u32 {
+    panic!("Unreachable area7_dram_cfg_read read: {:08X}", addr);
+}
+
+fn area7_dram_cfg_write(_ctx: *mut u8, addr: u32, data: u32) {
+    println!("area7_dram_cfg_write write: {:08X} data = {:08X}", addr, data);
+}
+
+
+const P4REGISTER_DRAM_CFG : P4Register = P4Register {
+    read: area7_dram_cfg_read,
+    write: area7_dram_cfg_write,
+    size: 0,
+    ctx: std::ptr::null_mut(),
+};
 
 static mut RIO_CCN : [P4Register; 18] = [P4REGISTER_UNREACHABLE; 18 ];
 static mut RIO_UBC : [P4Register; 9] = [P4REGISTER_UNREACHABLE; 9 ];
@@ -928,8 +957,8 @@ pub fn area7_router(mut addr: u32) -> &'static P4Register {
             0x1F000000..=0x1F000044 => &RIO_CCN[idx],
             0x1F200000..=0x1F200020 => &RIO_UBC[idx],
             0x1F800000..=0x1F800048 => &RIO_BSC[idx],
-            // 0x1F900000..=0x1F90FFFF => &P4REGISTER_UNREACHABLE, // DRAM Settings 2
-            // 0x1F940000..=0x1F94FFFF => &P4REGISTER_UNREACHABLE, // DRAM Settings 3
+            0x1F900000..=0x1F90FFFF => &P4REGISTER_DRAM_CFG, // DRAM Settings 2
+            0x1F940000..=0x1F94FFFF => &P4REGISTER_DRAM_CFG, // DRAM Settings 3
             0x1FA00000..=0x1FA00040 => &RIO_DMAC[idx],
             0x1FC00000..=0x1FC00010 => &RIO_CPG[idx],
             0x1FC80000..=0x1FC8003C => &RIO_RTC[idx],
@@ -1055,7 +1084,7 @@ fn p4_write<T: crate::sh4mem::MemoryData>(ctx: *mut u8, addr: u32, data: T) {
 
         0xFF => {
             let handler = area7_router(addr);
-            if handler.size as usize != std::mem::size_of::<T>() {
+            if handler.size != 0 && handler.size as usize != std::mem::size_of::<T>() {
                 panic!("p4_write::<u{}> {:x} data = {:x} size mismatch, handler size = {}", std::mem::size_of::<T>(), addr, data, handler.size);
             }
             (handler.write)(ctx, addr, data.to_u32());
@@ -1099,19 +1128,132 @@ fn write_data_32(ctx: *mut u8, _addr: u32, data: u32) {
     unsafe { *(ctx as *mut u32) = data; }
 }
 
-fn area7_read_only(_ctx: *mut u8, addr: u32, data: u32) {
-    panic!("Unimplemented area7 read {:08X} data = {:08X}", addr, data);
+fn area7_read_only(_ctx: *mut u8, addr: u32, _data: u32) {
+    #[cfg(debug_assertions)]
+    eprintln!("Ignoring write to read-only area7 register {:08X}", addr);
 }
 
-
-
-macro_rules! reg_ctx {
-    ($name:ident, $ty:ty) => {
-        unsafe { &raw mut $name as *mut $ty as *mut u8 }
-    };
+fn write_intc_ipr(ctx: *mut u8, _addr: u32, data: u32) {
+    unsafe {
+        let reg = ctx as *mut u16;
+        if *reg != data as u16 {
+            *reg = data as u16;
+        }
+    }
 }
 
-use paste::paste;
+fn read_intc_iprd(_ctx: *mut u8, _addr: u32) -> u32 {
+    0
+}
+
+fn write_bsc_pctra(ctx: *mut u8, _addr: u32, data: u32) {
+    unsafe { *(ctx as *mut u32) = (data & 0xFFFF) as u32; }
+}
+
+fn dreamcast_cable_setting() -> u32 {
+    // TODO: plumb real settings once configuration is available
+    0
+}
+
+fn read_bsc_pdtra(_ctx: *mut u8, _addr: u32) -> u32 {
+    unsafe {
+        let pctra = BSC_PCTRA_DATA.0;
+        let pdtra = BSC_PDTRA_DATA.0 as u32;
+
+        let mut tfinal = match pctra & 0xF {
+            0x8 | 0xB => 3,
+            0xC if (pdtra & 0xF) == 2 => 3,
+            _ => 0,
+        };
+
+        if (pctra & 0xF) == 0xB && (pdtra & 0xF) == 2 {
+            tfinal = 0;
+        }
+
+        tfinal |= dreamcast_cable_setting() << 8;
+        tfinal
+    }
+}
+
+fn write_bsc_pdtra(ctx: *mut u8, _addr: u32, data: u32) {
+    unsafe {
+        *(ctx as *mut u16) = data as u16;
+        BSC_PDTRA_DATA.0 = data as u16;
+    }
+}
+
+fn scif_write_transmit(ctx: *mut u8, _addr: u32, data: u32) {
+    let byte = (data & 0xFF) as u8;
+    unsafe { *(ctx as *mut u8) = byte; }
+    #[cfg(debug_assertions)]
+    eprint!("{}", byte as char);
+}
+
+fn scif_read_status(ctx: *mut u8, _addr: u32) -> u32 {
+    unsafe {
+        let status = *(ctx as *mut u16) as u32;
+        // Bit mask mirrors the reference implementation's ready flags (0x60 base + optional RX flag)
+        status | 0x60
+    }
+}
+
+fn scif_write_status(ctx: *mut u8, _addr: u32, data: u32) {
+    unsafe { *(ctx as *mut u16) = data as u16; }
+}
+
+fn scif_read_data(ctx: *mut u8, _addr: u32) -> u32 {
+    unsafe { *(ctx as *mut u8) as u32 }
+}
+
+fn scif_read_fifo_depth(ctx: *mut u8, _addr: u32) -> u32 {
+    unsafe { *(ctx as *mut u16) as u32 }
+}
+
+fn write_tmu_tstr(ctx: *mut u8, _addr: u32, data: u32) {
+    unsafe { *(ctx as *mut u8) = data as u8; }
+}
+
+fn read_tmu_tcnt(ctx: *mut u8, _addr: u32) -> u32 {
+    unsafe { *(ctx as *mut u32) }
+}
+
+fn write_tmu_tcnt(ctx: *mut u8, _addr: u32, data: u32) {
+    unsafe { *(ctx as *mut u32) = data; }
+}
+
+fn write_tmu_tcr(ctx: *mut u8, _addr: u32, data: u32) {
+    unsafe { *(ctx as *mut u16) = data as u16; }
+}
+
+fn read_tmu_tcpr2(_ctx: *mut u8, _addr: u32) -> u32 {
+    0
+}
+
+fn write_tmu_tcpr2(_ctx: *mut u8, _addr: u32, _data: u32) {}
+
+fn write_dmac_control(ctx: *mut u8, _addr: u32, data: u32) {
+    unsafe { *(ctx as *mut u32) = data; }
+}
+
+fn write_ccn_mmucr(ctx: *mut u8, _addr: u32, data: u32) {
+    unsafe { *(ctx as *mut u32) = data; }
+}
+
+fn write_ccn_ccr(ctx: *mut u8, _addr: u32, data: u32) {
+    unsafe { *(ctx as *mut u32) = data & !0x300; }
+}
+
+fn read_ccn_cpu_version(_ctx: *mut u8, _addr: u32) -> u32 {
+    0x0402_05C1
+}
+
+fn write_ccn_qacr(ctx: *mut u8, _addr: u32, data: u32) {
+    unsafe { *(ctx as *mut u32) = data; }
+}
+
+fn read_ccn_prr(_ctx: *mut u8, _addr: u32) -> u32 {
+    0
+}
 
 macro_rules! rio {
     ($mod:ident, $reg:ident, $read:expr, $write:expr, $size:expr) => {
@@ -1134,10 +1276,10 @@ pub fn p4_init() {
     unsafe {
         /* INTC */
         rio!(INTC, ICR,  read_data_16, write_data_16, 16);
-        rio!(INTC, IPRA, read_data_16, |_ctx, addr, _| panic!("Unimplemented write INTC.IPRA {:08X}", addr), 16);
-        rio!(INTC, IPRB, read_data_16, |_ctx, addr, _| panic!("Unimplemented write INTC.IPRB {:08X}", addr), 16);
-        rio!(INTC, IPRC, read_data_16, |_ctx, addr, _| panic!("Unimplemented write INTC.IPRC {:08X}", addr), 16);
-        rio!(INTC, IPRD, |_ctx, addr| panic!("Unimplemented read INTC.IPRD {:08X}", addr), area7_read_only, 16);
+        rio!(INTC, IPRA, read_data_16, write_intc_ipr, 16);
+        rio!(INTC, IPRB, read_data_16, write_intc_ipr, 16);
+        rio!(INTC, IPRC, read_data_16, write_intc_ipr, 16);
+        rio!(INTC, IPRD, read_intc_iprd, area7_read_only, 16);
 
         /* RTC */
         rio!(RTC, R64CNT,  read_data_8,  write_data_8,  8);
@@ -1168,9 +1310,9 @@ pub fn p4_init() {
         rio!(BSC, RTCSR,  read_data_16, write_data_16, 16);
         rio!(BSC, RTCNT,  read_data_16, write_data_16, 16);
         rio!(BSC, RTCOR,  read_data_16, write_data_16, 16);
-        rio!(BSC, RFCR,   read_data_16, area7_read_only, 16);
-        rio!(BSC, PCTRA,  read_data_16, |_ctx, addr, _| panic!("Unimplemented write BSC.PCTRA {:08X}", addr), 16);
-        rio!(BSC, PDTRA,  |_ctx, addr| panic!("Unimplemented read BSC.PDTRA {:08X}", addr), |_ctx, addr, _| panic!("Unimplemented write BSC.PDTRA {:08X}", addr), 16);
+        rio!(BSC, RFCR,   read_data_16, write_data_16, 16);
+        rio!(BSC, PCTRA,  read_data_16, write_bsc_pctra, 16);
+        rio!(BSC, PDTRA,  read_bsc_pdtra, write_bsc_pdtra, 16);
         rio!(BSC, PCTRB,  read_data_32, write_data_32, 32);
         rio!(BSC, PDTRB,  read_data_16, write_data_16, 16);
         rio!(BSC, GPIOIC, read_data_16, write_data_16, 16);
@@ -1190,46 +1332,46 @@ pub fn p4_init() {
         rio!(SCIF, SCSMR2,  read_data_16, write_data_16, 16);
         rio!(SCIF, SCBRR2,  read_data_8,  write_data_8,  8);
         rio!(SCIF, SCSCR2,  read_data_16, write_data_16, 16);
-        rio!(SCIF, SCFTDR2, read_data_8,  |_ctx, addr, _| panic!("Unimplemented write SCIF.SCFTDR2 {:08X}", addr), 8);
-        rio!(SCIF, SCFSR2,  |_ctx, addr| panic!("Unimplemented read SCIF.SCFSR2 {:08X}", addr), |_ctx, addr, _| panic!("Unimplemented write SCIF.SCFSR2 {:08X}", addr), 16);
-        rio!(SCIF, SCFRDR2, |_ctx, addr| panic!("Unimplemented read SCIF.SCFRDR2 {:08X}", addr), area7_read_only, 8);
+        rio!(SCIF, SCFTDR2, read_data_8,  scif_write_transmit, 8);
+        rio!(SCIF, SCFSR2,  scif_read_status, scif_write_status, 16);
+        rio!(SCIF, SCFRDR2, scif_read_data, area7_read_only, 8);
         rio!(SCIF, SCFCR2,  read_data_16, write_data_16, 16);
-        rio!(SCIF, SCFDR2,  |_ctx, addr| panic!("Unimplemented read SCIF.SCFDR2 {:08X}", addr), area7_read_only, 16);
+        rio!(SCIF, SCFDR2,  scif_read_fifo_depth, area7_read_only, 16);
         rio!(SCIF, SCSPTR2, read_data_16, write_data_16, 16);
         rio!(SCIF, SCLSR2,  read_data_16, write_data_16, 16);
 
         /* TMU */
         rio!(TMU, TOCR,  read_data_8,  write_data_8,  8);
-        rio!(TMU, TSTR,  read_data_8,  |_ctx, addr, _| panic!("Unimplemented write TMU.TSTR {:08X}", addr), 8);
+        rio!(TMU, TSTR,  read_data_8,  write_tmu_tstr, 8);
         rio!(TMU, TCOR0, read_data_32, write_data_32, 32);
-        rio!(TMU, TCNT0, |_ctx, addr| panic!("Unimplemented read TMU.TCNT0 {:08X}", addr), |_ctx, addr, _| panic!("Unimplemented write TMU.TCNT0 {:08X}", addr), 32);
-        rio!(TMU, TCR0,  read_data_16, |_ctx, addr, _| panic!("Unimplemented write TMU.TCR0 {:08X}", addr), 16);
+        rio!(TMU, TCNT0, read_tmu_tcnt, write_tmu_tcnt, 32);
+        rio!(TMU, TCR0,  read_data_16, write_tmu_tcr, 16);
         rio!(TMU, TCOR1, read_data_32, write_data_32, 32);
-        rio!(TMU, TCNT1, |_ctx, addr| panic!("Unimplemented read TMU.TCNT1 {:08X}", addr), |_ctx, addr, _| panic!("Unimplemented write TMU.TCNT1 {:08X}", addr), 32);
-        rio!(TMU, TCR1,  read_data_16, |_ctx, addr, _| panic!("Unimplemented write TMU.TCR1 {:08X}", addr), 16);
+        rio!(TMU, TCNT1, read_tmu_tcnt, write_tmu_tcnt, 32);
+        rio!(TMU, TCR1,  read_data_16, write_tmu_tcr, 16);
         rio!(TMU, TCOR2, read_data_32, write_data_32, 32);
-        rio!(TMU, TCNT2, |_ctx, addr| panic!("Unimplemented read TMU.TCNT2 {:08X}", addr), |_ctx, addr, _| panic!("Unimplemented write TMU.TCNT2 {:08X}", addr), 32);
-        rio!(TMU, TCR2,  read_data_16, |_ctx, addr, _| panic!("Unimplemented write TMU.TCR2 {:08X}", addr), 16);
-        rio!(TMU, TCPR2, |_ctx, addr| panic!("Unimplemented read TMU.TCPR2 {:08X}", addr), |_ctx, addr, _| panic!("Unimplemented write TMU.TCPR2 {:08X}", addr), 32);
+        rio!(TMU, TCNT2, read_tmu_tcnt, write_tmu_tcnt, 32);
+        rio!(TMU, TCR2,  read_data_16, write_tmu_tcr, 16);
+        rio!(TMU, TCPR2, read_tmu_tcpr2, write_tmu_tcpr2, 32);
 
         /* DMAC */
         rio!(DMAC, SAR0,    read_data_32, write_data_32, 32);
         rio!(DMAC, DAR0,    read_data_32, write_data_32, 32);
         rio!(DMAC, DMATCR0, read_data_32, write_data_32, 32);
-        rio!(DMAC, CHCR0,   read_data_32, |_ctx, addr, _| panic!("Unimplemented write DMAC.CHCR0 {:08X}", addr), 32);
+        rio!(DMAC, CHCR0,   read_data_32, write_dmac_control, 32);
         rio!(DMAC, SAR1,    read_data_32, write_data_32, 32);
         rio!(DMAC, DAR1,    read_data_32, write_data_32, 32);
         rio!(DMAC, DMATCR1, read_data_32, write_data_32, 32);
-        rio!(DMAC, CHCR1,   read_data_32, |_ctx, addr, _| panic!("Unimplemented write DMAC.CHCR1 {:08X}", addr), 32);
+        rio!(DMAC, CHCR1,   read_data_32, write_dmac_control, 32);
         rio!(DMAC, SAR2,    read_data_32, write_data_32, 32);
         rio!(DMAC, DAR2,    read_data_32, write_data_32, 32);
         rio!(DMAC, DMATCR2, read_data_32, write_data_32, 32);
-        rio!(DMAC, CHCR2,   read_data_32, |_ctx, addr, _| panic!("Unimplemented write DMAC.CHCR2 {:08X}", addr), 32);
+        rio!(DMAC, CHCR2,   read_data_32, write_dmac_control, 32);
         rio!(DMAC, SAR3,    read_data_32, write_data_32, 32);
         rio!(DMAC, DAR3,    read_data_32, write_data_32, 32);
         rio!(DMAC, DMATCR3, read_data_32, write_data_32, 32);
-        rio!(DMAC, CHCR3,   read_data_32, |_ctx, addr, _| panic!("Unimplemented write DMAC.CHCR3 {:08X}", addr), 32);
-        rio!(DMAC, DMAOR,   read_data_32, |_ctx, addr, _| panic!("Unimplemented write DMAC.DMAOR {:08X}", addr), 32);
+        rio!(DMAC, CHCR3,   read_data_32, write_dmac_control, 32);
+        rio!(DMAC, DMAOR,   read_data_32, write_dmac_control, 32);
 
         /* CPG */
         rio!(CPG, FRQCR,  read_data_16, write_data_16, 16);
@@ -1243,18 +1385,18 @@ pub fn p4_init() {
         rio!(CCN, PTEL,   read_data_32, write_data_32, 32);
         rio!(CCN, TTB,    read_data_32, write_data_32, 32);
         rio!(CCN, TEA,    read_data_32, write_data_32, 32);
-        rio!(CCN, MMUCR,  read_data_32, |_ctx, addr, _| panic!("Unimplemented write CCN.MMUCR {:08X}", addr), 32);
+        rio!(CCN, MMUCR,  read_data_32, write_ccn_mmucr, 32);
         rio!(CCN, BASRA,  read_data_8,  write_data_8,  8);
         rio!(CCN, BASRB,  read_data_8,  write_data_8,  8);
-        rio!(CCN, CCR,    read_data_32, |_ctx, addr, _| panic!("Unimplemented write CCN.CCR {:08X}", addr), 32);
+        rio!(CCN, CCR,    read_data_32, write_ccn_ccr, 32);
         rio!(CCN, TRA,    read_data_32, write_data_32, 32);
         rio!(CCN, EXPEVT, read_data_32, write_data_32, 32);
         rio!(CCN, INTEVT, read_data_32, write_data_32, 32);
-        rio!(CCN, CPU_VERSION, |_ctx, addr| panic!("Unimplemented read CCN.CPU_VERSION {:08X}", addr), area7_read_only, 32);
+        rio!(CCN, CPU_VERSION, read_ccn_cpu_version, area7_read_only, 32);
         rio!(CCN, PTEA,   read_data_32, write_data_32, 32);
-        rio!(CCN, QACR0,  read_data_32, |_ctx, addr, _| panic!("Unimplemented write CCN.QACR0 {:08X}", addr), 32);
-        rio!(CCN, QACR1,  read_data_32, |_ctx, addr, _| panic!("Unimplemented write CCN.QACR1 {:08X}", addr), 32);
-        rio!(CCN, PRR,    |_ctx, addr| panic!("Unimplemented read CCN.PRR {:08X}", addr), area7_read_only, 32);
+        rio!(CCN, QACR0,  read_data_32, write_ccn_qacr, 32);
+        rio!(CCN, QACR1,  read_data_32, write_ccn_qacr, 32);
+        rio!(CCN, PRR,    read_ccn_prr, area7_read_only, 32);
 
     }
 }
