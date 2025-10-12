@@ -328,9 +328,7 @@ impl Arm7Context {
         } else if let Some(ptr) = self.aica_ram {
             let mask = self.aram_mask;
             unsafe {
-                ptr.as_ptr()
-                    .add((addr & mask) as usize)
-                    .write(value);
+                ptr.as_ptr().add((addr & mask) as usize).write(value);
             }
         }
     }
@@ -373,7 +371,12 @@ impl<'a> Arm7Di<'a> {
     }
 
     #[inline]
-    fn update_flags_from_result(&mut self, result: u32, carry: Option<bool>, overflow: Option<bool>) {
+    fn update_flags_from_result(
+        &mut self,
+        result: u32,
+        carry: Option<bool>,
+        overflow: Option<bool>,
+    ) {
         let mut psr = self.flags();
         psr.set_n(result >= 0x8000_0000);
         psr.set_z(result == 0);
@@ -450,10 +453,7 @@ impl<'a> Arm7Di<'a> {
                 if amount == 0 {
                     (value, carry_in)
                 } else if amount < 32 {
-                    (
-                        value << amount,
-                        (value >> (32 - amount)) & 1 != 0,
-                    )
+                    (value << amount, (value >> (32 - amount)) & 1 != 0)
                 } else if amount == 32 {
                     (0, (value & 1) != 0)
                 } else {
@@ -465,10 +465,7 @@ impl<'a> Arm7Di<'a> {
                 if amount == 0 || amount == 32 {
                     (0, (value >> 31) != 0)
                 } else if amount < 32 {
-                    (
-                        value >> amount,
-                        (value >> (amount - 1)) & 1 != 0,
-                    )
+                    (value >> amount, (value >> (amount - 1)) & 1 != 0)
                 } else {
                     (0, false)
                 }
@@ -488,18 +485,12 @@ impl<'a> Arm7Di<'a> {
                 let rot = amount % 32;
                 if amount == 0 {
                     let carry_out = (value & 1) != 0;
-                    (
-                        (carry_in as u32) << 31 | (value >> 1),
-                        carry_out,
-                    )
+                    ((carry_in as u32) << 31 | (value >> 1), carry_out)
                 } else if rot == 0 {
                     (value, (value >> 31) != 0)
                 } else {
                     let result = value.rotate_right(rot);
-                    (
-                        result,
-                        (result >> 31) != 0,
-                    )
+                    (result, (result >> 31) != 0)
                 }
             }
             _ => (value, carry_in),
@@ -512,7 +503,11 @@ impl<'a> Arm7Di<'a> {
             let imm = opcode & 0xFF;
             let rot = ((opcode >> 8) & 0xF) * 2;
             let result = imm.rotate_right(rot);
-            let carry = if rot == 0 { psr.c() } else { (result >> 31) != 0 };
+            let carry = if rot == 0 {
+                psr.c()
+            } else {
+                (result >> 31) != 0
+            };
             (result, carry)
         } else {
             let rm = (opcode & 0xF) as usize;
@@ -530,7 +525,11 @@ impl<'a> Arm7Di<'a> {
                 } else if amount >= 32 {
                     match shift_type {
                         0 => {
-                            let carry = if amount == 32 { (value & 1) != 0 } else { false };
+                            let carry = if amount == 32 {
+                                (value & 1) != 0
+                            } else {
+                                false
+                            };
                             (0, carry)
                         }
                         1 => {
@@ -1068,7 +1067,8 @@ impl<'a> Arm7Di<'a> {
             let value = self.ctx.regs[rd].get();
             if h {
                 // store halfword
-                self.ctx.write32(address & !1, (value & 0xFFFF) | ((value & 0xFFFF) << 16));
+                self.ctx
+                    .write32(address & !1, (value & 0xFFFF) | ((value & 0xFFFF) << 16));
             } else {
                 // store double? treat as halfword
                 self.ctx.write8(address, value as u8);

@@ -4,8 +4,22 @@
 use std::ptr::NonNull;
 
 const SEND_LEVEL: [u32; 16] = [
-    255, 14 << 3, 13 << 3, 12 << 3, 11 << 3, 10 << 3, 9 << 3, 8 << 3, 7 << 3, 6 << 3, 5 << 3,
-    4 << 3, 3 << 3, 2 << 3, 1 << 3, 0 << 3,
+    255,
+    14 << 3,
+    13 << 3,
+    12 << 3,
+    11 << 3,
+    10 << 3,
+    9 << 3,
+    8 << 3,
+    7 << 3,
+    6 << 3,
+    5 << 3,
+    4 << 3,
+    3 << 3,
+    2 << 3,
+    1 << 3,
+    0 << 3,
 ];
 
 const AEG_ATTACK_TIME: [f64; 64] = [
@@ -200,7 +214,10 @@ struct ChannelRegs {
 
 impl ChannelRegs {
     fn new(base: NonNull<u8>, channel_index: usize) -> Self {
-        Self { base, channel_index }
+        Self {
+            base,
+            channel_index,
+        }
     }
 
     unsafe fn ptr(&self, offset: usize) -> *mut u8 {
@@ -494,9 +511,7 @@ impl DspOutVolRegs {
     }
 
     unsafe fn ptr(&self, index: usize) -> *mut u8 {
-        self.base
-            .as_ptr()
-            .add(DSP_OUT_VOL_OFFSET + index * 4)
+        self.base.as_ptr().add(DSP_OUT_VOL_OFFSET + index * 4)
     }
 
     unsafe fn read_u16(&self, index: usize) -> u16 {
@@ -745,8 +760,7 @@ impl Sgc {
     fn fetch_sample(aica_ram: NonNull<u8>, mask: u32, channel: &ChannelState) -> i32 {
         match channel.format {
             0 => {
-                let base =
-                    channel.sa_addr.wrapping_add(channel.ca.wrapping_mul(2)) & mask;
+                let base = channel.sa_addr.wrapping_add(channel.ca.wrapping_mul(2)) & mask;
                 let lo = unsafe { Self::read_ram_byte(aica_ram, mask, base) };
                 let hi = unsafe { Self::read_ram_byte(aica_ram, mask, base.wrapping_add(1)) };
                 i16::from_le_bytes([lo, hi]) as i32

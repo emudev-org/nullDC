@@ -3,7 +3,7 @@ use std::ptr;
 use sh4_core::sh4mem;
 use sh4_core::MemHandlers;
 
-use crate::{aica, asic, gdrom, spg, Dreamcast};
+use crate::{aica, asic, gdrom, spg, system_bus, Dreamcast};
 
 const AREA0_MASK: u32 = 0x01FF_FFFF;
 const BIOS_START: u32 = 0x0000_0000;
@@ -50,7 +50,7 @@ fn area_0_read<T: sh4mem::MemoryData>(ctx: *mut u8, addr: u32) -> T {
                 let value = spg::read(masked_addr, size);
                 return sh4mem::MemoryData::from_u32(value);
             }
-            return handle_system_bus_read(masked_addr, size);
+            return handle_system_bus_read(dc, masked_addr, size);
         }
         0x0060 => {
             warn_unimplemented("MODEM", "read", masked_addr, size);
@@ -85,6 +85,8 @@ fn area_0_read<T: sh4mem::MemoryData>(ctx: *mut u8, addr: u32) -> T {
     log_unhandled("read", masked_addr, size);
     T::default()
 }
+
+static mut SYSTEM_BUS: system_bus::SystemBus = system_bus::SystemBus::default();
 
 fn area_0_write<T: sh4mem::MemoryData>(ctx: *mut u8, addr: u32, value: T) {
     let dc = unsafe { &mut *(ctx as *mut Dreamcast) };
@@ -124,7 +126,7 @@ fn area_0_write<T: sh4mem::MemoryData>(ctx: *mut u8, addr: u32, value: T) {
                 spg::write(masked_addr, size, value.to_u32());
                 return;
             }
-            handle_system_bus_write(masked_addr, size, value);
+            handle_system_bus_write(dc, masked_addr, size, value);
             return;
         }
         0x0060 => {
@@ -217,54 +219,65 @@ fn warn_unimplemented(region: &str, op: &str, addr: u32, size: usize) {
     println!("area0 {region} {op} not implemented: addr=0x{addr:08X} size={size}");
 }
 
-fn handle_system_bus_read<T: sh4mem::MemoryData>(addr: u32, size: usize) -> T {
+fn handle_system_bus_read<T: sh4mem::MemoryData>(dc: &Dreamcast, addr: u32, size: usize) -> T {
     match addr {
-        0x005F_7000..=0x005F_70FF => {
-            warn_unimplemented("GD-ROM", "read", addr, size);
-        }
-        0x005F_7400..=0x005F_74FF => {
-            warn_unimplemented("G1 interface", "read", addr, size);
-        }
-        0x005F_7800..=0x005F_78FF => {
-            warn_unimplemented("G2 interface", "read", addr, size);
-        }
-        0x005F_7C00..=0x005F_7CFF => {
-            warn_unimplemented("PVR interface", "read", addr, size);
-        }
+        // System Bus
         0x005F_6800..=0x005F_7CFF => {
-            if addr == 0x005F_688C && size == 4 {
-                // FIFO status register
-                return T::from_u32(0x0000_0000);
-            }
-            warn_unimplemented("System bus (SB)", "read", addr, size);
+            unsafe { T::from_u32(SYSTEM_BUS.read(addr, size as u32)) }
+        }
+        // GD-ROM
+        0x005F_7000..=0x005F_70FF => {
+            unsafe { T::from_u32(SYSTEM_BUS.read(addr, size as u32)) }
+        }
+        // G1 i/f
+        0x005F_7400..=0x005F_74FF => {
+            unsafe { T::from_u32(SYSTEM_BUS.read(addr, size as u32)) }
+        }
+        // G2 i/f
+        0x005F_7800..=0x005F_78FF => {
+            unsafe { T::from_u32(SYSTEM_BUS.read(addr, size as u32)) }
+        }
+        // PVR i/f
+        0x005F_7C00..=0x005F_7CFF => {
+            unsafe { T::from_u32(SYSTEM_BUS.read(addr, size as u32)) }
         }
         0x005F_8000..=0x005F_9FFF => {
             warn_unimplemented("TA/PVR core", "read", addr, size);
+            T::default()
         }
         _ => {
             warn_unimplemented("Area 0 unassigned", "read", addr, size);
+            T::default()
         }
     }
-    T::default()
 }
 
-fn handle_system_bus_write<T: sh4mem::MemoryData>(addr: u32, size: usize, value: T) {
-    let _ = value;
+fn handle_system_bus_write<T: sh4mem::MemoryData>(
+    dc: &mut Dreamcast,
+    addr: u32,
+    size: usize,
+    value: T,
+) {
     match addr {
-        0x005F_7000..=0x005F_70FF => {
-            warn_unimplemented("GD-ROM", "write", addr, size);
-        }
-        0x005F_7400..=0x005F_74FF => {
-            warn_unimplemented("G1 interface", "write", addr, size);
-        }
-        0x005F_7800..=0x005F_78FF => {
-            warn_unimplemented("G2 interface", "write", addr, size);
-        }
-        0x005F_7C00..=0x005F_7CFF => {
-            warn_unimplemented("PVR interface", "write", addr, size);
-        }
+        // System Bus
         0x005F_6800..=0x005F_7CFF => {
-            warn_unimplemented("System bus (SB)", "write", addr, size);
+            unsafe { SYSTEM_BUS.write(addr, value.to_u32(), size as u32); }
+        }
+        // GD-ROM
+        0x005F_7000..=0x005F_70FF => {
+            unsafe { SYSTEM_BUS.write(addr, value.to_u32(), size as u32); }
+        }
+        // G1 i/f
+        0x005F_7400..=0x005F_74FF => {
+            unsafe { SYSTEM_BUS.write(addr, value.to_u32(), size as u32); }
+        }
+        // G2 i/f
+        0x005F_7800..=0x005F_78FF => {
+            unsafe { SYSTEM_BUS.write(addr, value.to_u32(), size as u32); }
+        }
+        // PVR i/f
+        0x005F_7C00..=0x005F_7CFF => {
+            unsafe { SYSTEM_BUS.write(addr, value.to_u32(), size as u32); }
         }
         0x005F_8000..=0x005F_9FFF => {
             warn_unimplemented("TA/PVR core", "write", addr, size);
@@ -272,5 +285,11 @@ fn handle_system_bus_write<T: sh4mem::MemoryData>(addr: u32, size: usize, value:
         _ => {
             warn_unimplemented("Area 0 unassigned", "write", addr, size);
         }
+    }
+}
+
+pub fn reset() {
+    unsafe {
+        SYSTEM_BUS = system_bus::SystemBus::new();
     }
 }

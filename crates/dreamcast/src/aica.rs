@@ -256,13 +256,7 @@ fn read_internal(ctx: &Arm7Context, offset: usize, size: usize, from_arm: bool) 
     mask_value(value, size)
 }
 
-fn write_internal(
-    ctx: &mut Arm7Context,
-    offset: usize,
-    size: usize,
-    value: u32,
-    from_arm: bool,
-) {
+fn write_internal(ctx: &mut Arm7Context, offset: usize, size: usize, value: u32, from_arm: bool) {
     let mut state = match AICA.lock() {
         Ok(guard) => guard,
         Err(_) => return,
@@ -493,11 +487,7 @@ pub fn arm_read32(addr: u32, ctx: &mut Arm7Context) -> u32 {
         return if let (Some(ptr), Some(mask)) = (ctx.aica_ram, aram_mask(ctx, 4)) {
             let base = (addr & mask) as usize;
             unsafe {
-                let data = ptr
-                    .as_ptr()
-                    .add(base)
-                    .cast::<u32>()
-                    .read_unaligned();
+                let data = ptr.as_ptr().add(base).cast::<u32>().read_unaligned();
                 if addr & 3 != 0 {
                     let shift = (addr & 3) * 8;
                     (data >> shift) | (data << (32 - shift))
@@ -531,10 +521,7 @@ pub fn arm_write32(addr: u32, value: u32, ctx: &mut Arm7Context) {
         if let (Some(ptr), Some(mask)) = (ctx.aica_ram, aram_mask(ctx, 4)) {
             let base = (addr & mask) as usize;
             unsafe {
-                ptr.as_ptr()
-                    .add(base)
-                    .cast::<u32>()
-                    .write_unaligned(value);
+                ptr.as_ptr().add(base).cast::<u32>().write_unaligned(value);
             }
         }
     } else {

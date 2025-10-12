@@ -22,13 +22,14 @@ mod area0;
 pub use area0::AREA0_HANDLERS;
 
 mod aica;
+pub mod arm7di;
 mod asic;
 mod gdrom;
-mod spg;
-pub mod arm7di;
 mod sgc;
+mod spg;
+mod system_bus;
 
-use arm7di::{ArmPsr, RN_CPSR, RN_PSR_FLAGS, RN_SPSR, R13_IRQ, R13_SVC, R15_ARM_NEXT};
+use arm7di::{ArmPsr, R13_IRQ, R13_SVC, R15_ARM_NEXT, RN_CPSR, RN_PSR_FLAGS, RN_SPSR};
 
 static DREAMCAST_PTR: AtomicPtr<Dreamcast> = AtomicPtr::new(std::ptr::null_mut());
 
@@ -203,7 +204,10 @@ fn load_file_into_slice<P: AsRef<Path>>(path: P, buf: &mut [u8]) -> io::Result<(
     Ok(())
 }
 
-pub static ROTO_BIN: &[u8] = include_bytes!("../../../roto.bin");
+// pub static ROTO_BIN: &[u8] = include_bytes!("../../../roto.bin");
+// pub static IP_BIN: &[u8] = include_bytes!("../../../data/IP.BIN");
+// pub static SYS_BIN: &[u8] = include_bytes!("../../../data/syscalls.bin");
+// pub static ARM7W_BIN: &[u8] = include_bytes!("../../../data/arm7wrestler.bin");
 
 pub fn init_dreamcast(dc_: *mut Dreamcast) {
     let dc: &mut Dreamcast;
@@ -231,6 +235,7 @@ pub fn init_dreamcast(dc_: *mut Dreamcast) {
     gdrom::reset();
     asic::reset();
     aica::reset();
+    area0::reset();
     spg::reset();
     sh4_core::register_peripheral_hook(Some(peripheral_hook));
 
@@ -314,6 +319,27 @@ pub fn init_dreamcast(dc_: *mut Dreamcast) {
     //     let src = ROTO_BIN.as_ptr();
 
     //     ptr::copy_nonoverlapping(src, dst, ROTO_BIN.len())
+    // }
+
+    // unsafe {
+    //     let dst = dc.sys_ram.as_mut_ptr().add(0);
+    //     let src = SYS_BIN.as_ptr();
+
+    //     ptr::copy_nonoverlapping(src, dst, SYS_BIN.len())
+    // }
+
+    // unsafe {
+    //     let dst = dc.sys_ram.as_mut_ptr().add(0x8000);
+    //     let src = IP_BIN.as_ptr();
+
+    //     ptr::copy_nonoverlapping(src, dst, IP_BIN.len())
+    // }
+
+    // unsafe {
+    //     let dst = dc.sys_ram.as_mut_ptr().add(0x10000);
+    //     let src = ARM7W_BIN.as_ptr();
+
+    //     ptr::copy_nonoverlapping(src, dst, ARM7W_BIN.len())
     // }
 }
 

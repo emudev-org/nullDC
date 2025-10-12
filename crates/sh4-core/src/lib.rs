@@ -10,7 +10,9 @@ use std::ptr::{addr_of, addr_of_mut};
 use crate::sh4mem::MAX_MEMHANDLERS;
 
 mod sh4p4;
-pub use sh4p4::{intc_clear_interrupt, intc_raise_interrupt, register_peripheral_hook, InterruptSourceId};
+pub use sh4p4::{
+    InterruptSourceId, intc_clear_interrupt, intc_raise_interrupt, register_peripheral_hook,
+};
 
 #[repr(C)]
 pub union FRBank {

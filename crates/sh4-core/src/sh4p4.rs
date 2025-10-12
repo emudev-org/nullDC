@@ -1,4 +1,5 @@
 #![allow(non_camel_case_types)]
+#![allow(dead_code)]
 
 use std::cell::UnsafeCell;
 use std::ptr::{self, addr_of, addr_of_mut};
@@ -1680,7 +1681,6 @@ pub fn p4_read<T: crate::sh4mem::MemoryData>(_ctx: *mut u8, addr: u32) -> T {
 }
 
 fn p4_write<T: crate::sh4mem::MemoryData>(_ctx: *mut u8, addr: u32, data: T) {
-
     // Bits [31:24] select the area within P4 space
     let area = (addr >> 24) & 0xFF;
 
