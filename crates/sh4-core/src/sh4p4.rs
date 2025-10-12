@@ -1,5 +1,22 @@
 #![allow(non_camel_case_types)]
 
+use std::cell::UnsafeCell;
+use std::ptr::addr_of_mut;
+
+struct Global<T>(UnsafeCell<T>);
+
+unsafe impl<T: Send> Sync for Global<T> {}
+
+impl<T> Global<T> {
+    const fn new(value: T) -> Self {
+        Self(UnsafeCell::new(value))
+    }
+
+    unsafe fn get(&self) -> &mut T {
+        unsafe { &mut *self.0.get() }
+    }
+}
+
 ////// Addresses
 //
 // ==== CCN ====
@@ -781,6 +798,361 @@ static mut INTC_IPRB_DATA: INTC_IPRB = INTC_IPRB(0);
 static mut INTC_IPRC_DATA: INTC_IPRC = INTC_IPRC(0);
 static mut INTC_IPRD_DATA: u32 = 0;
 
+static IRL_PRIORITY: Global<u16> = Global::new(0x0246);
+
+const NUM_INTERRUPTS: usize = 28;
+const ALL_INTERRUPTS_MASK: u32 = (1 << NUM_INTERRUPTS) - 1;
+
+#[derive(Copy, Clone)]
+enum PriorityRegister {
+    Ipra,
+    Iprb,
+    Iprc,
+    Irl,
+}
+
+#[derive(Copy, Clone)]
+struct PriorityRef {
+    register: PriorityRegister,
+    nibble: u8,
+}
+
+impl PriorityRef {
+    const fn ipra(nibble: u8) -> Self {
+        Self {
+            register: PriorityRegister::Ipra,
+            nibble,
+        }
+    }
+
+    const fn iprb(nibble: u8) -> Self {
+        Self {
+            register: PriorityRegister::Iprb,
+            nibble,
+        }
+    }
+
+    const fn iprc(nibble: u8) -> Self {
+        Self {
+            register: PriorityRegister::Iprc,
+            nibble,
+        }
+    }
+
+    const fn irl(nibble: u8) -> Self {
+        Self {
+            register: PriorityRegister::Irl,
+            nibble,
+        }
+    }
+
+    unsafe fn read(&self) -> u8 {
+        match self.register {
+            PriorityRegister::Ipra => unsafe {
+                ((INTC_IPRA_DATA.0 >> (self.nibble as u32 * 4)) & 0xF) as u8
+            },
+            PriorityRegister::Iprb => unsafe {
+                ((INTC_IPRB_DATA.0 >> (self.nibble as u32 * 4)) & 0xF) as u8
+            },
+            PriorityRegister::Iprc => unsafe {
+                ((INTC_IPRC_DATA.0 >> (self.nibble as u32 * 4)) & 0xF) as u8
+            },
+            PriorityRegister::Irl => unsafe {
+                ((*IRL_PRIORITY.get() >> (self.nibble as u32 * 4)) & 0xF) as u8
+            },
+        }
+    }
+}
+
+#[derive(Copy, Clone)]
+struct InterruptSource {
+    event_code: u32,
+    priority_ref: PriorityRef,
+    cached_priority: u8,
+}
+
+impl InterruptSource {
+    const fn empty() -> Self {
+        Self {
+            event_code: 0,
+            priority_ref: PriorityRef::ipra(0),
+            cached_priority: 0,
+        }
+    }
+
+    const fn new(event_code: u32, priority_ref: PriorityRef) -> Self {
+        Self {
+            event_code,
+            priority_ref,
+            cached_priority: 0,
+        }
+    }
+}
+
+#[derive(Copy, Clone)]
+struct InterruptEvent {
+    index: usize,
+    event_code: u32,
+}
+
+struct InterruptController {
+    pending: u32,
+    enabled: u32,
+    sources: [InterruptSource; NUM_INTERRUPTS],
+    order: [usize; NUM_INTERRUPTS],
+}
+
+impl InterruptController {
+    const fn new() -> Self {
+        Self {
+            pending: 0,
+            enabled: ALL_INTERRUPTS_MASK,
+            sources: [InterruptSource::empty(); NUM_INTERRUPTS],
+            order: [0; NUM_INTERRUPTS],
+        }
+    }
+
+    fn init(&mut self) {
+        self.sources = [
+            InterruptSource::new(0x0320, PriorityRef::irl(0)), // IRL_9
+            InterruptSource::new(0x0360, PriorityRef::irl(1)), // IRL_11
+            InterruptSource::new(0x03A0, PriorityRef::irl(2)), // IRL_13
+            InterruptSource::new(0x0600, PriorityRef::iprc(0)), // HUDI
+            InterruptSource::new(0x0620, PriorityRef::iprc(3)), // GPIO
+            InterruptSource::new(0x0640, PriorityRef::iprc(2)), // DMTE0
+            InterruptSource::new(0x0660, PriorityRef::iprc(2)), // DMTE1
+            InterruptSource::new(0x0680, PriorityRef::iprc(2)), // DMTE2
+            InterruptSource::new(0x06A0, PriorityRef::iprc(2)), // DMTE3
+            InterruptSource::new(0x06C0, PriorityRef::iprc(2)), // DMAE
+            InterruptSource::new(0x0400, PriorityRef::ipra(3)), // TMU0
+            InterruptSource::new(0x0420, PriorityRef::ipra(2)), // TMU1
+            InterruptSource::new(0x0440, PriorityRef::ipra(1)), // TMU2 underflow
+            InterruptSource::new(0x0460, PriorityRef::ipra(1)), // TMU2 TICPI2
+            InterruptSource::new(0x0480, PriorityRef::ipra(0)), // RTC alarm
+            InterruptSource::new(0x04A0, PriorityRef::ipra(0)), // RTC periodic
+            InterruptSource::new(0x04C0, PriorityRef::ipra(0)), // RTC carry-up
+            InterruptSource::new(0x04E0, PriorityRef::iprb(1)), // SCI1 ERI
+            InterruptSource::new(0x0500, PriorityRef::iprb(1)), // SCI1 RXI
+            InterruptSource::new(0x0520, PriorityRef::iprb(1)), // SCI1 TXI
+            InterruptSource::new(0x0540, PriorityRef::iprb(1)), // SCI1 TEI
+            InterruptSource::new(0x0700, PriorityRef::iprc(1)), // SCIF ERI
+            InterruptSource::new(0x0720, PriorityRef::iprc(1)), // SCIF RXI
+            InterruptSource::new(0x0740, PriorityRef::iprc(1)), // SCIF BRI
+            InterruptSource::new(0x0760, PriorityRef::iprc(1)), // SCIF TXI
+            InterruptSource::new(0x0560, PriorityRef::iprb(3)), // WDT
+            InterruptSource::new(0x0580, PriorityRef::iprb(2)), // REF RCMI
+            InterruptSource::new(0x05A0, PriorityRef::ipra(2)), // REF ROVI
+        ];
+
+        for i in 0..NUM_INTERRUPTS {
+            self.order[i] = i;
+        }
+
+        self.pending = 0;
+        self.enabled = ALL_INTERRUPTS_MASK;
+        self.update_priorities();
+    }
+
+    fn update_priorities(&mut self) {
+        for i in 0..NUM_INTERRUPTS {
+            self.sources[i].cached_priority = unsafe { self.sources[i].priority_ref.read() };
+        }
+        self.sort_sources();
+    }
+
+    fn sort_sources(&mut self) {
+        for i in 1..NUM_INTERRUPTS {
+            let mut j = i;
+            while j > 0 {
+                let prev = self.order[j - 1];
+                let curr = self.order[j];
+                if self.sources[prev].cached_priority <= self.sources[curr].cached_priority {
+                    break;
+                }
+                self.order.swap(j - 1, j);
+                j -= 1;
+            }
+        }
+    }
+
+    #[allow(dead_code)]
+    fn set_pending(&mut self, index: usize) {
+        self.pending |= 1u32 << index;
+    }
+
+    #[allow(dead_code)]
+    fn clear_pending(&mut self, index: usize) {
+        self.pending &= !(1u32 << index);
+    }
+
+    #[allow(dead_code)]
+    fn enable(&mut self, index: usize) {
+        self.enabled |= 1u32 << index;
+    }
+
+    #[allow(dead_code)]
+    fn disable(&mut self, index: usize) {
+        self.enabled &= !(1u32 << index);
+    }
+
+    fn next_event(&mut self, sr: &crate::SrStatus) -> Option<InterruptEvent> {
+        if sr.bl() {
+            return None;
+        }
+
+        let mask_level = sr.imask() as u8;
+
+        for &idx in &self.order {
+            if idx >= NUM_INTERRUPTS {
+                continue;
+            }
+            let bit = 1u32 << idx;
+            if (self.pending & bit) == 0 {
+                continue;
+            }
+            if (self.enabled & bit) == 0 {
+                continue;
+            }
+            let priority = self.sources[idx].cached_priority;
+            if priority <= mask_level {
+                continue;
+            }
+            return Some(InterruptEvent {
+                index: idx,
+                event_code: self.sources[idx].event_code,
+            });
+        }
+
+        None
+    }
+}
+
+static INTERRUPT_CONTROLLER: Global<InterruptController> = Global::new(InterruptController::new());
+
+fn with_controller<F, R>(f: F) -> R
+where
+    F: FnOnce(&mut InterruptController) -> R,
+{
+    unsafe {
+        let controller = INTERRUPT_CONTROLLER.get();
+        f(controller)
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum InterruptSourceId {
+    Irl9,
+    Irl11,
+    Irl13,
+    HudiUnderflow,
+    Gpio,
+    DmacDmte0,
+    DmacDmte1,
+    DmacDmte2,
+    DmacDmte3,
+    DmacDmae,
+    Tmu0Underflow,
+    Tmu1Underflow,
+    Tmu2Underflow,
+    Tmu2InputCapture,
+    RtcAlarm,
+    RtcPeriodic,
+    RtcCarry,
+    Sci1Eri,
+    Sci1Rxi,
+    Sci1Txi,
+    Sci1Tei,
+    ScifEri,
+    ScifRxi,
+    ScifBri,
+    ScifTxi,
+    WdtIti,
+    RefRcmi,
+    RefRovi,
+}
+
+impl InterruptSourceId {
+    const fn index(self) -> usize {
+        self as usize
+    }
+}
+
+#[allow(dead_code)]
+pub fn intc_raise_interrupt(source: InterruptSourceId) {
+    with_controller(|ctrl| ctrl.set_pending(source.index()));
+}
+
+#[allow(dead_code)]
+pub fn intc_clear_interrupt(source: InterruptSourceId) {
+    with_controller(|ctrl| ctrl.clear_pending(source.index()));
+}
+
+#[allow(dead_code)]
+pub fn intc_enable_interrupt(source: InterruptSourceId) {
+    with_controller(|ctrl| ctrl.enable(source.index()));
+}
+
+#[allow(dead_code)]
+pub fn intc_disable_interrupt(source: InterruptSourceId) {
+    with_controller(|ctrl| ctrl.disable(source.index()));
+}
+
+pub fn intc_priorities_changed() {
+    with_controller(|ctrl| ctrl.update_priorities());
+}
+
+pub fn intc_initialize() {
+    with_controller(|ctrl| ctrl.init());
+}
+
+fn compose_full_sr(ctx: *mut crate::Sh4Ctx) -> u32 {
+    unsafe {
+        (*ctx).sr.0 | (*ctx).sr_t
+    }
+}
+
+pub(crate) unsafe fn intc_try_service(ctx: *mut crate::Sh4Ctx) -> bool {
+    let event = with_controller(|ctrl| {
+        let sr_ref = unsafe { &(*ctx).sr };
+        let evt = ctrl.next_event(sr_ref);
+        if let Some(ref evt) = evt {
+            ctrl.clear_pending(evt.index);
+        }
+        evt
+    });
+
+    if let Some(event) = event {
+        unsafe {
+            CCN_INTEVT_DATA = event.event_code;
+
+            (*ctx).ssr = compose_full_sr(ctx);
+            (*ctx).spc = (*ctx).pc0;
+            (*ctx).sgr = (*ctx).r[15];
+
+            (*ctx).sr.set_bl(true);
+            (*ctx).sr.set_md(true);
+            let old_rb = (*ctx).sr.rb();
+            (*ctx).sr.set_rb(true);
+            if !old_rb {
+                crate::backend_fns::sh4_rbank_switch( addr_of_mut!((*ctx).r[0]), addr_of_mut!((*ctx).r_bank[0]));
+            }
+
+            let vector = (*ctx).vbr.wrapping_add(0x0000_0600);
+            (*ctx).pc0 = vector;
+            (*ctx).pc1 = vector.wrapping_add(2);
+            (*ctx).pc2 = vector.wrapping_add(4);
+
+            (*ctx).is_delayslot0 = 0;
+            (*ctx).is_delayslot1 = 0;
+        }
+
+        true
+    } else {
+        false
+    }
+}
+
 // RTC
 static mut RTC_R64CNT_DATA:  u32 = 0;
 static mut RTC_RSECCNT_DATA: u32 = 0;
@@ -1136,8 +1508,10 @@ fn area7_read_only(_ctx: *mut u8, addr: u32, _data: u32) {
 fn write_intc_ipr(ctx: *mut u8, _addr: u32, data: u32) {
     unsafe {
         let reg = ctx as *mut u16;
-        if *reg != data as u16 {
-            *reg = data as u16;
+        let value = data as u16;
+        if *reg != value {
+            *reg = value;
+            intc_priorities_changed();
         }
     }
 }
@@ -1147,7 +1521,7 @@ fn read_intc_iprd(_ctx: *mut u8, _addr: u32) -> u32 {
 }
 
 fn write_bsc_pctra(ctx: *mut u8, _addr: u32, data: u32) {
-    unsafe { *(ctx as *mut u32) = (data & 0xFFFF) as u32; }
+    unsafe { *(ctx as *mut BSC_PCTRA) = BSC_PCTRA(data); }
 }
 
 fn dreamcast_cable_setting() -> u32 {
@@ -1177,8 +1551,7 @@ fn read_bsc_pdtra(_ctx: *mut u8, _addr: u32) -> u32 {
 
 fn write_bsc_pdtra(ctx: *mut u8, _addr: u32, data: u32) {
     unsafe {
-        *(ctx as *mut u16) = data as u16;
-        BSC_PDTRA_DATA.0 = data as u16;
+        *(ctx as *mut BSC_PDTRA) = BSC_PDTRA(data as u16);
     }
 }
 
@@ -1225,11 +1598,13 @@ fn write_tmu_tcr(ctx: *mut u8, _addr: u32, data: u32) {
     unsafe { *(ctx as *mut u16) = data as u16; }
 }
 
-fn read_tmu_tcpr2(_ctx: *mut u8, _addr: u32) -> u32 {
-    0
+fn read_tmu_tcpr2(ctx: *mut u8, _addr: u32) -> u32 {
+    unsafe { *(ctx as *mut u32) }
 }
 
-fn write_tmu_tcpr2(_ctx: *mut u8, _addr: u32, _data: u32) {}
+fn write_tmu_tcpr2(ctx: *mut u8, _addr: u32, data: u32) {
+    unsafe { *(ctx as *mut u32) = data; }
+}
 
 fn write_dmac_control(ctx: *mut u8, _addr: u32, data: u32) {
     unsafe { *(ctx as *mut u32) = data; }
@@ -1255,6 +1630,66 @@ fn read_ccn_prr(_ctx: *mut u8, _addr: u32) -> u32 {
     0
 }
 
+fn initialize_default_register_values() {
+    unsafe {
+        // BSC defaults follow the documented reset values
+        BSC_BCR1_DATA = BSC_BCR1(0x0000_0000);
+        BSC_BCR2_DATA = BSC_BCR2(0x3FFC);
+        BSC_WCR1_DATA = BSC_WCR1(0x7777_7777);
+        BSC_WCR2_DATA = BSC_WCR2(0xFFFE_EFFF);
+        BSC_WCR3_DATA = BSC_WCR3(0x0777_7777);
+        BSC_MCR_DATA = BSC_MCR(0x0000_0000);
+        BSC_PCR_DATA = BSC_PCR(0x0000);
+        BSC_RTCSR_DATA = BSC_RTCSR(0x0000);
+        BSC_RTCNT_DATA = BSC_RTCNT(0x0000);
+        BSC_RTCOR_DATA = BSC_RTCOR(0x0000);
+        BSC_RFCR_DATA = BSC_RFCR(0x0000);
+        BSC_PCTRA_DATA = BSC_PCTRA(0x0000_0000);
+        BSC_PDTRA_DATA = BSC_PDTRA(0x0000);
+        BSC_PCTRB_DATA = BSC_PCTRB(0x0000_0000);
+        BSC_PDTRB_DATA = BSC_PDTRB(0x0000);
+        BSC_GPIOIC_DATA = BSC_GPIOIC(0x0000);
+
+        // CCN reset values (where documented)
+        CCN_EXPEVT_DATA = 0x0000_0020;
+        CCN_CCR_DATA = CCN_CCR(0x0000_0000);
+        CCN_MMUCR_DATA = CCN_MMUCR(0x0000_0000);
+        CCN_QACR0_DATA = CCN_QACR(0x0000_0000);
+        CCN_QACR1_DATA = CCN_QACR(0x0000_0000);
+        CCN_PTEH_DATA = CCN_PTEH(0x0000_0000);
+        CCN_PTEL_DATA = CCN_PTEL(0x0000_0000);
+        CCN_TTB_DATA = 0x0000_0000;
+        CCN_TEA_DATA = 0x0000_0000;
+        CCN_TRA_DATA = 0x0000_0000;
+        CCN_INTEVT_DATA = 0x0000_0000;
+        CCN_PTEA_DATA = CCN_PTEA(0x0000_0000);
+        CCN_PRR_DATA = 0x0000_0000;
+
+        // Minimal defaults for modules that expect specific power-on state.
+        DMAC_DMAOR_DATA = 0x0000_0000;
+        TMU_TOCR_DATA = 0x0000_0000;
+        TMU_TSTR_DATA = 0x0000_0000;
+        RTC_RCR1_DATA = 0x00;
+        RTC_RCR2_DATA = 0x00;
+
+        // Interrupt controller defaults
+        INTC_ICR_DATA = INTC_ICR(0x0000);
+        INTC_IPRA_DATA = INTC_IPRA(0x0000);
+        INTC_IPRB_DATA = INTC_IPRB(0x0000);
+        INTC_IPRC_DATA = INTC_IPRC(0x0000);
+        INTC_IPRD_DATA = 0x0000;
+        *IRL_PRIORITY.get() = 0x0246;
+        intc_initialize();
+
+        // CPG defaults
+        CPG_FRQCR_DATA = 0x0000_0000;
+        CPG_STBCR_DATA = 0x00;
+        CPG_WTCNT_DATA = 0x0000;
+        CPG_WTCSR_DATA = 0x0000;
+        CPG_STBCR2_DATA = 0x00;
+    }
+}
+
 macro_rules! rio {
     ($mod:ident, $reg:ident, $read:expr, $write:expr, $size:expr) => {
         paste::paste! {
@@ -1274,6 +1709,8 @@ macro_rules! rio {
 
 pub fn p4_init() {
     unsafe {
+        initialize_default_register_values();
+
         /* INTC */
         rio!(INTC, ICR,  read_data_16, write_data_16, 16);
         rio!(INTC, IPRA, read_data_16, write_intc_ipr, 16);
@@ -1311,7 +1748,7 @@ pub fn p4_init() {
         rio!(BSC, RTCNT,  read_data_16, write_data_16, 16);
         rio!(BSC, RTCOR,  read_data_16, write_data_16, 16);
         rio!(BSC, RFCR,   read_data_16, write_data_16, 16);
-        rio!(BSC, PCTRA,  read_data_16, write_bsc_pctra, 16);
+        rio!(BSC, PCTRA,  read_data_32, write_bsc_pctra, 32);
         rio!(BSC, PDTRA,  read_bsc_pdtra, write_bsc_pdtra, 16);
         rio!(BSC, PCTRB,  read_data_32, write_data_32, 32);
         rio!(BSC, PDTRB,  read_data_16, write_data_16, 16);

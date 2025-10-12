@@ -236,6 +236,13 @@ pub mod backend_fns;
 pub fn sh4_ipr_dispatcher(ctx: *mut Sh4Ctx) {
     unsafe {
         loop {
+            if (*ctx).is_delayslot0 == 0 {
+                let old_pc0 = (*ctx).pc0;
+                if sh4p4::intc_try_service(ctx) {
+                    println!("Interrupt taken at PC {:08X} -> {:08X}", old_pc0, (*ctx).pc0);
+                }
+            }
+
             let mut opcode: u16 = 0;
 
             read_mem(ctx, (*ctx).pc0, &mut opcode);
