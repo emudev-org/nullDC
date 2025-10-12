@@ -1,7 +1,7 @@
 #![allow(non_camel_case_types)]
 
 use std::cell::UnsafeCell;
-use std::ptr::addr_of_mut;
+use std::ptr::{self, addr_of, addr_of_mut};
 
 struct Global<T>(UnsafeCell<T>);
 
@@ -15,6 +15,30 @@ impl<T> Global<T> {
     unsafe fn get(&self) -> &mut T {
         unsafe { &mut *self.0.get() }
     }
+}
+
+bitfield! {
+    #[derive(Copy, Clone, Default)]
+    pub struct Reg8(u8);
+    impl Debug;
+
+    pub u8, full, set_full: 7, 0;
+}
+
+bitfield! {
+    #[derive(Copy, Clone, Default)]
+    pub struct Reg16(u16);
+    impl Debug;
+
+    pub u16, full, set_full: 15, 0;
+}
+
+bitfield! {
+    #[derive(Copy, Clone, Default)]
+    pub struct Reg32(u32);
+    impl Debug;
+
+    pub u32, full, set_full: 31, 0;
 }
 
 #[derive(Copy, Clone)]
@@ -825,7 +849,7 @@ static mut INTC_ICR_DATA:  INTC_ICR  = INTC_ICR(0);
 static mut INTC_IPRA_DATA: INTC_IPRA = INTC_IPRA(0);
 static mut INTC_IPRB_DATA: INTC_IPRB = INTC_IPRB(0);
 static mut INTC_IPRC_DATA: INTC_IPRC = INTC_IPRC(0);
-static mut INTC_IPRD_DATA: u32 = 0;
+static mut INTC_IPRD_DATA: Reg16 = Reg16(0);
 
 static IRL_PRIORITY: Global<u16> = Global::new(0x0246);
 
@@ -1159,7 +1183,7 @@ pub(crate) unsafe fn intc_try_service(ctx: *mut crate::Sh4Ctx) -> bool {
 
     if let Some(event) = event {
         unsafe {
-            CCN_INTEVT_DATA = event.event_code;
+            ptr::write(addr_of_mut!(CCN_INTEVT_DATA), Reg32(event.event_code));
 
             (*ctx).ssr = compose_full_sr(ctx);
             (*ctx).spc = (*ctx).pc0;
@@ -1193,22 +1217,22 @@ pub(crate) fn peripherals_step(ctx: *mut crate::Sh4Ctx, cycles: u32) {
 }
 
 // RTC
-static mut RTC_R64CNT_DATA:  u32 = 0;
-static mut RTC_RSECCNT_DATA: u32 = 0;
-static mut RTC_RMINCNT_DATA: u32 = 0;
-static mut RTC_RHRCNT_DATA:  u32 = 0;
-static mut RTC_RWKCNT_DATA:  u32 = 0;
-static mut RTC_RDAYCNT_DATA: u32 = 0;
-static mut RTC_RMONCNT_DATA: u32 = 0;
-static mut RTC_RYRCNT_DATA:  u32 = 0;
-static mut RTC_RSECAR_DATA:  u32 = 0;
-static mut RTC_RMINAR_DATA:  u32 = 0;
-static mut RTC_RHRAR_DATA:   u32 = 0;
-static mut RTC_RWKAR_DATA:   u32 = 0;
-static mut RTC_RDAYAR_DATA:  u32 = 0;
-static mut RTC_RMONAR_DATA:  u32 = 0;
-static mut RTC_RCR1_DATA:    u32 = 0;
-static mut RTC_RCR2_DATA:    u32 = 0;
+static mut RTC_R64CNT_DATA:  Reg8 = Reg8(0);
+static mut RTC_RSECCNT_DATA: Reg8 = Reg8(0);
+static mut RTC_RMINCNT_DATA: Reg8 = Reg8(0);
+static mut RTC_RHRCNT_DATA:  Reg8 = Reg8(0);
+static mut RTC_RWKCNT_DATA:  Reg8 = Reg8(0);
+static mut RTC_RDAYCNT_DATA: Reg8 = Reg8(0);
+static mut RTC_RMONCNT_DATA: Reg8 = Reg8(0);
+static mut RTC_RYRCNT_DATA:  Reg16 = Reg16(0);
+static mut RTC_RSECAR_DATA:  Reg8 = Reg8(0);
+static mut RTC_RMINAR_DATA:  Reg8 = Reg8(0);
+static mut RTC_RHRAR_DATA:   Reg8 = Reg8(0);
+static mut RTC_RWKAR_DATA:   Reg8 = Reg8(0);
+static mut RTC_RDAYAR_DATA:  Reg8 = Reg8(0);
+static mut RTC_RMONAR_DATA:  Reg8 = Reg8(0);
+static mut RTC_RCR1_DATA:    Reg8 = Reg8(0);
+static mut RTC_RCR2_DATA:    Reg8 = Reg8(0);
 
 // BSC
 static mut BSC_BCR1_DATA:   BSC_BCR1   = BSC_BCR1(0);
@@ -1229,41 +1253,41 @@ static mut BSC_PDTRB_DATA:  BSC_PDTRB  = BSC_PDTRB(0);
 static mut BSC_GPIOIC_DATA: BSC_GPIOIC = BSC_GPIOIC(0);
 
 // UBC
-static mut UBC_BARA_DATA:  u32 = 0;
-static mut UBC_BAMRA_DATA: u32 = 0;
-static mut UBC_BBRA_DATA:  u32 = 0;
-static mut UBC_BARB_DATA:  u32 = 0;
-static mut UBC_BAMRB_DATA: u32 = 0;
-static mut UBC_BBRB_DATA:  u32 = 0;
-static mut UBC_BDRB_DATA:  u32 = 0;
-static mut UBC_BDMRB_DATA: u32 = 0;
-static mut UBC_BRCR_DATA:  u32 = 0;
+static mut UBC_BARA_DATA:  Reg32 = Reg32(0);
+static mut UBC_BAMRA_DATA: Reg8 = Reg8(0);
+static mut UBC_BBRA_DATA:  Reg16 = Reg16(0);
+static mut UBC_BARB_DATA:  Reg32 = Reg32(0);
+static mut UBC_BAMRB_DATA: Reg8 = Reg8(0);
+static mut UBC_BBRB_DATA:  Reg16 = Reg16(0);
+static mut UBC_BDRB_DATA:  Reg32 = Reg32(0);
+static mut UBC_BDMRB_DATA: Reg32 = Reg32(0);
+static mut UBC_BRCR_DATA:  Reg16 = Reg16(0);
 
 // SCIF
 static mut SCIF_SCSMR2_DATA:  SCIF_SCSMR2  = SCIF_SCSMR2(0);
-static mut SCIF_SCBRR2_DATA:  u32 = 0;
+static mut SCIF_SCBRR2_DATA:  Reg8 = Reg8(0);
 static mut SCIF_SCSCR2_DATA:  SCIF_SCSCR2  = SCIF_SCSCR2(0);
-static mut SCIF_SCFTDR2_DATA: u32 = 0;
+static mut SCIF_SCFTDR2_DATA: Reg8 = Reg8(0);
 static mut SCIF_SCFSR2_DATA:  SCIF_SCFSR2  = SCIF_SCFSR2(0);
-static mut SCIF_SCFRDR2_DATA: u32 = 0;
+static mut SCIF_SCFRDR2_DATA: Reg8 = Reg8(0);
 static mut SCIF_SCFCR2_DATA:  SCIF_SCFCR2  = SCIF_SCFCR2(0);
 static mut SCIF_SCFDR2_DATA:  SCIF_SCFDR2  = SCIF_SCFDR2(0);
 static mut SCIF_SCSPTR2_DATA: SCIF_SCSPTR2 = SCIF_SCSPTR2(0);
 static mut SCIF_SCLSR2_DATA:  SCIF_SCLSR2  = SCIF_SCLSR2(0);
 
 // TMU
-static mut TMU_TOCR_DATA:  u32 = 0;
-static mut TMU_TSTR_DATA:  u32 = 0;
-static mut TMU_TCOR0_DATA: u32 = 0;
-static mut TMU_TCNT0_DATA: u32 = 0;
-static mut TMU_TCR0_DATA:  u32 = 0;
-static mut TMU_TCOR1_DATA: u32 = 0;
-static mut TMU_TCNT1_DATA: u32 = 0;
-static mut TMU_TCR1_DATA:  u32 = 0;
-static mut TMU_TCOR2_DATA: u32 = 0;
-static mut TMU_TCNT2_DATA: u32 = 0;
-static mut TMU_TCR2_DATA:  u32 = 0;
-static mut TMU_TCPR2_DATA: u32 = 0;
+static mut TMU_TOCR_DATA:  Reg8  = Reg8(0);
+static mut TMU_TSTR_DATA:  Reg8  = Reg8(0);
+static mut TMU_TCOR0_DATA: Reg32 = Reg32(0);
+static mut TMU_TCNT0_DATA: Reg32 = Reg32(0);
+static mut TMU_TCR0_DATA:  Reg16 = Reg16(0);
+static mut TMU_TCOR1_DATA: Reg32 = Reg32(0);
+static mut TMU_TCNT1_DATA: Reg32 = Reg32(0);
+static mut TMU_TCR1_DATA:  Reg16 = Reg16(0);
+static mut TMU_TCOR2_DATA: Reg32 = Reg32(0);
+static mut TMU_TCNT2_DATA: Reg32 = Reg32(0);
+static mut TMU_TCR2_DATA:  Reg16 = Reg16(0);
+static mut TMU_TCPR2_DATA: Reg32 = Reg32(0);
 
 static TMU_RUNTIME: Global<TmuRuntime> = Global::new(TmuRuntime::new());
 
@@ -1271,59 +1295,57 @@ const TMU_UNDERFLOW: u16 = 0x0100;
 const TMU_UNIE: u16 = 0x0020;
 const TMU_INVALID_PRESCALE: u32 = 0;
 
-unsafe fn tmu_tcor_ptr(ch: usize) -> *mut u32 {
-    match ch {
-        0 => addr_of_mut!(TMU_TCOR0_DATA),
-        1 => addr_of_mut!(TMU_TCOR1_DATA),
-        2 => addr_of_mut!(TMU_TCOR2_DATA),
-        _ => unreachable!("invalid TMU channel"),
-    }
-}
-
-unsafe fn tmu_tcnt_ptr(ch: usize) -> *mut u32 {
-    match ch {
-        0 => addr_of_mut!(TMU_TCNT0_DATA),
-        1 => addr_of_mut!(TMU_TCNT1_DATA),
-        2 => addr_of_mut!(TMU_TCNT2_DATA),
-        _ => unreachable!("invalid TMU channel"),
-    }
-}
-
-unsafe fn tmu_tcr_ptr(ch: usize) -> *mut u32 {
-    match ch {
-        0 => addr_of_mut!(TMU_TCR0_DATA),
-        1 => addr_of_mut!(TMU_TCR1_DATA),
-        2 => addr_of_mut!(TMU_TCR2_DATA),
-        _ => unreachable!("invalid TMU channel"),
-    }
-}
-
 unsafe fn tmu_get_tcor(ch: usize) -> u32 {
-    unsafe { *tmu_tcor_ptr(ch) }
+    match ch {
+        0 => unsafe { ptr::read(addr_of!(TMU_TCOR0_DATA)) }.full(),
+        1 => unsafe { ptr::read(addr_of!(TMU_TCOR1_DATA)) }.full(),
+        2 => unsafe { ptr::read(addr_of!(TMU_TCOR2_DATA)) }.full(),
+        _ => unreachable!("invalid TMU channel"),
+    }
 }
 
 unsafe fn tmu_get_tcnt(ch: usize) -> u32 {
-    unsafe { *tmu_tcnt_ptr(ch) }
+    match ch {
+        0 => unsafe { ptr::read(addr_of!(TMU_TCNT0_DATA)) }.full(),
+        1 => unsafe { ptr::read(addr_of!(TMU_TCNT1_DATA)) }.full(),
+        2 => unsafe { ptr::read(addr_of!(TMU_TCNT2_DATA)) }.full(),
+        _ => unreachable!("invalid TMU channel"),
+    }
 }
 
 unsafe fn tmu_set_tcnt(ch: usize, value: u32) {
-    unsafe { *tmu_tcnt_ptr(ch) = value; }
+    match ch {
+        0 => unsafe { ptr::write(addr_of_mut!(TMU_TCNT0_DATA), Reg32(value)) },
+        1 => unsafe { ptr::write(addr_of_mut!(TMU_TCNT1_DATA), Reg32(value)) },
+        2 => unsafe { ptr::write(addr_of_mut!(TMU_TCNT2_DATA), Reg32(value)) },
+        _ => unreachable!("invalid TMU channel"),
+    }
 }
 
 unsafe fn tmu_get_tcr(ch: usize) -> u16 {
-    unsafe { (*tmu_tcr_ptr(ch) as u16) & 0x03FF }
+    match ch {
+        0 => unsafe { ptr::read(addr_of!(TMU_TCR0_DATA)) }.full(),
+        1 => unsafe { ptr::read(addr_of!(TMU_TCR1_DATA)) }.full(),
+        2 => unsafe { ptr::read(addr_of!(TMU_TCR2_DATA)) }.full(),
+        _ => unreachable!("invalid TMU channel"),
+    }
 }
 
 unsafe fn tmu_store_tcr(ch: usize, value: u16) {
-    unsafe { *tmu_tcr_ptr(ch) = value as u32; }
+    match ch {
+        0 => unsafe { ptr::write(addr_of_mut!(TMU_TCR0_DATA), Reg16(value)) },
+        1 => unsafe { ptr::write(addr_of_mut!(TMU_TCR1_DATA), Reg16(value)) },
+        2 => unsafe { ptr::write(addr_of_mut!(TMU_TCR2_DATA), Reg16(value)) },
+        _ => unreachable!("invalid TMU channel"),
+    }
 }
 
 unsafe fn tmu_get_tstr() -> u8 {
-    unsafe { (TMU_TSTR_DATA & 0x07) as u8 }
+    unsafe { ptr::read(addr_of!(TMU_TSTR_DATA)) }.full()
 }
 
 unsafe fn tmu_set_tstr(value: u8) {
-    unsafe { TMU_TSTR_DATA = (value & 0x07) as u32; }
+    unsafe { ptr::write(addr_of_mut!(TMU_TSTR_DATA), Reg8(value & 0x07)) };
 }
 
 fn tmu_prescale_from_mode(mode: u16) -> u32 {
@@ -1342,30 +1364,26 @@ fn tmu_runtime_mut() -> &'static mut TmuRuntime {
 }
 
 fn tmu_channel_from_tcnt_ctx(ctx: *mut u8) -> usize {
-    unsafe {
-        if ctx == tmu_tcnt_ptr(0) as *mut u8 {
-            0
-        } else if ctx == tmu_tcnt_ptr(1) as *mut u8 {
-            1
-        } else if ctx == tmu_tcnt_ptr(2) as *mut u8 {
-            2
-        } else {
-            unreachable!("Invalid TMU TCNT context pointer");
-        }
+    if ctx == addr_of_mut!(TMU_TCNT0_DATA) as *mut u8 {
+        0
+    } else if ctx == addr_of_mut!(TMU_TCNT1_DATA) as *mut u8 {
+        1
+    } else if ctx == addr_of_mut!(TMU_TCNT2_DATA) as *mut u8 {
+        2
+    } else {
+        unreachable!("Invalid TMU TCNT context pointer");
     }
 }
 
 fn tmu_channel_from_tcr_ctx(ctx: *mut u8) -> usize {
-    unsafe {
-        if ctx == tmu_tcr_ptr(0) as *mut u8 {
-            0
-        } else if ctx == tmu_tcr_ptr(1) as *mut u8 {
-            1
-        } else if ctx == tmu_tcr_ptr(2) as *mut u8 {
-            2
-        } else {
-            unreachable!("Invalid TMU TCR context pointer");
-        }
+    if ctx == addr_of_mut!(TMU_TCR0_DATA) as *mut u8 {
+        0
+    } else if ctx == addr_of_mut!(TMU_TCR1_DATA) as *mut u8 {
+        1
+    } else if ctx == addr_of_mut!(TMU_TCR2_DATA) as *mut u8 {
+        2
+    } else {
+        unreachable!("Invalid TMU TCR context pointer");
     }
 }
 
@@ -1450,48 +1468,48 @@ fn tmu_step(ctx: *mut crate::Sh4Ctx, cycles: u32) {
 }
 
 // DMAC
-static mut DMAC_SAR0_DATA:    u32 = 0;
-static mut DMAC_DAR0_DATA:    u32 = 0;
-static mut DMAC_DMATCR0_DATA: u32 = 0;
+static mut DMAC_SAR0_DATA:    Reg32 = Reg32(0);
+static mut DMAC_DAR0_DATA:    Reg32 = Reg32(0);
+static mut DMAC_DMATCR0_DATA: Reg32 = Reg32(0);
 static mut DMAC_CHCR0_DATA:   DMAC_CHCR = DMAC_CHCR(0);
-static mut DMAC_SAR1_DATA:    u32 = 0;
-static mut DMAC_DAR1_DATA:    u32 = 0;
-static mut DMAC_DMATCR1_DATA: u32 = 0;
+static mut DMAC_SAR1_DATA:    Reg32 = Reg32(0);
+static mut DMAC_DAR1_DATA:    Reg32 = Reg32(0);
+static mut DMAC_DMATCR1_DATA: Reg32 = Reg32(0);
 static mut DMAC_CHCR1_DATA:   DMAC_CHCR = DMAC_CHCR(0);
-static mut DMAC_SAR2_DATA:    u32 = 0;
-static mut DMAC_DAR2_DATA:    u32 = 0;
-static mut DMAC_DMATCR2_DATA: u32 = 0;
+static mut DMAC_SAR2_DATA:    Reg32 = Reg32(0);
+static mut DMAC_DAR2_DATA:    Reg32 = Reg32(0);
+static mut DMAC_DMATCR2_DATA: Reg32 = Reg32(0);
 static mut DMAC_CHCR2_DATA:   DMAC_CHCR = DMAC_CHCR(0);
-static mut DMAC_SAR3_DATA:    u32 = 0;
-static mut DMAC_DAR3_DATA:    u32 = 0;
-static mut DMAC_DMATCR3_DATA: u32 = 0;
+static mut DMAC_SAR3_DATA:    Reg32 = Reg32(0);
+static mut DMAC_DAR3_DATA:    Reg32 = Reg32(0);
+static mut DMAC_DMATCR3_DATA: Reg32 = Reg32(0);
 static mut DMAC_CHCR3_DATA:   DMAC_CHCR = DMAC_CHCR(0);
-static mut DMAC_DMAOR_DATA:   u32 = 0;
+static mut DMAC_DMAOR_DATA:   Reg32 = Reg32(0);
 
 // CPG
-static mut CPG_FRQCR_DATA:  u32 = 0;
-static mut CPG_STBCR_DATA:  u32 = 0;
-static mut CPG_WTCNT_DATA:  u32 = 0;
-static mut CPG_WTCSR_DATA:  u32 = 0;
-static mut CPG_STBCR2_DATA: u32 = 0;
+static mut CPG_FRQCR_DATA:  Reg32 = Reg32(0);
+static mut CPG_STBCR_DATA:  Reg8  = Reg8(0);
+static mut CPG_WTCNT_DATA:  Reg16 = Reg16(0);
+static mut CPG_WTCSR_DATA:  Reg16 = Reg16(0);
+static mut CPG_STBCR2_DATA: Reg8  = Reg8(0);
 
 // CCN
 static mut CCN_PTEH_DATA:         CCN_PTEH      = CCN_PTEH(0);
 static mut CCN_PTEL_DATA:         CCN_PTEL      = CCN_PTEL(0);
-static mut CCN_TTB_DATA:          u32 = 0;
-static mut CCN_TEA_DATA:          u32 = 0;
+static mut CCN_TTB_DATA:          Reg32 = Reg32(0);
+static mut CCN_TEA_DATA:          Reg32 = Reg32(0);
 static mut CCN_MMUCR_DATA:        CCN_MMUCR     = CCN_MMUCR(0);
-static mut CCN_BASRA_DATA:        u32 = 0;
-static mut CCN_BASRB_DATA:        u32 = 0;
+static mut CCN_BASRA_DATA:        Reg8 = Reg8(0);
+static mut CCN_BASRB_DATA:        Reg8 = Reg8(0);
 static mut CCN_CCR_DATA:          CCN_CCR       = CCN_CCR(0);
-static mut CCN_TRA_DATA:          u32 = 0;
-static mut CCN_EXPEVT_DATA:       u32 = 0;
-static mut CCN_INTEVT_DATA:       u32 = 0;
-static mut CCN_CPU_VERSION_DATA:  u32 = 0;
+static mut CCN_TRA_DATA:          Reg32 = Reg32(0);
+static mut CCN_EXPEVT_DATA:       Reg32 = Reg32(0);
+static mut CCN_INTEVT_DATA:       Reg32 = Reg32(0);
+static mut CCN_CPU_VERSION_DATA:  Reg32 = Reg32(0);
 static mut CCN_PTEA_DATA:         CCN_PTEA      = CCN_PTEA(0);
 static mut CCN_QACR0_DATA:        CCN_QACR      = CCN_QACR(0);
 static mut CCN_QACR1_DATA:        CCN_QACR      = CCN_QACR(0);
-static mut CCN_PRR_DATA:          u32 = 0;
+static mut CCN_PRR_DATA:          Reg32 = Reg32(0);
 
 pub struct P4Register {
     pub read: fn(ctx: *mut u8, addr: u32) -> u32,
@@ -1623,7 +1641,7 @@ pub fn p4_read<T: crate::sh4mem::MemoryData>(_ctx: *mut u8, addr: u32) -> T {
             if handler.size as usize != std::mem::size_of::<T>() {
                 panic!("p4_read::<u{}> {:x} size mismatch, handler size = {}", std::mem::size_of::<T>(), addr, handler.size);
             }
-            let raw_value = (handler.read)(_ctx, addr);
+            let raw_value = (handler.read)(handler.ctx, addr);
             T::from_u32(raw_value)
         }
 
@@ -1634,7 +1652,7 @@ pub fn p4_read<T: crate::sh4mem::MemoryData>(_ctx: *mut u8, addr: u32) -> T {
     }
 }
 
-fn p4_write<T: crate::sh4mem::MemoryData>(ctx: *mut u8, addr: u32, data: T) {
+fn p4_write<T: crate::sh4mem::MemoryData>(_ctx: *mut u8, addr: u32, data: T) {
     println!("p4_write::<u{}> {:08X} data = {:08X}", std::mem::size_of::<T>(), addr, data.to_u32());
 
     // Bits [31:24] select the area within P4 space
@@ -1685,7 +1703,7 @@ fn p4_write<T: crate::sh4mem::MemoryData>(ctx: *mut u8, addr: u32, data: T) {
             if handler.size != 0 && handler.size as usize != std::mem::size_of::<T>() {
                 panic!("p4_write::<u{}> {:x} data = {:x} size mismatch, handler size = {}", std::mem::size_of::<T>(), addr, data, handler.size);
             }
-            (handler.write)(ctx, addr, data.to_u32());
+            (handler.write)(handler.ctx, addr, data.to_u32());
         }
 
         _ => {
@@ -1868,7 +1886,7 @@ fn write_ccn_ccr(ctx: *mut u8, _addr: u32, data: u32) {
 }
 
 fn read_ccn_cpu_version(_ctx: *mut u8, _addr: u32) -> u32 {
-    0x0402_05C1
+    unsafe { ptr::read(addr_of!(CCN_CPU_VERSION_DATA)).full() }
 }
 
 fn write_ccn_qacr(ctx: *mut u8, _addr: u32, data: u32) {
@@ -1900,58 +1918,61 @@ fn initialize_default_register_values() {
         BSC_GPIOIC_DATA = BSC_GPIOIC(0x0000);
 
         // CCN reset values (where documented)
-        CCN_EXPEVT_DATA = 0x0000_0020;
         CCN_CCR_DATA = CCN_CCR(0x0000_0000);
         CCN_MMUCR_DATA = CCN_MMUCR(0x0000_0000);
         CCN_QACR0_DATA = CCN_QACR(0x0000_0000);
         CCN_QACR1_DATA = CCN_QACR(0x0000_0000);
         CCN_PTEH_DATA = CCN_PTEH(0x0000_0000);
         CCN_PTEL_DATA = CCN_PTEL(0x0000_0000);
-        CCN_TTB_DATA = 0x0000_0000;
-        CCN_TEA_DATA = 0x0000_0000;
-        CCN_TRA_DATA = 0x0000_0000;
-        CCN_INTEVT_DATA = 0x0000_0000;
+        CCN_TTB_DATA = Reg32(0x0000_0000);
+        CCN_TEA_DATA = Reg32(0x0000_0000);
+        CCN_BASRA_DATA = Reg8(0x00);
+        CCN_BASRB_DATA = Reg8(0x00);
+        CCN_TRA_DATA = Reg32(0x0000_0000);
+        CCN_EXPEVT_DATA = Reg32(0x0000_0000);
+        CCN_INTEVT_DATA = Reg32(0x0000_0000);
         CCN_PTEA_DATA = CCN_PTEA(0x0000_0000);
-        CCN_PRR_DATA = 0x0000_0000;
+        CCN_CPU_VERSION_DATA = Reg32(0x0402_05C1);
+        CCN_PRR_DATA = Reg32(0x0000_0000);
 
         // Minimal defaults for modules that expect specific power-on state.
-        DMAC_DMAOR_DATA = 0x0000_0000;
-        TMU_TOCR_DATA = 0x0000_0000;
-        TMU_TSTR_DATA = 0x0000_0000;
-        TMU_TCOR0_DATA = 0xFFFF_FFFF;
-        TMU_TCOR1_DATA = 0xFFFF_FFFF;
-        TMU_TCOR2_DATA = 0xFFFF_FFFF;
-        TMU_TCNT0_DATA = 0xFFFF_FFFF;
-        TMU_TCNT1_DATA = 0xFFFF_FFFF;
-        TMU_TCNT2_DATA = 0xFFFF_FFFF;
-        TMU_TCR0_DATA = 0x0000;
-        TMU_TCR1_DATA = 0x0000;
-        TMU_TCR2_DATA = 0x0000;
-        TMU_TCPR2_DATA = 0x0000_0000;
+        DMAC_DMAOR_DATA = Reg32(0x0000_0000);
+        TMU_TOCR_DATA = Reg8(0x00);
+        TMU_TSTR_DATA = Reg8(0x00);
+        TMU_TCOR0_DATA = Reg32(0xFFFF_FFFF);
+        TMU_TCOR1_DATA = Reg32(0xFFFF_FFFF);
+        TMU_TCOR2_DATA = Reg32(0xFFFF_FFFF);
+        TMU_TCNT0_DATA = Reg32(0xFFFF_FFFF);
+        TMU_TCNT1_DATA = Reg32(0xFFFF_FFFF);
+        TMU_TCNT2_DATA = Reg32(0xFFFF_FFFF);
+        TMU_TCR0_DATA = Reg16(0x0000);
+        TMU_TCR1_DATA = Reg16(0x0000);
+        TMU_TCR2_DATA = Reg16(0x0000);
+        TMU_TCPR2_DATA = Reg32(0x0000_0000);
         tmu_set_tstr(0);
         for ch in 0..3 {
             tmu_update_prescale(ch);
             tmu_update_interrupt_mask(ch);
             tmu_set_running(ch, false);
         }
-        RTC_RCR1_DATA = 0x00;
-        RTC_RCR2_DATA = 0x00;
+        RTC_RCR1_DATA = Reg8(0x00);
+        RTC_RCR2_DATA = Reg8(0x00);
 
         // Interrupt controller defaults
         INTC_ICR_DATA = INTC_ICR(0x0000);
         INTC_IPRA_DATA = INTC_IPRA(0x0000);
         INTC_IPRB_DATA = INTC_IPRB(0x0000);
         INTC_IPRC_DATA = INTC_IPRC(0x0000);
-        INTC_IPRD_DATA = 0x0000;
+        INTC_IPRD_DATA = Reg16(0x0000);
         *IRL_PRIORITY.get() = 0x0246;
         intc_initialize();
 
         // CPG defaults
-        CPG_FRQCR_DATA = 0x0000_0000;
-        CPG_STBCR_DATA = 0x00;
-        CPG_WTCNT_DATA = 0x0000;
-        CPG_WTCSR_DATA = 0x0000;
-        CPG_STBCR2_DATA = 0x00;
+        CPG_FRQCR_DATA = Reg32(0x0000_0000);
+        CPG_STBCR_DATA = Reg8(0x00);
+        CPG_WTCNT_DATA = Reg16(0x0000);
+        CPG_WTCSR_DATA = Reg16(0x0000);
+        CPG_STBCR2_DATA = Reg8(0x00);
     }
 }
 
@@ -1964,7 +1985,7 @@ macro_rules! rio {
                     read: $read,
                     write: $write,
                     size: $size / 8,
-                    ctx: std::ptr::addr_of_mut!([<$mod _ $reg _DATA>]) as *mut _ as *mut u8,
+                    ctx: std::ptr::addr_of_mut!([<$mod _ $reg _DATA>].0) as *mut _ as *mut u8,
                 };
             }
         }
