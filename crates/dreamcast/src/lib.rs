@@ -133,8 +133,8 @@ pub fn init_dreamcast(dc_: *mut Dreamcast) {
     sh4_core::sh4_register_mem_buffer(&mut dc.ctx, 0x8C00_0000, 0x8FFF_FFFF, SYSRAM_MASK, dc.sys_ram.as_mut_ptr());
     sh4_core::sh4_register_mem_buffer(&mut dc.ctx, 0xA500_0000, 0xA5FF_FFFF, VIDEORAM_MASK, dc.video_ram.as_mut_ptr());
 
-    sh4_core::sh4_register_mem_handler(&mut dc.ctx, 0x8000_0000, 0x83FF_FFFF, 0x01FF_FFFF, AREA0_HANDLERS, dc as *mut _ as *mut u8);
-    sh4_core::sh4_register_mem_handler(&mut dc.ctx, 0xA000_0000, 0xA3FF_FFFF, 0x01FF_FFFF, AREA0_HANDLERS, dc as *mut _ as *mut u8);
+    sh4_core::sh4_register_mem_handler(&mut dc.ctx, 0x8000_0000, 0x83FF_FFFF, 0xFFFF_FFFF, AREA0_HANDLERS, dc as *mut _ as *mut u8);
+    sh4_core::sh4_register_mem_handler(&mut dc.ctx, 0xA000_0000, 0xA3FF_FFFF, 0xFFFF_FFFF, AREA0_HANDLERS, dc as *mut _ as *mut u8);
 
 
     // Set initial PC
