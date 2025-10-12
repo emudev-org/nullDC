@@ -51,7 +51,11 @@ fn area_0_read<T: sh4mem::MemoryData>(ctx: *mut u8, addr: u32) -> T {
             warn_unimplemented("AICA RTC", "read", masked_addr, size);
         }
         0x0080..=0x00FF => {
-            warn_unimplemented("AICA wave memory", "read", masked_addr, size);
+            let offset = (masked_addr & crate::AUDIORAM_MASK) as usize;
+            return read_from_slice(&dc.audio_ram[..], offset, size).unwrap_or_else(|| {
+                log_unaligned("AICA", "read", masked_addr, size);
+                T::default()
+            });
         }
         0x0100..=0x01FF => {
             warn_unimplemented("External device", "read", masked_addr, size);
@@ -109,7 +113,10 @@ fn area_0_write<T: sh4mem::MemoryData>(ctx: *mut u8, addr: u32, value: T) {
             return;
         }
         0x0080..=0x00FF => {
-            warn_unimplemented("AICA wave memory", "write", masked_addr, size);
+            let offset = (masked_addr & crate::AUDIORAM_MASK) as usize;
+            if write_to_slice(&mut dc.audio_ram[..], offset, value, size).is_none() {
+                log_unaligned("AICA", "write", masked_addr, size);
+            }
             return;
         }
         0x0100..=0x01FF => {

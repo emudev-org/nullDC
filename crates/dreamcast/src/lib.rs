@@ -24,9 +24,11 @@ const BIOS_FLASH_MASK: u32 = BIOS_FLASH_SIZE - 1;
 
 const SYSRAM_SIZE: u32 = 16 * 1024 * 1024;
 const VIDEORAM_SIZE: u32 = 8 * 1024 * 1024;
+const AUDIORAM_SIZE: u32 = 2 * 1024 * 1024;
 
 const SYSRAM_MASK: u32 = SYSRAM_SIZE - 1;
 const VIDEORAM_MASK: u32 = VIDEORAM_SIZE - 1;
+const AUDIORAM_MASK: u32 = AUDIORAM_SIZE - 1;
 
 pub struct Dreamcast {
     pub ctx: Sh4Ctx,
@@ -38,6 +40,8 @@ pub struct Dreamcast {
 
     pub sys_ram: Box<[u8; SYSRAM_SIZE as usize]>,
     pub video_ram: Box<[u8; VIDEORAM_SIZE as usize]>,
+    pub audio_ram: Box<[u8; AUDIORAM_SIZE as usize]>,
+
     pub running: bool,
     pub running_mtx: Mutex<()>,
 }
@@ -63,6 +67,10 @@ impl Default for Dreamcast {
             let v = vec![0u8; VIDEORAM_SIZE as usize];
             v.into_boxed_slice().try_into().expect("len matches")
         };
+        let audio_ram = {
+            let v = vec![0u8; AUDIORAM_SIZE as usize];
+            v.into_boxed_slice().try_into().expect("len matches")
+        };
 
         Self {
             ctx: Sh4Ctx::default(),
@@ -72,6 +80,7 @@ impl Default for Dreamcast {
             bios_flash,
             sys_ram,
             video_ram,
+            audio_ram,
             running: true,
             running_mtx: Mutex::new(()),
         }
@@ -129,15 +138,20 @@ pub fn init_dreamcast(dc_: *mut Dreamcast) {
     // build_opcode_tables(dc);
 
     // Setup memory map
+    // SYSRAM
     sh4_core::sh4_register_mem_buffer(&mut dc.ctx, 0x0C00_0000, 0x0FFF_FFFF, SYSRAM_MASK, dc.sys_ram.as_mut_ptr());
     sh4_core::sh4_register_mem_buffer(&mut dc.ctx, 0x8C00_0000, 0x8FFF_FFFF, SYSRAM_MASK, dc.sys_ram.as_mut_ptr());
+    sh4_core::sh4_register_mem_buffer(&mut dc.ctx, 0xAC00_0000, 0xAFFF_FFFF, SYSRAM_MASK, dc.sys_ram.as_mut_ptr());
 
+    // VRAM
     // Gotta handle 32/64 bit vram mirroring at some point
     sh4_core::sh4_register_mem_buffer(&mut dc.ctx, 0x0400_0000, 0x07FF_FFFF, VIDEORAM_MASK, dc.video_ram.as_mut_ptr());
     sh4_core::sh4_register_mem_buffer(&mut dc.ctx, 0xA400_0000, 0xA5FF_FFFF, VIDEORAM_MASK, dc.video_ram.as_mut_ptr());
 
+    // AREA 0 (BIOS, Flash, System Bus)
     sh4_core::sh4_register_mem_handler(&mut dc.ctx, 0x8000_0000, 0x83FF_FFFF, 0xFFFF_FFFF, AREA0_HANDLERS, dc as *mut _ as *mut u8);
     sh4_core::sh4_register_mem_handler(&mut dc.ctx, 0xA000_0000, 0xA3FF_FFFF, 0xFFFF_FFFF, AREA0_HANDLERS, dc as *mut _ as *mut u8);
+
 
 
     // Set initial PC
