@@ -17,6 +17,35 @@ impl<T> Global<T> {
     }
 }
 
+#[derive(Copy, Clone)]
+struct TmuChannelRuntime {
+    accum: u32,
+    prescale: u32,
+    running: bool,
+}
+
+impl TmuChannelRuntime {
+    const fn new() -> Self {
+        Self {
+            accum: 0,
+            prescale: 4,
+            running: false,
+        }
+    }
+}
+
+struct TmuRuntime {
+    channels: [TmuChannelRuntime; 3],
+}
+
+impl TmuRuntime {
+    const fn new() -> Self {
+        Self {
+            channels: [TmuChannelRuntime::new(), TmuChannelRuntime::new(), TmuChannelRuntime::new()],
+        }
+    }
+}
+
 ////// Addresses
 //
 // ==== CCN ====
@@ -1078,22 +1107,28 @@ impl InterruptSourceId {
     }
 }
 
-#[allow(dead_code)]
+const TMU_CHANNEL_IDS: [InterruptSourceId; 3] = [
+    InterruptSourceId::Tmu0Underflow,
+    InterruptSourceId::Tmu1Underflow,
+    InterruptSourceId::Tmu2Underflow,
+];
+
+fn tmu_interrupt_id(ch: usize) -> InterruptSourceId {
+    TMU_CHANNEL_IDS[ch]
+}
+
 pub fn intc_raise_interrupt(source: InterruptSourceId) {
     with_controller(|ctrl| ctrl.set_pending(source.index()));
 }
 
-#[allow(dead_code)]
 pub fn intc_clear_interrupt(source: InterruptSourceId) {
     with_controller(|ctrl| ctrl.clear_pending(source.index()));
 }
 
-#[allow(dead_code)]
 pub fn intc_enable_interrupt(source: InterruptSourceId) {
     with_controller(|ctrl| ctrl.enable(source.index()));
 }
 
-#[allow(dead_code)]
 pub fn intc_disable_interrupt(source: InterruptSourceId) {
     with_controller(|ctrl| ctrl.disable(source.index()));
 }
@@ -1135,7 +1170,7 @@ pub(crate) unsafe fn intc_try_service(ctx: *mut crate::Sh4Ctx) -> bool {
             let old_rb = (*ctx).sr.rb();
             (*ctx).sr.set_rb(true);
             if !old_rb {
-                crate::backend_fns::sh4_rbank_switch( addr_of_mut!((*ctx).r[0]), addr_of_mut!((*ctx).r_bank[0]));
+                crate::backend_ipr::sh4_rbank_switch(addr_of_mut!((*ctx).r[0]), addr_of_mut!((*ctx).r_bank[0]));
             }
 
             let vector = (*ctx).vbr.wrapping_add(0x0000_0600);
@@ -1151,6 +1186,10 @@ pub(crate) unsafe fn intc_try_service(ctx: *mut crate::Sh4Ctx) -> bool {
     } else {
         false
     }
+}
+
+pub(crate) fn peripherals_step(ctx: *mut crate::Sh4Ctx, cycles: u32) {
+    tmu_step(ctx, cycles);
 }
 
 // RTC
@@ -1225,6 +1264,190 @@ static mut TMU_TCOR2_DATA: u32 = 0;
 static mut TMU_TCNT2_DATA: u32 = 0;
 static mut TMU_TCR2_DATA:  u32 = 0;
 static mut TMU_TCPR2_DATA: u32 = 0;
+
+static TMU_RUNTIME: Global<TmuRuntime> = Global::new(TmuRuntime::new());
+
+const TMU_UNDERFLOW: u16 = 0x0100;
+const TMU_UNIE: u16 = 0x0020;
+const TMU_INVALID_PRESCALE: u32 = 0;
+
+unsafe fn tmu_tcor_ptr(ch: usize) -> *mut u32 {
+    match ch {
+        0 => addr_of_mut!(TMU_TCOR0_DATA),
+        1 => addr_of_mut!(TMU_TCOR1_DATA),
+        2 => addr_of_mut!(TMU_TCOR2_DATA),
+        _ => unreachable!("invalid TMU channel"),
+    }
+}
+
+unsafe fn tmu_tcnt_ptr(ch: usize) -> *mut u32 {
+    match ch {
+        0 => addr_of_mut!(TMU_TCNT0_DATA),
+        1 => addr_of_mut!(TMU_TCNT1_DATA),
+        2 => addr_of_mut!(TMU_TCNT2_DATA),
+        _ => unreachable!("invalid TMU channel"),
+    }
+}
+
+unsafe fn tmu_tcr_ptr(ch: usize) -> *mut u32 {
+    match ch {
+        0 => addr_of_mut!(TMU_TCR0_DATA),
+        1 => addr_of_mut!(TMU_TCR1_DATA),
+        2 => addr_of_mut!(TMU_TCR2_DATA),
+        _ => unreachable!("invalid TMU channel"),
+    }
+}
+
+unsafe fn tmu_get_tcor(ch: usize) -> u32 {
+    unsafe { *tmu_tcor_ptr(ch) }
+}
+
+unsafe fn tmu_get_tcnt(ch: usize) -> u32 {
+    unsafe { *tmu_tcnt_ptr(ch) }
+}
+
+unsafe fn tmu_set_tcnt(ch: usize, value: u32) {
+    unsafe { *tmu_tcnt_ptr(ch) = value; }
+}
+
+unsafe fn tmu_get_tcr(ch: usize) -> u16 {
+    unsafe { (*tmu_tcr_ptr(ch) as u16) & 0x03FF }
+}
+
+unsafe fn tmu_store_tcr(ch: usize, value: u16) {
+    unsafe { *tmu_tcr_ptr(ch) = value as u32; }
+}
+
+unsafe fn tmu_get_tstr() -> u8 {
+    unsafe { (TMU_TSTR_DATA & 0x07) as u8 }
+}
+
+unsafe fn tmu_set_tstr(value: u8) {
+    unsafe { TMU_TSTR_DATA = (value & 0x07) as u32; }
+}
+
+fn tmu_prescale_from_mode(mode: u16) -> u32 {
+    match mode & 0x7 {
+        0 => 4,
+        1 => 16,
+        2 => 64,
+        3 => 256,
+        4 => 1024,
+        _ => TMU_INVALID_PRESCALE,
+    }
+}
+
+fn tmu_runtime_mut() -> &'static mut TmuRuntime {
+    unsafe { TMU_RUNTIME.get() }
+}
+
+fn tmu_channel_from_tcnt_ctx(ctx: *mut u8) -> usize {
+    unsafe {
+        if ctx == tmu_tcnt_ptr(0) as *mut u8 {
+            0
+        } else if ctx == tmu_tcnt_ptr(1) as *mut u8 {
+            1
+        } else if ctx == tmu_tcnt_ptr(2) as *mut u8 {
+            2
+        } else {
+            unreachable!("Invalid TMU TCNT context pointer");
+        }
+    }
+}
+
+fn tmu_channel_from_tcr_ctx(ctx: *mut u8) -> usize {
+    unsafe {
+        if ctx == tmu_tcr_ptr(0) as *mut u8 {
+            0
+        } else if ctx == tmu_tcr_ptr(1) as *mut u8 {
+            1
+        } else if ctx == tmu_tcr_ptr(2) as *mut u8 {
+            2
+        } else {
+            unreachable!("Invalid TMU TCR context pointer");
+        }
+    }
+}
+
+fn tmu_update_prescale(ch: usize) {
+    let runtime = tmu_runtime_mut();
+    let mode = unsafe { tmu_get_tcr(ch) };
+    runtime.channels[ch].prescale = tmu_prescale_from_mode(mode);
+    runtime.channels[ch].accum = 0;
+}
+
+fn tmu_set_running(ch: usize, running: bool) {
+    let runtime = tmu_runtime_mut();
+    runtime.channels[ch].running = running;
+    runtime.channels[ch].accum = 0;
+}
+
+fn tmu_update_running_from_tstr() {
+    let tstr = unsafe { tmu_get_tstr() };
+    for ch in 0..3 {
+        let running = (tstr & (1 << ch)) != 0;
+        tmu_set_running(ch, running);
+    }
+}
+
+fn tmu_update_interrupt_mask(ch: usize) {
+    let tcr = unsafe { tmu_get_tcr(ch) };
+    let id = tmu_interrupt_id(ch);
+    if (tcr & TMU_UNIE) != 0 {
+        intc_enable_interrupt(id);
+    } else {
+        intc_disable_interrupt(id);
+        intc_clear_interrupt(id);
+    }
+}
+
+fn tmu_handle_underflow(_ctx: *mut crate::Sh4Ctx, runtime: &mut TmuRuntime, ch: usize) {
+    unsafe {
+        let mut tcr = tmu_get_tcr(ch);
+        tcr |= TMU_UNDERFLOW;
+        tmu_store_tcr(ch, tcr);
+        if (tcr & TMU_UNIE) != 0 {
+            intc_raise_interrupt(tmu_interrupt_id(ch));
+        }
+        let reload = tmu_get_tcor(ch);
+        tmu_set_tcnt(ch, reload);
+        runtime.channels[ch].accum = 0;
+    }
+}
+
+fn tmu_step(ctx: *mut crate::Sh4Ctx, cycles: u32) {
+    if cycles == 0 {
+        return;
+    }
+
+    let runtime = tmu_runtime_mut();
+    for ch in 0..3 {
+        if !runtime.channels[ch].running {
+            continue;
+        }
+
+        let prescale = runtime.channels[ch].prescale;
+        if prescale == 0 {
+            continue;
+        }
+
+        runtime.channels[ch].accum = runtime.channels[ch].accum.saturating_add(cycles);
+        let mut steps = runtime.channels[ch].accum / prescale;
+        runtime.channels[ch].accum %= prescale;
+
+        while steps > 0 {
+            unsafe {
+                let current = tmu_get_tcnt(ch);
+                if current == 0 {
+                    tmu_handle_underflow(ctx, runtime, ch);
+                } else {
+                    tmu_set_tcnt(ch, current.wrapping_sub(1));
+                }
+            }
+            steps -= 1;
+        }
+    }
+}
 
 // DMAC
 static mut DMAC_SAR0_DATA:    u32 = 0;
@@ -1582,20 +1805,43 @@ fn scif_read_fifo_depth(ctx: *mut u8, _addr: u32) -> u32 {
     unsafe { *(ctx as *mut u16) as u32 }
 }
 
-fn write_tmu_tstr(ctx: *mut u8, _addr: u32, data: u32) {
-    unsafe { *(ctx as *mut u8) = data as u8; }
+fn write_tmu_tstr(_ctx: *mut u8, _addr: u32, data: u32) {
+    let value = (data & 0x07) as u8;
+    unsafe {
+        tmu_set_tstr(value);
+    }
+    tmu_update_running_from_tstr();
 }
 
 fn read_tmu_tcnt(ctx: *mut u8, _addr: u32) -> u32 {
-    unsafe { *(ctx as *mut u32) }
+    let ch = tmu_channel_from_tcnt_ctx(ctx);
+    unsafe { tmu_get_tcnt(ch) }
 }
 
 fn write_tmu_tcnt(ctx: *mut u8, _addr: u32, data: u32) {
-    unsafe { *(ctx as *mut u32) = data; }
+    let ch = tmu_channel_from_tcnt_ctx(ctx);
+    unsafe {
+        tmu_set_tcnt(ch, data);
+        let mut tcr = tmu_get_tcr(ch);
+        tcr &= !TMU_UNDERFLOW;
+        tmu_store_tcr(ch, tcr);
+    }
+    intc_clear_interrupt(tmu_interrupt_id(ch));
+    let runtime = tmu_runtime_mut();
+    runtime.channels[ch].accum = 0;
 }
 
 fn write_tmu_tcr(ctx: *mut u8, _addr: u32, data: u32) {
-    unsafe { *(ctx as *mut u16) = data as u16; }
+    let ch = tmu_channel_from_tcr_ctx(ctx);
+    let value = (data as u16) & 0x03FF;
+    unsafe {
+        tmu_store_tcr(ch, value);
+    }
+    tmu_update_prescale(ch);
+    tmu_update_interrupt_mask(ch);
+    if (value & TMU_UNDERFLOW) == 0 {
+        intc_clear_interrupt(tmu_interrupt_id(ch));
+    }
 }
 
 fn read_tmu_tcpr2(ctx: *mut u8, _addr: u32) -> u32 {
@@ -1669,6 +1915,22 @@ fn initialize_default_register_values() {
         DMAC_DMAOR_DATA = 0x0000_0000;
         TMU_TOCR_DATA = 0x0000_0000;
         TMU_TSTR_DATA = 0x0000_0000;
+        TMU_TCOR0_DATA = 0xFFFF_FFFF;
+        TMU_TCOR1_DATA = 0xFFFF_FFFF;
+        TMU_TCOR2_DATA = 0xFFFF_FFFF;
+        TMU_TCNT0_DATA = 0xFFFF_FFFF;
+        TMU_TCNT1_DATA = 0xFFFF_FFFF;
+        TMU_TCNT2_DATA = 0xFFFF_FFFF;
+        TMU_TCR0_DATA = 0x0000;
+        TMU_TCR1_DATA = 0x0000;
+        TMU_TCR2_DATA = 0x0000;
+        TMU_TCPR2_DATA = 0x0000_0000;
+        tmu_set_tstr(0);
+        for ch in 0..3 {
+            tmu_update_prescale(ch);
+            tmu_update_interrupt_mask(ch);
+            tmu_set_running(ch, false);
+        }
         RTC_RCR1_DATA = 0x00;
         RTC_RCR2_DATA = 0x00;
 

@@ -237,10 +237,7 @@ pub fn sh4_ipr_dispatcher(ctx: *mut Sh4Ctx) {
     unsafe {
         loop {
             if (*ctx).is_delayslot0 == 0 {
-                let old_pc0 = (*ctx).pc0;
-                if sh4p4::intc_try_service(ctx) {
-                    println!("Interrupt taken at PC {:08X} -> {:08X}", old_pc0, (*ctx).pc0);
-                }
+                sh4p4::intc_try_service(ctx);
             }
 
             let mut opcode: u16 = 0;
@@ -259,6 +256,7 @@ pub fn sh4_ipr_dispatcher(ctx: *mut Sh4Ctx) {
 
             (*ctx).is_delayslot0 = (*ctx).is_delayslot1;
             (*ctx).is_delayslot1 = 0;
+            sh4p4::peripherals_step(ctx, 1);
 
             // Break when remaining_cycles reaches 0
             (*ctx).remaining_cycles = (*ctx).remaining_cycles.wrapping_sub(1);
@@ -361,6 +359,13 @@ pub fn sh4_fns_dispatcher(ctx: *mut Sh4Ctx) {
             let block = *(*ctx).ptrs.as_ptr().add(idx); // copy the fn ptr
 
             let block_cycles = dec_run_block(block);
+
+            sh4p4::peripherals_step(ctx, block_cycles as u32);
+
+            let old_pc0 = (*ctx).pc0;
+            if sh4p4::intc_try_service(ctx) {
+                println!("Interrupt taken at PC {:08X} -> {:08X}", old_pc0, (*ctx).pc0);
+            }
 
             (*ctx).remaining_cycles = (*ctx).remaining_cycles.wrapping_sub(block_cycles as i32);
             if (*ctx).remaining_cycles <= 0 {

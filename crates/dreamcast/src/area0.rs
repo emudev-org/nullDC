@@ -69,7 +69,7 @@ fn area_0_write<T: sh4mem::MemoryData>(ctx: *mut u8, addr: u32, value: T) {
     let masked_addr = addr & AREA0_MASK;
     let base = masked_addr >> 16;
 
-    if masked_addr < 0x0000_1000 {
+    if addr < 0x0000_1000 {
         println!(
             "area0 write low address (possible null pointer): addr=0x{masked_addr:08X} value=0x{:x}",
             value
