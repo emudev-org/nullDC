@@ -10,6 +10,138 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 const JSON_RPC_VERSION: &str = "2.0";
 
+#[allow(dead_code)]
+mod panel_ids {
+    pub const DOCUMENTATION: &str = "documentation";
+    pub const SH4_SIM: &str = "sh4-sim";
+    pub const EVENTS: &str = "events";
+    pub const EVENTS_BREAKPOINTS: &str = "events-breakpoints";
+    pub const SH4_DISASSEMBLY: &str = "sh4-disassembly";
+    pub const SH4_MEMORY: &str = "sh4-memory";
+    pub const SH4_BREAKPOINTS: &str = "sh4-breakpoints";
+    pub const SH4_BSC_REGISTERS: &str = "bsc-registers";
+    pub const SH4_CCN_REGISTERS: &str = "ccn-registers";
+    pub const SH4_CPG_REGISTERS: &str = "cpg-registers";
+    pub const SH4_DMAC_REGISTERS: &str = "dmac-registers";
+    pub const SH4_INTC_REGISTERS: &str = "intc-registers";
+    pub const SH4_RTC_REGISTERS: &str = "rtc-registers";
+    pub const SH4_SCI_REGISTERS: &str = "sci-registers";
+    pub const SH4_SCIF_REGISTERS: &str = "scif-registers";
+    pub const SH4_TMU_REGISTERS: &str = "tmu-registers";
+    pub const SH4_UBC_REGISTERS: &str = "ubc-registers";
+    pub const SH4_SQ_CONTENTS: &str = "sq-contents";
+    pub const SH4_ICACHE_CONTENTS: &str = "icache-contents";
+    pub const SH4_OCACHE_CONTENTS: &str = "ocache-contents";
+    pub const SH4_OCRAM_CONTENTS: &str = "ocram-contents";
+    pub const SH4_TLB_CONTENTS: &str = "tlb-contents";
+    pub const ARM7_DISASSEMBLY: &str = "arm7-disassembly";
+    pub const ARM7_MEMORY: &str = "arm7-memory";
+    pub const ARM7_BREAKPOINTS: &str = "arm7-breakpoints";
+    pub const CLX2_TA: &str = "clx2-ta";
+    pub const CLX2_CORE: &str = "clx2-core";
+    pub const SGC: &str = "sgc";
+    pub const DSP_DISASSEMBLY: &str = "dsp-disassembly";
+    pub const DSP_BREAKPOINTS: &str = "dsp-breakpoints";
+    pub const DSP_PLAYGROUND: &str = "dsp-playground";
+    pub const DEVICE_TREE: &str = "device-tree";
+    pub const WATCHES: &str = "watches";
+    pub const SH4_CALLSTACK: &str = "sh4-callstack";
+    pub const ARM7_CALLSTACK: &str = "arm7-callstack";
+}
+
+const DEFAULT_WATCH_EXPRESSIONS: &[&str] = &["dc.sh4.cpu.pc", "dc.sh4.dmac.dmaor"];
+const EVENT_LOG_LIMIT: usize = 60;
+const CAPABILITIES: &[&str] = &["watches", "step", "breakpoints", "frame-log"];
+
+type FrameEventGenerator = fn(u64) -> (&'static str, &'static str, String);
+
+fn frame_event_ta(counter: u64) -> (&'static str, &'static str, String) {
+    (
+        "ta",
+        "info",
+        format!("TA/END_LIST tile {}", (counter % 32) as usize),
+    )
+}
+
+fn frame_event_core(counter: u64) -> (&'static str, &'static str, String) {
+    let phase = match counter % 3 {
+        0 => "START_RENDER",
+        1 => "QUEUE_SUBMISSION",
+        _ => "END_RENDER",
+    };
+    ("core", if phase == "QUEUE_SUBMISSION" { "trace" } else { "info" }, format!("CORE/{}", phase))
+}
+
+fn frame_event_dsp(counter: u64) -> (&'static str, &'static str, String) {
+    (
+        "dsp",
+        "trace",
+        format!("DSP/STEP pipeline advanced ({})", counter % 8),
+    )
+}
+
+fn frame_event_aica(counter: u64) -> (&'static str, &'static str, String) {
+    (
+        "aica",
+        "info",
+        format!("AICA/SGC/STEP channel {}", (counter % 2) as usize),
+    )
+}
+
+fn frame_event_sh4(counter: u64) -> (&'static str, &'static str, String) {
+    (
+        "sh4",
+        "warn",
+        format!("SH4/INTERRUPT IRQ{} asserted", (counter % 6) + 1),
+    )
+}
+
+fn frame_event_holly(counter: u64) -> (&'static str, &'static str, String) {
+    (
+        "holly",
+        "info",
+        format!("HOLLY/START_RENDER pass {}", (counter % 4) + 1),
+    )
+}
+
+const FRAME_EVENT_GENERATORS: &[FrameEventGenerator] = &[
+    frame_event_ta,
+    frame_event_core,
+    frame_event_dsp,
+    frame_event_aica,
+    frame_event_sh4,
+    frame_event_holly,
+];
+
+fn create_frame_event_with_id(event_id: u64) -> EventLogEntry {
+    let generator =
+        FRAME_EVENT_GENERATORS[(event_id as usize) % FRAME_EVENT_GENERATORS.len()];
+    let (subsystem, severity, message) = generator(event_id);
+    EventLogEntry {
+        event_id: event_id.to_string(),
+        timestamp: current_timestamp_ms(),
+        subsystem: subsystem.to_string(),
+        severity: severity.to_string(),
+        message,
+        metadata: None,
+    }
+}
+
+fn initial_event_log() -> (Vec<EventLogEntry>, u64) {
+    let mut log = Vec::new();
+    for id in 1..=6 {
+        log.push(create_frame_event_with_id(id));
+    }
+    (log, 7)
+}
+
+fn current_timestamp_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_else(|_| std::time::Duration::from_millis(0))
+        .as_millis() as u64
+}
+
 // JSON-RPC structures
 #[derive(Debug, Serialize, Deserialize)]
 struct JsonRpcRequest {
@@ -64,13 +196,14 @@ struct RegisterValue {
 struct DeviceNodeDescriptor {
     path: String,
     label: String,
-    kind: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     registers: Option<Vec<RegisterValue>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     events: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    actions: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     children: Option<Vec<DeviceNodeDescriptor>>,
 }
@@ -128,13 +261,13 @@ struct EventLogEntry {
 struct WatchDescriptor {
     id: u32,
     expression: String,
-    value: serde_json::Value,
+    value: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct DebuggerTick {
     #[serde(rename = "tickId")]
-    tick_id: u32,
+    tick_id: u64,
     timestamp: u64,
     #[serde(rename = "executionState")]
     execution_state: ExecutionState,
@@ -176,7 +309,7 @@ struct ServerState {
     event_log: Arc<Mutex<Vec<EventLogEntry>>>,
     category_states: Arc<Mutex<HashMap<String, BreakpointCategoryState>>>,
     is_running: Arc<Mutex<bool>>,
-    tick_id: Arc<Mutex<u32>>,
+    tick_id: Arc<Mutex<u64>>,
     next_event_id: Arc<Mutex<u64>>,
     next_watch_id: Arc<Mutex<u32>>,
     next_breakpoint_id: Arc<Mutex<u32>>,
@@ -192,6 +325,10 @@ impl ServerState {
         register_values.insert("dc.sh4.vbr".to_string(), "0x8C000000".to_string());
         register_values.insert("dc.sh4.sr".to_string(), "0x40000000".to_string());
         register_values.insert("dc.sh4.fpscr".to_string(), "0x00040001".to_string());
+        register_values.insert("dc.sh4.cpu.gbr".to_string(), "0x8C000100".to_string());
+        register_values.insert("dc.sh4.cpu.mach".to_string(), "0x00000000".to_string());
+        register_values.insert("dc.sh4.cpu.macl".to_string(), "0x00000000".to_string());
+        register_values.insert("dc.sh4.cpu.fpul".to_string(), "0x00000000".to_string());
         register_values.insert(
             "dc.sh4.icache.icache_ctrl".to_string(),
             "0x00000003".to_string(),
@@ -199,6 +336,10 @@ impl ServerState {
         register_values.insert(
             "dc.sh4.dcache.dcache_ctrl".to_string(),
             "0x00000003".to_string(),
+        );
+        register_values.insert(
+            "dc.sh4.dmac.dmaor".to_string(),
+            "0x8201".to_string(),
         );
         register_values.insert("dc.holly.holly_id".to_string(), "0x00050000".to_string());
         register_values.insert("dc.holly.dmac_ctrl".to_string(), "0x00000001".to_string());
@@ -232,9 +373,8 @@ impl ServerState {
 
         // Initialize default watches
         let mut watches = HashMap::new();
-        let default_expressions = vec!["dc.sh4.cpu.pc", "dc.sh4.dmac.dmaor"];
         let mut next_watch_id = 1;
-        for expr in default_expressions {
+        for expr in DEFAULT_WATCH_EXPRESSIONS {
             watches.insert(
                 next_watch_id,
                 ServerWatch {
@@ -257,19 +397,8 @@ impl ServerState {
             );
         }
 
-        // Initialize event log with some entries
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64;
-        let event_log = vec![EventLogEntry {
-            event_id: "1".to_string(),
-            timestamp,
-            subsystem: "sh4".to_string(),
-            severity: "info".to_string(),
-            message: "SH4 initialized".to_string(),
-            metadata: None,
-        }];
+        // Initialize event log with sample entries
+        let (event_log, next_event_id) = initial_event_log();
 
         Self {
             breakpoints: Arc::new(Mutex::new(HashMap::new())),
@@ -279,7 +408,7 @@ impl ServerState {
             category_states: Arc::new(Mutex::new(category_states)),
             is_running: Arc::new(Mutex::new(true)),
             tick_id: Arc::new(Mutex::new(0)),
-            next_event_id: Arc::new(Mutex::new(2)),
+            next_event_id: Arc::new(Mutex::new(next_event_id)),
             next_watch_id: Arc::new(Mutex::new(next_watch_id)),
             next_breakpoint_id: Arc::new(Mutex::new(1)),
         }
@@ -332,293 +461,608 @@ impl ServerState {
     }
 
     fn build_device_tree(&self) -> Vec<DeviceNodeDescriptor> {
+        let register = |path: &str, name: &str, width: u32| RegisterValue {
+            name: name.to_string(),
+            value: self.get_register_value(path, name),
+            width,
+            flags: None,
+            metadata: None,
+        };
+
+        let mut sh4_core_registers = vec![
+            register("dc.sh4.cpu", "PC", 32),
+            register("dc.sh4.cpu", "PR", 32),
+            register("dc.sh4", "VBR", 32),
+            register("dc.sh4", "SR", 32),
+            register("dc.sh4", "FPSCR", 32),
+            register("dc.sh4.cpu", "GBR", 32),
+            register("dc.sh4.cpu", "MACH", 32),
+            register("dc.sh4.cpu", "MACL", 32),
+            register("dc.sh4.cpu", "FPUL", 32),
+        ];
+        for idx in 0..16 {
+            sh4_core_registers.push(register("dc.sh4.cpu", &format!("R{}", idx), 32));
+        }
+
+        let sh4_pbus_children = vec![
+            DeviceNodeDescriptor {
+                path: "dc.sh4.bsc".to_string(),
+                label: "BSC".to_string(),
+                description: Some("Bus State Controller".to_string()),
+                registers: None,
+                events: None,
+                actions: Some(vec![panel_ids::SH4_BSC_REGISTERS.to_string()]),
+                children: None,
+            },
+            DeviceNodeDescriptor {
+                path: "dc.sh4.ccn".to_string(),
+                label: "CCN".to_string(),
+                description: Some("Cache Controller".to_string()),
+                registers: None,
+                events: None,
+                actions: Some(vec![panel_ids::SH4_CCN_REGISTERS.to_string()]),
+                children: None,
+            },
+            DeviceNodeDescriptor {
+                path: "dc.sh4.cpg".to_string(),
+                label: "CPG".to_string(),
+                description: Some("Clock Pulse Generator".to_string()),
+                registers: None,
+                events: None,
+                actions: Some(vec![panel_ids::SH4_CPG_REGISTERS.to_string()]),
+                children: None,
+            },
+            DeviceNodeDescriptor {
+                path: "dc.sh4.dmac".to_string(),
+                label: "DMAC".to_string(),
+                description: Some("Direct Memory Access Controller".to_string()),
+                registers: None,
+                events: None,
+                actions: Some(vec![panel_ids::SH4_DMAC_REGISTERS.to_string()]),
+                children: None,
+            },
+            DeviceNodeDescriptor {
+                path: "dc.sh4.intc".to_string(),
+                label: "INTC".to_string(),
+                description: Some("Interrupt Controller".to_string()),
+                registers: None,
+                events: None,
+                actions: Some(vec![panel_ids::SH4_INTC_REGISTERS.to_string()]),
+                children: None,
+            },
+            DeviceNodeDescriptor {
+                path: "dc.sh4.rtc".to_string(),
+                label: "RTC".to_string(),
+                description: Some("Real Time Clock".to_string()),
+                registers: None,
+                events: None,
+                actions: Some(vec![panel_ids::SH4_RTC_REGISTERS.to_string()]),
+                children: None,
+            },
+            DeviceNodeDescriptor {
+                path: "dc.sh4.sci".to_string(),
+                label: "SCI".to_string(),
+                description: Some("Serial Communications Interface".to_string()),
+                registers: None,
+                events: None,
+                actions: Some(vec![panel_ids::SH4_SCI_REGISTERS.to_string()]),
+                children: None,
+            },
+            DeviceNodeDescriptor {
+                path: "dc.sh4.scif".to_string(),
+                label: "SCIF".to_string(),
+                description: Some("Serial Communications Interface w/ FIFO".to_string()),
+                registers: None,
+                events: None,
+                actions: Some(vec![panel_ids::SH4_SCIF_REGISTERS.to_string()]),
+                children: None,
+            },
+            DeviceNodeDescriptor {
+                path: "dc.sh4.tmu".to_string(),
+                label: "TMU".to_string(),
+                description: Some("Timer Unit".to_string()),
+                registers: None,
+                events: None,
+                actions: Some(vec![panel_ids::SH4_TMU_REGISTERS.to_string()]),
+                children: None,
+            },
+            DeviceNodeDescriptor {
+                path: "dc.sh4.ubc".to_string(),
+                label: "UBC".to_string(),
+                description: Some("User Break Controller".to_string()),
+                registers: None,
+                events: None,
+                actions: Some(vec![panel_ids::SH4_UBC_REGISTERS.to_string()]),
+                children: None,
+            },
+            DeviceNodeDescriptor {
+                path: "dc.sh4.sq".to_string(),
+                label: "SQ".to_string(),
+                description: Some("Store Queues".to_string()),
+                registers: None,
+                events: None,
+                actions: Some(vec![panel_ids::SH4_SQ_CONTENTS.to_string()]),
+                children: None,
+            },
+            DeviceNodeDescriptor {
+                path: "dc.sh4.icache".to_string(),
+                label: "ICACHE".to_string(),
+                description: Some("Instruction Cache".to_string()),
+                registers: None,
+                events: None,
+                actions: Some(vec![panel_ids::SH4_ICACHE_CONTENTS.to_string()]),
+                children: None,
+            },
+            DeviceNodeDescriptor {
+                path: "dc.sh4.ocache".to_string(),
+                label: "OCACHE".to_string(),
+                description: Some("Operand Cache".to_string()),
+                registers: None,
+                events: None,
+                actions: Some(vec![panel_ids::SH4_OCACHE_CONTENTS.to_string()]),
+                children: None,
+            },
+            DeviceNodeDescriptor {
+                path: "dc.sh4.ocram".to_string(),
+                label: "OCRAM".to_string(),
+                description: Some("Operand RAM".to_string()),
+                registers: None,
+                events: None,
+                actions: Some(vec![panel_ids::SH4_OCRAM_CONTENTS.to_string()]),
+                children: None,
+            },
+            DeviceNodeDescriptor {
+                path: "dc.sh4.tlb".to_string(),
+                label: "TLB".to_string(),
+                description: Some("Translation Lookaside Buffer".to_string()),
+                registers: None,
+                events: None,
+                actions: Some(vec![panel_ids::SH4_TLB_CONTENTS.to_string()]),
+                children: None,
+            },
+        ];
+
+        let sh4_children = vec![
+            DeviceNodeDescriptor {
+                path: "dc.sh4.cpu".to_string(),
+                label: "Core".to_string(),
+                description: Some("SuperH4 CPU Core".to_string()),
+                registers: Some(sh4_core_registers),
+                events: None,
+                actions: Some(vec![
+                    panel_ids::SH4_DISASSEMBLY.to_string(),
+                    panel_ids::SH4_MEMORY.to_string(),
+                ]),
+                children: None,
+            },
+            DeviceNodeDescriptor {
+                path: "dc.sh4.pbus".to_string(),
+                label: "PBUS".to_string(),
+                description: Some("Peripherals Bus".to_string()),
+                registers: None,
+                events: None,
+                actions: None,
+                children: Some(sh4_pbus_children),
+            },
+        ];
+
+        let holly_children = vec![
+            DeviceNodeDescriptor {
+                path: "dc.holly.dmac".to_string(),
+                label: "DMA Controller".to_string(),
+                description: Some("peripheral".to_string()),
+                registers: Some(vec![
+                    register("dc.holly.dmac", "DMAOR", 16),
+                    register("dc.holly.dmac", "CHCR0", 32),
+                ]),
+                events: Some(vec![
+                    "dc.holly.dmac.transfer_start".to_string(),
+                    "dc.holly.dmac.transfer_end".to_string(),
+                ]),
+                actions: None,
+                children: None,
+            },
+            DeviceNodeDescriptor {
+                path: "dc.holly.ta".to_string(),
+                label: "CLX2/TA".to_string(),
+                description: Some("Tile Accelerator".to_string()),
+                registers: Some(vec![
+                    register("dc.holly.ta", "TA_LIST_BASE", 32),
+                    register("dc.holly.ta", "TA_STATUS", 32),
+                ]),
+                events: Some(vec![
+                    "dc.holly.ta.list_init".to_string(),
+                    "dc.holly.ta.list_end".to_string(),
+                    "dc.holly.ta.opaque_complete".to_string(),
+                    "dc.holly.ta.translucent_complete".to_string(),
+                ]),
+                actions: Some(vec![panel_ids::CLX2_TA.to_string()]),
+                children: None,
+            },
+            DeviceNodeDescriptor {
+                path: "dc.holly.core".to_string(),
+                label: "CLX2/CORE".to_string(),
+                description: Some("Depth and Shading Engine".to_string()),
+                registers: Some(vec![
+                    register("dc.holly.core", "PVR_CTRL", 32),
+                    register("dc.holly.core", "PVR_STATUS", 32),
+                ]),
+                events: Some(vec![
+                    "dc.holly.core.render_start".to_string(),
+                    "dc.holly.core.render_end".to_string(),
+                    "dc.holly.core.vblank".to_string(),
+                ]),
+                actions: Some(vec![panel_ids::CLX2_CORE.to_string()]),
+                children: None,
+            },
+        ];
+
+        let sgc_channels = vec![
+            DeviceNodeDescriptor {
+                path: "dc.aica.sgc.0".to_string(),
+                label: "Channel 0".to_string(),
+                description: Some("SGC Channel 0".to_string()),
+                registers: Some(vec![register("dc.aica.channels", "CH0_VOL", 8)]),
+                events: Some(vec![
+                    "dc.aica.channel.0.key_on".to_string(),
+                    "dc.aica.channel.0.key_off".to_string(),
+                    "dc.aica.channel.0.loop".to_string(),
+                ]),
+                actions: None,
+                children: None,
+            },
+            DeviceNodeDescriptor {
+                path: "dc.aica.sgc.1".to_string(),
+                label: "Channel 1".to_string(),
+                description: Some("SGC Channel 1".to_string()),
+                registers: Some(vec![register("dc.aica.channels", "CH1_VOL", 8)]),
+                events: Some(vec![
+                    "dc.aica.channel.0.key_on".to_string(),
+                    "dc.aica.channel.0.key_off".to_string(),
+                    "dc.aica.channel.0.loop".to_string(),
+                ]),
+                actions: None,
+                children: None,
+            },
+        ];
+
+        let aica_children = vec![
+            DeviceNodeDescriptor {
+                path: "dc.aica.arm7".to_string(),
+                label: "ARM7".to_string(),
+                description: Some("ARM7DI CPU Core".to_string()),
+                registers: Some(vec![register("dc.aica.arm7", "PC", 32)]),
+                events: None,
+                actions: Some(vec![
+                    panel_ids::ARM7_DISASSEMBLY.to_string(),
+                    panel_ids::ARM7_MEMORY.to_string(),
+                ]),
+                children: None,
+            },
+            DeviceNodeDescriptor {
+                path: "dc.aica.sgc".to_string(),
+                label: "SGC".to_string(),
+                description: Some("Sound Generation Core".to_string()),
+                registers: None,
+                events: Some(vec![
+                    "dc.aica.channels.key_on".to_string(),
+                    "dc.aica.channels.key_off".to_string(),
+                    "dc.aica.channels.loop".to_string(),
+                ]),
+                actions: Some(vec![panel_ids::SGC.to_string()]),
+                children: Some(sgc_channels),
+            },
+            DeviceNodeDescriptor {
+                path: "dc.aica.dsp".to_string(),
+                label: "DSP".to_string(),
+                description: Some("DSP VLIW Core".to_string()),
+                registers: Some(vec![
+                    register("dc.aica.dsp", "STEP", 16),
+                    register("dc.aica.dsp", "DSP_ACC", 16),
+                ]),
+                events: Some(vec![
+                    "dc.aica.dsp.step".to_string(),
+                    "dc.aica.dsp.sample_start".to_string(),
+                ]),
+                actions: Some(vec![panel_ids::DSP_DISASSEMBLY.to_string()]),
+                children: None,
+            },
+        ];
+
         vec![DeviceNodeDescriptor {
             path: "dc".to_string(),
             label: "Dreamcast".to_string(),
-            kind: "beloved console".to_string(),
-            description: Some("Sega Dreamcast system bus".to_string()),
+            description: Some("beloved console".to_string()),
             registers: Some(vec![
-                RegisterValue {
-                    name: "SYSCLK".to_string(),
-                    value: self.get_register_value("dc", "SYSCLK"),
-                    width: 0,
-                    flags: None,
-                    metadata: None,
-                },
-                RegisterValue {
-                    name: "ASIC_REV".to_string(),
-                    value: self.get_register_value("dc", "ASIC_REV"),
-                    width: 16,
-                    flags: None,
-                    metadata: None,
-                },
+                register("dc", "SYSCLK", 0),
+                register("dc", "ASIC_REV", 16),
             ]),
             events: None,
+            actions: None,
             children: Some(vec![
                 DeviceNodeDescriptor {
                     path: "dc.sh4".to_string(),
                     label: "SH4".to_string(),
-                    kind: "processor".to_string(),
-                    description: Some("Hitachi SH-4 main CPU".to_string()),
+                    description: Some("SH7750-alike SoC".to_string()),
                     registers: Some(vec![
-                        RegisterValue {
-                            name: "VBR".to_string(),
-                            value: self.get_register_value("dc.sh4", "VBR"),
-                            width: 32,
-                            flags: None,
-                            metadata: None,
-                        },
-                        RegisterValue {
-                            name: "SR".to_string(),
-                            value: self.get_register_value("dc.sh4", "SR"),
-                            width: 32,
-                            flags: None,
-                            metadata: None,
-                        },
-                        RegisterValue {
-                            name: "FPSCR".to_string(),
-                            value: self.get_register_value("dc.sh4", "FPSCR"),
-                            width: 32,
-                            flags: None,
-                            metadata: None,
-                        },
+                        register("dc.sh4", "VBR", 32),
+                        register("dc.sh4", "SR", 32),
+                        register("dc.sh4", "FPSCR", 32),
                     ]),
                     events: Some(vec![
                         "dc.sh4.interrupt".to_string(),
                         "dc.sh4.exception".to_string(),
                         "dc.sh4.tlb_miss".to_string(),
                     ]),
-                    children: Some(vec![
-                        DeviceNodeDescriptor {
-                            path: "dc.sh4.cpu".to_string(),
-                            label: "Core".to_string(),
-                            kind: "processor".to_string(),
-                            description: Some("Integer pipeline".to_string()),
-                            registers: Some({
-                                let mut regs = vec![
-                                    RegisterValue {
-                                        name: "PC".to_string(),
-                                        value: self.get_register_value("dc.sh4.cpu", "PC"),
-                                        width: 32,
-                                        flags: None,
-                                        metadata: None,
-                                    },
-                                    RegisterValue {
-                                        name: "PR".to_string(),
-                                        value: self.get_register_value("dc.sh4.cpu", "PR"),
-                                        width: 32,
-                                        flags: None,
-                                        metadata: None,
-                                    },
-                                    RegisterValue {
-                                        name: "SR".to_string(),
-                                        value: self.get_register_value("dc.sh4.cpu", "SR"),
-                                        width: 32,
-                                        flags: None,
-                                        metadata: None,
-                                    },
-                                    RegisterValue {
-                                        name: "GBR".to_string(),
-                                        value: self.get_register_value("dc.sh4.cpu", "GBR"),
-                                        width: 32,
-                                        flags: None,
-                                        metadata: None,
-                                    },
-                                    RegisterValue {
-                                        name: "VBR".to_string(),
-                                        value: self.get_register_value("dc.sh4.cpu", "VBR"),
-                                        width: 32,
-                                        flags: None,
-                                        metadata: None,
-                                    },
-                                    RegisterValue {
-                                        name: "MACH".to_string(),
-                                        value: self.get_register_value("dc.sh4.cpu", "MACH"),
-                                        width: 32,
-                                        flags: None,
-                                        metadata: None,
-                                    },
-                                    RegisterValue {
-                                        name: "MACL".to_string(),
-                                        value: self.get_register_value("dc.sh4.cpu", "MACL"),
-                                        width: 32,
-                                        flags: None,
-                                        metadata: None,
-                                    },
-                                    RegisterValue {
-                                        name: "FPSCR".to_string(),
-                                        value: self.get_register_value("dc.sh4.cpu", "FPSCR"),
-                                        width: 32,
-                                        flags: None,
-                                        metadata: None,
-                                    },
-                                    RegisterValue {
-                                        name: "FPUL".to_string(),
-                                        value: self.get_register_value("dc.sh4.cpu", "FPUL"),
-                                        width: 32,
-                                        flags: None,
-                                        metadata: None,
-                                    },
-                                ];
-                                // Add R0-R15
-                                for i in 0..16 {
-                                    regs.push(RegisterValue {
-                                        name: format!("R{}", i),
-                                        value: self
-                                            .get_register_value("dc.sh4.cpu", &format!("R{}", i)),
-                                        width: 32,
-                                        flags: None,
-                                        metadata: None,
-                                    });
-                                }
-                                regs
-                            }),
-                            events: None,
-                            children: None,
-                        },
-                        DeviceNodeDescriptor {
-                            path: "dc.sh4.icache".to_string(),
-                            label: "I-Cache".to_string(),
-                            kind: "peripheral".to_string(),
-                            description: Some("Instruction cache".to_string()),
-                            registers: Some(vec![
-                                RegisterValue {
-                                    name: "ICRAM".to_string(),
-                                    value: "16KB".to_string(),
-                                    width: 0,
-                                    flags: None,
-                                    metadata: None,
-                                },
-                                RegisterValue {
-                                    name: "ICACHE_CTRL".to_string(),
-                                    value: self.get_register_value("dc.sh4.icache", "ICACHE_CTRL"),
-                                    width: 32,
-                                    flags: None,
-                                    metadata: None,
-                                },
-                            ]),
-                            events: None,
-                            children: None,
-                        },
-                        DeviceNodeDescriptor {
-                            path: "dc.sh4.dcache".to_string(),
-                            label: "D-Cache".to_string(),
-                            kind: "peripheral".to_string(),
-                            description: Some("Data cache".to_string()),
-                            registers: Some(vec![
-                                RegisterValue {
-                                    name: "DCRAM".to_string(),
-                                    value: "8KB".to_string(),
-                                    width: 0,
-                                    flags: None,
-                                    metadata: None,
-                                },
-                                RegisterValue {
-                                    name: "DCACHE_CTRL".to_string(),
-                                    value: self.get_register_value("dc.sh4.dcache", "DCACHE_CTRL"),
-                                    width: 32,
-                                    flags: None,
-                                    metadata: None,
-                                },
-                            ]),
-                            events: None,
-                            children: None,
-                        },
-                        DeviceNodeDescriptor {
-                            path: "dc.sh4.tlb".to_string(),
-                            label: "TLB".to_string(),
-                            kind: "peripheral".to_string(),
-                            description: Some("Translation lookaside buffer".to_string()),
-                            registers: Some(vec![
-                                RegisterValue {
-                                    name: "UTLB_ENTRIES".to_string(),
-                                    value: "64".to_string(),
-                                    width: 0,
-                                    flags: None,
-                                    metadata: None,
-                                },
-                                RegisterValue {
-                                    name: "ITLB_ENTRIES".to_string(),
-                                    value: "4".to_string(),
-                                    width: 0,
-                                    flags: None,
-                                    metadata: None,
-                                },
-                            ]),
-                            events: None,
-                            children: None,
-                        },
+                    actions: None,
+                    children: Some(sh4_children),
+                },
+                DeviceNodeDescriptor {
+                    path: "dc.holly".to_string(),
+                    label: "Holly".to_string(),
+                    description: Some("System ASIC".to_string()),
+                    registers: Some(vec![
+                        register("dc.holly", "HOLLY_ID", 32),
+                        register("dc.holly", "DMAC_CTRL", 32),
                     ]),
+                    events: None,
+                    actions: None,
+                    children: Some(holly_children),
                 },
                 DeviceNodeDescriptor {
                     path: "dc.aica".to_string(),
                     label: "AICA".to_string(),
-                    kind: "coprocessor".to_string(),
-                    description: Some("Sound processor".to_string()),
+                    description: Some("Sound SoC".to_string()),
                     registers: Some(vec![
-                        RegisterValue {
-                            name: "AICA_CTRL".to_string(),
-                            value: self.get_register_value("dc.aica", "AICA_CTRL"),
-                            width: 32,
-                            flags: None,
-                            metadata: None,
-                        },
-                        RegisterValue {
-                            name: "AICA_STATUS".to_string(),
-                            value: self.get_register_value("dc.aica", "AICA_STATUS"),
-                            width: 32,
-                            flags: None,
-                            metadata: None,
-                        },
+                        register("dc.aica", "AICA_CTRL", 32),
+                        register("dc.aica", "AICA_STATUS", 32),
                     ]),
                     events: Some(vec![
                         "dc.aica.interrupt".to_string(),
                         "dc.aica.timer".to_string(),
                     ]),
-                    children: Some(vec![
-                        DeviceNodeDescriptor {
-                            path: "dc.aica.arm7".to_string(),
-                            label: "ARM7".to_string(),
-                            kind: "processor".to_string(),
-                            description: Some("ARM7TDMI sound CPU".to_string()),
-                            registers: Some(vec![RegisterValue {
-                                name: "PC".to_string(),
-                                value: self.get_register_value("dc.aica.arm7", "PC"),
-                                width: 32,
-                                flags: None,
-                                metadata: None,
-                            }]),
-                            events: None,
-                            children: None,
-                        },
-                        DeviceNodeDescriptor {
-                            path: "dc.aica.dsp".to_string(),
-                            label: "DSP".to_string(),
-                            kind: "coprocessor".to_string(),
-                            description: None,
-                            registers: Some(vec![
-                                RegisterValue {
-                                    name: "STEP".to_string(),
-                                    value: self.get_register_value("dc.aica.dsp", "STEP"),
-                                    width: 16,
-                                    flags: None,
-                                    metadata: None,
-                                },
-                                RegisterValue {
-                                    name: "DSP_ACC".to_string(),
-                                    value: self.get_register_value("dc.aica.dsp", "DSP_ACC"),
-                                    width: 16,
-                                    flags: None,
-                                    metadata: None,
-                                },
-                            ]),
-                            events: Some(vec!["dc.aica.dsp.step".to_string()]),
-                            children: None,
-                        },
-                    ]),
+                    actions: None,
+                    children: Some(aica_children),
                 },
-            ]),
+            ]), 
         }]
+    }
+
+    fn set_running(&self, running: bool) {
+        let mut guard = self.is_running.lock().unwrap();
+        *guard = running;
+    }
+
+    fn increment_program_counter(&self, target: &str) {
+        let target_lower = target.to_ascii_lowercase();
+        if target_lower.contains("sh4") {
+            if let Some(stripped) = self
+                .get_register_value("dc.sh4.cpu", "PC")
+                .strip_prefix("0x")
+            {
+                if let Ok(pc) = u32::from_str_radix(stripped, 16) {
+                    let base = 0x8C0000A0;
+                    let offset = pc.wrapping_sub(base);
+                    let new_pc = base + ((offset + 2) % (8 * 2));
+                    self.set_register_value(
+                        "dc.sh4.cpu",
+                        "PC",
+                        format!("0x{:08X}", new_pc),
+                    );
+                }
+            }
+        } else if target_lower.contains("arm7") {
+            if let Some(stripped) = self
+                .get_register_value("dc.aica.arm7", "PC")
+                .strip_prefix("0x")
+            {
+                if let Ok(pc) = u32::from_str_radix(stripped, 16) {
+                    let base = 0x0020_0010;
+                    let offset = pc.wrapping_sub(base);
+                    let new_pc = base + ((offset + 4) % (8 * 4));
+                    self.set_register_value(
+                        "dc.aica.arm7",
+                        "PC",
+                        format!("0x{:08X}", new_pc),
+                    );
+                }
+            }
+        } else if target_lower.contains("dsp") {
+            if let Some(stripped) = self
+                .get_register_value("dc.aica.dsp", "STEP")
+                .strip_prefix("0x")
+            {
+                if let Ok(step) = u32::from_str_radix(stripped, 16) {
+                    let new_step = (step + 1) % 8;
+                    self.set_register_value(
+                        "dc.aica.dsp",
+                        "STEP",
+                        format!("0x{:03X}", new_step),
+                    );
+                }
+            }
+        }
+    }
+
+    #[allow(dead_code)]
+    fn next_event_id(&self) -> u64 {
+        let mut guard = self.next_event_id.lock().unwrap();
+        let id = *guard;
+        *guard += 1;
+        id
+    }
+
+    #[allow(dead_code)]
+    fn push_event(&self, mut entry: EventLogEntry) {
+        if entry.event_id.is_empty() {
+            entry.event_id = self.next_event_id().to_string();
+        }
+        entry.timestamp = current_timestamp_ms();
+        let mut event_log = self.event_log.lock().unwrap();
+        event_log.push(entry);
+        if event_log.len() > EVENT_LOG_LIMIT {
+            let remove = event_log.len() - EVENT_LOG_LIMIT;
+            event_log.drain(0..remove);
+        }
+    }
+
+    fn build_tick(
+        &self,
+        dreamcast_ptr: usize,
+        hit_breakpoint_id: Option<u32>,
+    ) -> DebuggerTick {
+        let device_tree = self.build_device_tree();
+        let all_registers = collect_registers_from_tree(&device_tree);
+
+        let mut registers_by_id: HashMap<String, Vec<RegisterValue>> = HashMap::new();
+        for (path, registers) in all_registers {
+            registers_by_id.insert(path, registers);
+        }
+
+        if dreamcast_ptr != 0 {
+            let dreamcast = dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
+            let sh4_registers = [
+                ("PC", 32),
+                ("PR", 32),
+                ("SR", 32),
+                ("GBR", 32),
+                ("VBR", 32),
+                ("MACH", 32),
+                ("MACL", 32),
+                ("FPSCR", 32),
+                ("FPUL", 32),
+            ];
+            let mut cpu_regs = Vec::new();
+            for (name, width) in sh4_registers {
+                if let Some(value) = nulldc::dreamcast::get_sh4_register(dreamcast, name) {
+                    cpu_regs.push(RegisterValue {
+                        name: name.to_string(),
+                        value: format!("0x{:08X}", value),
+                        width,
+                        flags: None,
+                        metadata: None,
+                    });
+                }
+            }
+            for idx in 0..16 {
+                let reg_name = format!("R{}", idx);
+                if let Some(value) =
+                    nulldc::dreamcast::get_sh4_register(dreamcast, &reg_name)
+                {
+                    cpu_regs.push(RegisterValue {
+                        name: reg_name,
+                        value: format!("0x{:08X}", value),
+                        width: 32,
+                        flags: None,
+                        metadata: None,
+                    });
+                }
+            }
+            registers_by_id.insert("dc.sh4.cpu".to_string(), cpu_regs);
+        }
+
+        let breakpoints_by_id = self
+            .breakpoints
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(id, bp)| (id.to_string(), bp.clone()))
+            .collect::<HashMap<_, _>>();
+
+        let watches = {
+            let watch_map = self.watches.lock().unwrap();
+            if watch_map.is_empty() {
+                None
+            } else {
+                Some(
+                    watch_map
+                        .values()
+                        .map(|watch| WatchDescriptor {
+                            id: watch.id,
+                            expression: watch.expression.clone(),
+                            value: self
+                                .evaluate_watch_expression(dreamcast_ptr, &watch.expression),
+                        })
+                        .collect::<Vec<_>>(),
+                )
+            }
+        };
+
+        let mut callstacks = HashMap::new();
+
+        let sh4_pc = self
+            .get_register_value("dc.sh4.cpu", "PC")
+            .strip_prefix("0x")
+            .and_then(|value| u64::from_str_radix(value, 16).ok())
+            .unwrap_or(0x8C00_00A0);
+        let sh4_frames = (0..16)
+            .map(|index| CallstackFrame {
+                index,
+                pc: if index == 0 {
+                    sh4_pc
+                } else {
+                    0x8C00_0000 + (index - 1) as u64 * 4
+                },
+                sp: Some(0x0CFE_0000 - index as u64 * 16),
+                symbol: Some(format!("SH4_func_{}", index)),
+                location: Some(format!("sh4.c:{}", 100 + index)),
+            })
+            .collect::<Vec<_>>();
+        callstacks.insert("sh4".to_string(), sh4_frames);
+
+        let arm7_pc = self
+            .get_register_value("dc.aica.arm7", "PC")
+            .strip_prefix("0x")
+            .and_then(|value| u64::from_str_radix(value, 16).ok())
+            .unwrap_or(0x0020_0010);
+        let arm7_frames = (0..16)
+            .map(|index| CallstackFrame {
+                index,
+                pc: if index == 0 {
+                    arm7_pc
+                } else {
+                    0x0020_0000 + (index - 1) as u64 * 4
+                },
+                sp: Some(0x0028_0000 - index as u64 * 16),
+                symbol: Some(format!("ARM7_func_{}", index)),
+                location: Some(format!("arm7.c:{}", 100 + index)),
+            })
+            .collect::<Vec<_>>();
+        callstacks.insert("arm7".to_string(), arm7_frames);
+
+        let tick_id = {
+            let mut guard = self.tick_id.lock().unwrap();
+            let id = *guard;
+            *guard += 1;
+            id
+        };
+
+        let timestamp = current_timestamp_ms();
+
+        let is_running = if dreamcast_ptr != 0 {
+            let dreamcast = dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
+            nulldc::dreamcast::is_dreamcast_running(dreamcast)
+        } else {
+            *self.is_running.lock().unwrap()
+        };
+
+        DebuggerTick {
+            tick_id,
+            timestamp,
+            execution_state: ExecutionState {
+                state: if is_running {
+                    "running".to_string()
+                } else {
+                    "paused".to_string()
+                },
+                breakpoint_id: hit_breakpoint_id,
+            },
+            registers: registers_by_id,
+            breakpoints: breakpoints_by_id,
+            event_log: self.event_log.lock().unwrap().clone(),
+            watches,
+            callstacks: Some(callstacks),
+        }
     }
 }
 
@@ -781,32 +1225,43 @@ fn handle_request(
                         "build": "native"
                     },
                     "deviceTree": device_tree,
+                    "capabilities": CAPABILITIES,
                 }),
-                true, // Send initial tick
+                true,
             ))
         }
 
         "state.getMemorySlice" => {
-            let target = params["target"].as_str().unwrap_or("sh4");
-            let address = params["address"].as_u64();
-            let length = params["length"].as_u64().map(|l| l as usize);
-
+            let target = params
+                .get("target")
+                .and_then(|value| value.as_str())
+                .unwrap_or("sh4");
+            let address = params.get("address").and_then(|value| value.as_u64());
+            let length = params
+                .get("length")
+                .and_then(|value| value.as_u64())
+                .map(|value| value as usize);
             let slice = build_memory_slice(dreamcast_ptr, target, address, length);
             Ok((serde_json::to_value(slice).unwrap(), false))
         }
 
         "state.getDisassembly" => {
-            let target = params["target"].as_str().unwrap_or("sh4");
-            let address = params["address"].as_u64().unwrap_or(0);
-            let count = params["count"].as_u64().unwrap_or(128) as usize;
+            let target = params
+                .get("target")
+                .and_then(|value| value.as_str())
+                .unwrap_or("sh4");
+            let address = params
+                .get("address")
+                .and_then(|value| value.as_u64())
+                .unwrap_or(0);
+            let count = params
+                .get("count")
+                .and_then(|value| value.as_u64())
+                .unwrap_or(128) as usize;
 
             let lines = if dreamcast_ptr != 0 && target == "sh4" {
-                // Use actual disassembler for SH4
                 let dreamcast = dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
-                let disasm_lines = nulldc::dreamcast::disassemble_sh4(dreamcast, address, count);
-
-                // Convert to JSON-compatible format
-                disasm_lines
+                nulldc::dreamcast::disassemble_sh4(dreamcast, address, count)
                     .into_iter()
                     .map(|line| DisassemblyLine {
                         address: line.address,
@@ -815,7 +1270,6 @@ fn handle_request(
                     })
                     .collect::<Vec<_>>()
             } else {
-                // Fall back to mock data
                 generate_disassembly(target, address, count)
             };
 
@@ -823,16 +1277,23 @@ fn handle_request(
         }
 
         "state.getCallstack" => {
-            let target = params["target"].as_str().unwrap_or("sh4");
-            let max_frames = params["maxFrames"].as_u64().unwrap_or(16).min(64) as usize;
+            let target = params
+                .get("target")
+                .and_then(|value| value.as_str())
+                .unwrap_or("sh4");
+            let max_frames = params
+                .get("maxFrames")
+                .and_then(|value| value.as_u64())
+                .unwrap_or(16)
+                .min(64) as usize;
 
             let frames: Vec<CallstackFrame> = (0..max_frames)
-                .map(|i| CallstackFrame {
-                    index: i as u32,
-                    pc: 0x8c000000 + (i * 4) as u64,
-                    sp: Some(0x0cfe0000 - (i * 16) as u64),
-                    symbol: Some(format!("{}_func_{}", target.to_uppercase(), i)),
-                    location: Some(format!("{}.c:{}", target, 100 + i)),
+                .map(|index| CallstackFrame {
+                    index: index as u32,
+                    pc: 0x8c000000 + index as u64 * 4,
+                    sp: Some(0x0cfe0000 - index as u64 * 16),
+                    symbol: Some(format!("{}_func_{}", target.to_uppercase(), index)),
+                    location: Some(format!("{}.c:{}", target, 100 + index)),
                 })
                 .collect();
 
@@ -840,12 +1301,13 @@ fn handle_request(
         }
 
         "state.watch" => {
-            let expressions = params["expressions"]
-                .as_array()
-                .unwrap_or(&vec![])
-                .iter()
-                .filter_map(|v| v.as_str())
-                .map(|s| s.to_string())
+            let expressions = params
+                .get("expressions")
+                .and_then(|value| value.as_array())
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|value| value.as_str().map(|s| s.to_owned()))
                 .collect::<Vec<_>>();
 
             let mut watches = state.watches.lock().unwrap();
@@ -867,12 +1329,14 @@ fn handle_request(
         }
 
         "state.unwatch" => {
-            let watch_ids = params["watchIds"]
-                .as_array()
-                .unwrap_or(&vec![])
-                .iter()
-                .filter_map(|v| v.as_u64())
-                .map(|id| id as u32)
+            let watch_ids = params
+                .get("watchIds")
+                .and_then(|value| value.as_array())
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|value| value.as_u64())
+                .map(|value| value as u32)
                 .collect::<Vec<_>>();
 
             let mut watches = state.watches.lock().unwrap();
@@ -884,17 +1348,22 @@ fn handle_request(
         }
 
         "state.editWatch" => {
-            let watch_id = params["watchId"].as_u64().map(|id| id as u32);
-            let value = params["value"].as_str().unwrap_or("");
+            let watch_id = params
+                .get("watchId")
+                .and_then(|value| value.as_u64())
+                .map(|value| value as u32);
+            let value = params
+                .get("value")
+                .and_then(|value| value.as_str())
+                .unwrap_or("");
 
             if let Some(id) = watch_id {
                 let expression = {
                     let watches = state.watches.lock().unwrap();
-                    watches.get(&id).map(|w| w.expression.clone())
+                    watches.get(&id).map(|watch| watch.expression.clone())
                 };
 
                 if let Some(expr) = expression {
-                    // Parse expression to get path and register name
                     let parts: Vec<&str> = expr.split('.').collect();
                     let (path, name) = if parts.len() > 1 {
                         let name = parts.last().unwrap();
@@ -903,22 +1372,61 @@ fn handle_request(
                     } else {
                         ("dc.sh4.cpu".to_string(), parts[0].to_string())
                     };
+                    let key = format!("{}.{}", path, name.to_lowercase());
+
+                    {
+                        let registers = state.register_values.lock().unwrap();
+                        if !registers.contains_key(&key) {
+                            return Ok((
+                                json!({
+                                    "error": {
+                                        "code": -32602,
+                                        "message": format!(
+                                            "Cannot edit non-register expression \"{}\"",
+                                            expr
+                                        ),
+                                    }
+                                }),
+                                false,
+                            ));
+                        }
+                    }
 
                     state.set_register_value(&path, &name, value.to_string());
                     return Ok((json!({}), true));
                 }
+
+                return Ok((
+                    json!({
+                        "error": {
+                            "code": -32602,
+                            "message": format!("Watch \"{}\" not found", id),
+                        }
+                    }),
+                    false,
+                ));
             }
 
-            Err(JsonRpcErrorObject {
-                code: -32602,
-                message: "Watch not found or cannot edit".to_string(),
-                data: None,
-            })
+            Ok((
+                json!({
+                    "error": {
+                        "code": -32602,
+                        "message": "Watch not found or cannot edit",
+                    }
+                }),
+                false,
+            ))
         }
 
         "state.modifyWatchExpression" => {
-            let watch_id = params["watchId"].as_u64().map(|id| id as u32);
-            let new_expression = params["newExpression"].as_str().unwrap_or("");
+            let watch_id = params
+                .get("watchId")
+                .and_then(|value| value.as_u64())
+                .map(|value| value as u32);
+            let new_expression = params
+                .get("newExpression")
+                .and_then(|value| value.as_str())
+                .unwrap_or("");
 
             if let Some(id) = watch_id {
                 let mut watches = state.watches.lock().unwrap();
@@ -926,55 +1434,53 @@ fn handle_request(
                     watch.expression = new_expression.to_string();
                     return Ok((json!({}), true));
                 }
+
+                return Ok((
+                    json!({
+                        "error": {
+                            "code": -32602,
+                            "message": format!("Watch {} not found", id),
+                        }
+                    }),
+                    false,
+                ));
             }
 
-            Err(JsonRpcErrorObject {
-                code: -32602,
-                message: "Watch not found".to_string(),
-                data: None,
-            })
+            Ok((
+                json!({
+                    "error": {
+                        "code": -32602,
+                        "message": "Watch not found",
+                    }
+                }),
+                false,
+            ))
         }
 
         "control.pause" => {
             if dreamcast_ptr != 0 {
                 let dreamcast = dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
                 nulldc::dreamcast::set_dreamcast_running(dreamcast, false);
-            } else {
-                *state.is_running.lock().unwrap() = false;
             }
+            state.set_running(false);
             Ok((json!({}), true))
         }
 
         "control.step" | "control.stepOver" | "control.stepOut" => {
+            let target = params
+                .get("target")
+                .and_then(|value| value.as_str())
+                .unwrap_or("sh4");
+
             if dreamcast_ptr != 0 {
                 let dreamcast = dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
-                // Use step_dreamcast for single instruction stepping
                 nulldc::dreamcast::step_dreamcast(dreamcast);
-                // Ensure we're paused after step
                 nulldc::dreamcast::set_dreamcast_running(dreamcast, false);
             } else {
-                // Mock implementation
-                *state.is_running.lock().unwrap() = false;
-                let target = params["target"].as_str().unwrap_or("sh4");
-
-                if target.contains("sh4") {
-                    let pc_value = state.get_register_value("dc.sh4.cpu", "PC");
-                    if let Some(stripped) = pc_value.strip_prefix("0x") {
-                        if let Ok(pc) = u64::from_str_radix(stripped, 16) {
-                            let base = 0x8C0000A0;
-                            let offset = pc - base;
-                            let new_offset = (offset + 2) % 16;
-                            let new_pc = base + new_offset;
-                            state.set_register_value(
-                                "dc.sh4.cpu",
-                                "PC",
-                                format!("0x{:08X}", new_pc),
-                            );
-                        }
-                    }
-                }
+                state.increment_program_counter(target);
             }
 
+            state.set_running(false);
             Ok((json!({}), true))
         }
 
@@ -982,17 +1488,25 @@ fn handle_request(
             if dreamcast_ptr != 0 {
                 let dreamcast = dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
                 nulldc::dreamcast::set_dreamcast_running(dreamcast, true);
-            } else {
-                *state.is_running.lock().unwrap() = true;
             }
+            state.set_running(true);
             Ok((json!({}), true))
         }
 
         "breakpoints.add" => {
-            let event = params["event"].as_str().unwrap_or("");
-            let address = params["address"].as_u64();
-            let kind = params["kind"].as_str().unwrap_or("code");
-            let enabled = params["enabled"].as_bool().unwrap_or(true);
+            let event = params
+                .get("event")
+                .and_then(|value| value.as_str())
+                .unwrap_or("");
+            let address = params.get("address").and_then(|value| value.as_u64());
+            let kind = params
+                .get("kind")
+                .and_then(|value| value.as_str())
+                .unwrap_or("code");
+            let enabled = params
+                .get("enabled")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(true);
 
             let mut next_id = state.next_breakpoint_id.lock().unwrap();
             let id = *next_id;
@@ -1011,23 +1525,39 @@ fn handle_request(
         }
 
         "breakpoints.remove" => {
-            let id = params["id"].as_u64().map(|id| id as u32);
-            if let Some(id) = id {
+            if let Some(id) = params
+                .get("id")
+                .and_then(|value| value.as_u64())
+                .map(|value| value as u32)
+            {
                 let removed = state.breakpoints.lock().unwrap().remove(&id).is_some();
-                if !removed {
-                    return Err(JsonRpcErrorObject {
-                        code: -32000,
-                        message: format!("Breakpoint {} not found", id),
-                        data: None,
-                    });
+                if removed {
+                    return Ok((json!({}), true));
                 }
+
+                return Ok((
+                    json!({
+                        "error": {
+                            "code": -32000,
+                            "message": format!("Breakpoint {} not found", id),
+                        }
+                    }),
+                    false,
+                ));
             }
-            Ok((json!({}), true))
+
+            Ok((json!({}), false))
         }
 
         "breakpoints.toggle" => {
-            let id = params["id"].as_u64().map(|id| id as u32);
-            let enabled = params["enabled"].as_bool().unwrap_or(true);
+            let id = params
+                .get("id")
+                .and_then(|value| value.as_u64())
+                .map(|value| value as u32);
+            let enabled = params
+                .get("enabled")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(true);
 
             if let Some(id) = id {
                 let mut breakpoints = state.breakpoints.lock().unwrap();
@@ -1035,26 +1565,33 @@ fn handle_request(
                     bp.enabled = enabled;
                     return Ok((json!({}), true));
                 }
+
+                return Ok((
+                    json!({
+                        "error": {
+                            "code": -32000,
+                            "message": format!("Breakpoint {} not found", id),
+                        }
+                    }),
+                    false,
+                ));
             }
 
-            Err(JsonRpcErrorObject {
-                code: -32000,
-                message: "Breakpoint not found".to_string(),
-                data: None,
-            })
+            Ok((json!({}), false))
         }
 
         "breakpoints.setCategoryStates" => {
-            let categories = params["categories"].as_object();
-            if let Some(categories) = categories {
+            if let Some(categories) = params.get("categories").and_then(|value| value.as_object()) {
                 let mut category_states = state.category_states.lock().unwrap();
                 for (category, state_value) in categories {
                     if let (Some(muted), Some(soloed)) = (
-                        state_value["muted"].as_bool(),
-                        state_value["soloed"].as_bool(),
+                        state_value.get("muted").and_then(|value| value.as_bool()),
+                        state_value.get("soloed").and_then(|value| value.as_bool()),
                     ) {
-                        category_states
-                            .insert(category.clone(), BreakpointCategoryState { muted, soloed });
+                        category_states.insert(
+                            category.clone(),
+                            BreakpointCategoryState { muted, soloed },
+                        );
                     }
                 }
             }
@@ -1068,6 +1605,7 @@ fn handle_request(
         }),
     }
 }
+
 
 pub async fn handle_websocket_connection(socket: WebSocket, dreamcast_ptr: usize) {
     use std::sync::OnceLock;
@@ -1097,178 +1635,7 @@ pub async fn handle_websocket_connection(socket: WebSocket, dreamcast_ptr: usize
                             }
 
                             if should_broadcast {
-                                // Build and send tick
-                                let device_tree = state.build_device_tree();
-                                let all_registers = collect_registers_from_tree(&device_tree);
-
-                                let mut registers_by_id: HashMap<String, Vec<RegisterValue>> =
-                                    HashMap::new();
-                                for (path, registers) in all_registers {
-                                    registers_by_id.insert(path, registers);
-                                }
-
-                                // Override with actual register values from emulator if available
-                                if dreamcast_ptr != 0 {
-                                    let dreamcast =
-                                        dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
-                                    let sh4_registers = vec![
-                                        ("PC", 32),
-                                        ("PR", 32),
-                                        ("SR", 32),
-                                        ("GBR", 32),
-                                        ("VBR", 32),
-                                        ("MACH", 32),
-                                        ("MACL", 32),
-                                        ("FPSCR", 32),
-                                        ("FPUL", 32),
-                                    ];
-
-                                    let mut cpu_regs = Vec::new();
-                                    for (name, width) in &sh4_registers {
-                                        if let Some(value) =
-                                            nulldc::dreamcast::get_sh4_register(dreamcast, name)
-                                        {
-                                            cpu_regs.push(RegisterValue {
-                                                name: name.to_string(),
-                                                value: format!("0x{:08X}", value),
-                                                width: *width,
-                                                flags: None,
-                                                metadata: None,
-                                            });
-                                        }
-                                    }
-
-                                    // Add general purpose registers R0-R15
-                                    for i in 0..16 {
-                                        let reg_name = format!("R{}", i);
-                                        if let Some(value) = nulldc::dreamcast::get_sh4_register(
-                                            dreamcast, &reg_name,
-                                        ) {
-                                            cpu_regs.push(RegisterValue {
-                                                name: reg_name,
-                                                value: format!("0x{:08X}", value),
-                                                width: 32,
-                                                flags: None,
-                                                metadata: None,
-                                            });
-                                        }
-                                    }
-
-                                    registers_by_id.insert("dc.sh4.cpu".to_string(), cpu_regs);
-                                }
-
-                                let mut breakpoints_by_id: HashMap<String, BreakpointDescriptor> =
-                                    HashMap::new();
-                                for (id, bp) in state.breakpoints.lock().unwrap().iter() {
-                                    breakpoints_by_id.insert(id.to_string(), bp.clone());
-                                }
-
-                                let watches: Vec<WatchDescriptor> = state
-                                    .watches
-                                    .lock()
-                                    .unwrap()
-                                    .values()
-                                    .map(|w| WatchDescriptor {
-                                        id: w.id,
-                                        expression: w.expression.clone(),
-                                        value: json!(state.evaluate_watch_expression(
-                                            dreamcast_ptr,
-                                            &w.expression
-                                        )),
-                                    })
-                                    .collect();
-
-                                let mut callstacks: HashMap<String, Vec<CallstackFrame>> =
-                                    HashMap::new();
-
-                                // SH4 callstack
-                                let sh4_pc_value = state.get_register_value("dc.sh4.cpu", "PC");
-                                let sh4_pc = if let Some(stripped) = sh4_pc_value.strip_prefix("0x")
-                                {
-                                    u64::from_str_radix(stripped, 16).unwrap_or(0x8c0000a0)
-                                } else {
-                                    0x8c0000a0
-                                };
-                                let sh4_frames: Vec<CallstackFrame> = (0..16)
-                                    .map(|i| CallstackFrame {
-                                        index: i,
-                                        pc: if i == 0 {
-                                            sh4_pc
-                                        } else {
-                                            0x8c000000 + (i - 1) as u64 * 4
-                                        },
-                                        sp: Some(0x0cfe0000 - i as u64 * 16),
-                                        symbol: Some(format!("SH4_func_{}", i)),
-                                        location: Some(format!("sh4.c:{}", 100 + i)),
-                                    })
-                                    .collect();
-                                callstacks.insert("sh4".to_string(), sh4_frames);
-
-                                // ARM7 callstack
-                                let arm7_pc_value = state.get_register_value("dc.aica.arm7", "PC");
-                                let arm7_pc =
-                                    if let Some(stripped) = arm7_pc_value.strip_prefix("0x") {
-                                        u64::from_str_radix(stripped, 16).unwrap_or(0x00200010)
-                                    } else {
-                                        0x00200010
-                                    };
-                                let arm7_frames: Vec<CallstackFrame> = (0..16)
-                                    .map(|i| CallstackFrame {
-                                        index: i,
-                                        pc: if i == 0 {
-                                            arm7_pc
-                                        } else {
-                                            0x00200000 + (i - 1) as u64 * 4
-                                        },
-                                        sp: Some(0x00280000 - i as u64 * 16),
-                                        symbol: Some(format!("ARM7_func_{}", i)),
-                                        location: Some(format!("arm7.c:{}", 100 + i)),
-                                    })
-                                    .collect();
-                                callstacks.insert("arm7".to_string(), arm7_frames);
-
-                                let current_tick_id = {
-                                    let mut tick_id = state.tick_id.lock().unwrap();
-                                    let id = *tick_id;
-                                    *tick_id += 1;
-                                    id
-                                };
-                                let timestamp = SystemTime::now()
-                                    .duration_since(UNIX_EPOCH)
-                                    .unwrap()
-                                    .as_millis()
-                                    as u64;
-                                // Get execution state from actual emulator or mock
-                                let is_running = if dreamcast_ptr != 0 {
-                                    let dreamcast =
-                                        dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
-                                    nulldc::dreamcast::is_dreamcast_running(dreamcast)
-                                } else {
-                                    *state.is_running.lock().unwrap()
-                                };
-
-                                let tick = DebuggerTick {
-                                    tick_id: current_tick_id,
-                                    timestamp,
-                                    execution_state: ExecutionState {
-                                        state: if is_running {
-                                            "running".to_string()
-                                        } else {
-                                            "paused".to_string()
-                                        },
-                                        breakpoint_id: None,
-                                    },
-                                    registers: registers_by_id,
-                                    breakpoints: breakpoints_by_id,
-                                    event_log: state.event_log.lock().unwrap().clone(),
-                                    watches: if watches.is_empty() {
-                                        None
-                                    } else {
-                                        Some(watches)
-                                    },
-                                    callstacks: Some(callstacks),
-                                };
-
+                                let tick = state.build_tick(dreamcast_ptr, None);
                                 let notification = JsonRpcNotification {
                                     jsonrpc: JSON_RPC_VERSION.to_string(),
                                     method: "event.tick".to_string(),
