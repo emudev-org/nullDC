@@ -499,6 +499,22 @@ use winit::window::WindowId;
 use std::rc::Rc;
 use std::cell::RefCell;
 
+pub fn rgb565_to_color32(buf: &[u16], w: usize, h: usize) -> egui::ColorImage {
+    let mut pixels = Vec::with_capacity(w * h);
+    for &px in buf {
+        let r = ((px >> 11) & 0x1F) as u8;
+        let g = ((px >> 5) & 0x3F) as u8;
+        let b = (px & 0x1F) as u8;
+        // Expand to 8-bit
+        let r = (r << 3) | (r >> 2);
+        let g = (g << 2) | (g >> 4);
+        let b = (b << 3) | (b >> 2);
+        pixels.push(egui::Color32::from_rgb(r, g, b));
+    }
+    egui::ColorImage { size: [w, h], pixels, source_size: egui::vec2(w as f32, h as f32) }
+}
+
+
 
 struct AppHandle(Rc<RefCell<App>>);
 

@@ -8,10 +8,10 @@
             "name": "(Windows) Launch",
             "type": "cppvsdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/target/release/nullDC.exe",
+            "program": "${workspaceFolder}/target/debug/nulldc-minimal.exe",
             "args": [],
             "stopAtEntry": false,
-            "cwd": "${fileDirname}",
+            "cwd": "C:/Users/skmp/projects/nullDC",
             "environment": [],
             "console": "externalTerminal"
         }

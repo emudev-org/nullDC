@@ -7,8 +7,18 @@
 
 use std::ptr;
 
-use egui::mutex::Mutex;
-use sh4_core::{Sh4Ctx, sh4_ipr_dispatcher, sh4_fns_dispatcher, sh4_init_ctx, sh4mem::read_mem, sh4dec::{format_disas, SH4DecoderState}};
+use std::sync::Mutex;
+use sh4_core::{self, Sh4Ctx, sh4_ipr_dispatcher, sh4_fns_dispatcher, sh4_init_ctx, sh4mem::read_mem, sh4dec::{format_disas, SH4DecoderState}};
+use sh4_core::sh4mem::{self};
+use std::fs::File;
+use std::io::{self, Read};
+use std::path::{Path};
+
+const BIOS_ROM_SIZE: u32 = 2 * 1024 * 1024;
+const BIOS_FLASH_SIZE: u32 = 128 *1024;
+
+const BIOS_ROM_MASK: u32 = BIOS_ROM_SIZE - 1;
+const BIOS_FLASH_MASK: u32 = BIOS_FLASH_SIZE - 1;
 
 const SYSRAM_SIZE: u32 = 16 * 1024 * 1024;
 const VIDEORAM_SIZE: u32 = 8 * 1024 * 1024;
@@ -21,6 +31,9 @@ pub struct Dreamcast {
     pub memmap: [*mut u8; 256],
     pub memmask: [u32; 256],
 
+    pub bios_rom: Box<[u8; BIOS_ROM_SIZE as usize]>,
+    pub bios_flash: Box<[u8; BIOS_FLASH_SIZE as usize]>,
+
     pub sys_ram: Box<[u8; SYSRAM_SIZE as usize]>,
     pub video_ram: Box<[u8; VIDEORAM_SIZE as usize]>,
     pub running: bool,
@@ -30,6 +43,16 @@ pub struct Dreamcast {
 impl Default for Dreamcast {
     fn default() -> Self {
 
+        let bios_rom = {
+            let v = vec![0u8; BIOS_ROM_SIZE as usize];
+            v.into_boxed_slice().try_into().expect("len matches")
+        };
+
+        let bios_flash = {
+            let v = vec![0u8; BIOS_FLASH_SIZE as usize];
+            v.into_boxed_slice().try_into().expect("len matches")
+        };
+        
         let sys_ram = {
             let v = vec![0u8; SYSRAM_SIZE as usize];
             v.into_boxed_slice().try_into().expect("len matches")
@@ -43,6 +66,8 @@ impl Default for Dreamcast {
             ctx: Sh4Ctx::default(),
             memmap: [ptr::null_mut(); 256],
             memmask: [0; 256],
+            bios_rom,
+            bios_flash,
             sys_ram,
             video_ram,
             running: true,
@@ -51,38 +76,114 @@ impl Default for Dreamcast {
     }
 }
 
+fn load_file_into_slice<P: AsRef<Path>>(path: P, buf: &mut [u8]) -> io::Result<()> {
+    let path_ref = path.as_ref();
+    let mut file = File::open(path_ref)
+        .unwrap_or_else(|e| panic!("Failed to open {}: {}", path_ref.display(), e));
 
-pub static ROTO_BIN: &[u8] = include_bytes!("../../roto.bin");
+    // Read entire file
+    let bytes_read = file
+        .read(buf)
+        .unwrap_or_else(|e| panic!("Failed to read {}: {}", path_ref.display(), e));
 
-pub fn init_dreamcast(dc: *mut Dreamcast) {
-    unsafe {
-        // Zero entire struct (like memset). In Rust, usually you'd implement Default.
-        *dc = Dreamcast::default();
-
-        sh4_init_ctx(&mut (*dc).ctx);
-
-        // Build opcode tables
-        // build_opcode_tables(dc);
-
-        // Setup memory map
-        (*dc).ctx.memmap[0x0C] = (*dc).sys_ram.as_mut_ptr();
-        (*dc).ctx.memmask[0x0C] = SYSRAM_MASK;
-        (*dc).ctx.memmap[0x8C] = (*dc).sys_ram.as_mut_ptr();
-        (*dc).ctx.memmask[0x8C] = SYSRAM_MASK;
-        (*dc).ctx.memmap[0xA5] = (*dc).video_ram.as_mut_ptr();
-        (*dc).ctx.memmask[0xA5] = VIDEORAM_MASK;
-
-        // Set initial PC
-        (*dc).ctx.pc0 = 0x8C01_0000;
-        (*dc).ctx.pc1 = 0x8C01_0000 + 2;
-        (*dc).ctx.pc2 = 0x8C01_0000 + 4;
-
-        // Copy roto.bin from embedded ROTO_BIN
-        let dst = (*dc).sys_ram.as_mut_ptr().add(0x10000);
-        let src = ROTO_BIN.as_ptr();
-
-        ptr::copy_nonoverlapping(src, dst, ROTO_BIN.len())
+    // Validate file size
+    if bytes_read != buf.len() {
+        panic!(
+            "File size mismatch for {}: expected {} bytes, got {} bytes",
+            path_ref.display(),
+            buf.len(),
+            bytes_read
+        );
     }
+
+    Ok(())
+}
+
+pub static ROTO_BIN: &[u8] = include_bytes!("../../../roto.bin");
+
+pub unsafe fn buffer_read<T: Copy>(base: *const u8, offset: u32) -> T {
+    let src = base.add(offset as usize) as *const T;
+    ptr::read_unaligned(src)
+}
+
+fn area_0_read<T: sh4mem::MemoryData>(ctx: *mut u8, offset: u32) -> T {
+    let dc = unsafe { &*(ctx as *const Dreamcast) };
+
+    if offset < 0x001F_FFFF {
+        return unsafe { buffer_read::<T>(dc.bios_rom.as_ptr(), offset) };
+    }
+
+    println!("area_0_read::<u{}> {:x}", std::mem::size_of::<T>()*8, offset);
+    T::default()
+}
+
+fn area_0_write<T: sh4mem::MemoryData>(_ctx: *mut u8, addr: u32, value: T) {
+    println!("area_0_write::<u{}> {:x} data = {:x}", std::mem::size_of::<T>()*8, addr, value);
+}
+
+pub const AREA0_HANDLERS: sh4_core::MemHandlers = sh4_core::MemHandlers {
+    read8: area_0_read::<u8>,
+    read16: area_0_read::<u16>,
+    read32: area_0_read::<u32>,
+    read64: area_0_read::<u64>,
+
+    write8: area_0_write::<u8>,
+    write16: area_0_write::<u16>,
+    write32: area_0_write::<u32>,
+    write64: area_0_write::<u64>,
+};
+
+pub fn init_dreamcast(dc_: *mut Dreamcast) {
+
+    let dc: &mut Dreamcast;
+    unsafe {
+        dc = &mut *dc_;
+    }
+
+    // Zero entire struct (like memset). In Rust, usually you'd implement Default.
+    *dc = Dreamcast::default();
+
+    // Load BIOS ROM + Flash from file
+    let mut path = std::env::current_dir().expect("failed to get current directory");
+    path.push("data");
+    path.push("dc_boot.bin");
+    load_file_into_slice(&path, &mut dc.bios_rom[..]).unwrap();
+    let mut path = std::env::current_dir().expect("failed to get current directory");
+    path.push("data");
+    path.push("dc_flash.bin");
+    load_file_into_slice(&path, &mut dc.bios_flash[..]).unwrap();
+
+    sh4_init_ctx(&mut dc.ctx);
+
+    // Build opcode tables
+    // build_opcode_tables(dc);
+
+    // Setup memory map
+    sh4_core::sh4_register_mem_buffer(&mut dc.ctx, 0x0C00_0000, 0x0FFF_FFFF, SYSRAM_MASK, dc.sys_ram.as_mut_ptr());
+    sh4_core::sh4_register_mem_buffer(&mut dc.ctx, 0x8C00_0000, 0x8FFF_FFFF, SYSRAM_MASK, dc.sys_ram.as_mut_ptr());
+    sh4_core::sh4_register_mem_buffer(&mut dc.ctx, 0xA500_0000, 0xA5FF_FFFF, VIDEORAM_MASK, dc.video_ram.as_mut_ptr());
+
+    sh4_core::sh4_register_mem_handler(&mut dc.ctx, 0x8000_0000, 0x83FF_FFFF, 0x01FF_FFFF, AREA0_HANDLERS, dc as *mut _ as *mut u8);
+    sh4_core::sh4_register_mem_handler(&mut dc.ctx, 0xA000_0000, 0xA3FF_FFFF, 0x01FF_FFFF, AREA0_HANDLERS, dc as *mut _ as *mut u8);
+
+
+    // Set initial PC
+    dc.ctx.pc0 = 0xA000_0000;
+    dc.ctx.pc1 = 0xA000_0000 + 2;
+    dc.ctx.pc2 = 0xA000_0000 + 4;
+
+    // ROTO test program at 0x8C010000
+    // dc.ctx.pc0 = 0x8C01_0000;
+    // dc.ctx.pc1 = 0x8C01_0000 + 2;
+    // dc.ctx.pc2 = 0x8C01_0000 + 4;
+
+    // unsafe {
+    //     // Copy roto.bin from embedded ROTO_BIN
+    //     let dst = dc.sys_ram.as_mut_ptr().add(0x10000);
+    //     let src = ROTO_BIN.as_ptr();
+    
+    //     ptr::copy_nonoverlapping(src, dst, ROTO_BIN.len())
+    // }
 }
 
 pub fn readbyte_sh4_dreamcast(dc: *mut Dreamcast, addr: u32) -> u8 {
@@ -167,8 +268,8 @@ pub fn run_slice_dreamcast(dc: *mut Dreamcast) {
         let _lock = (*dc).running_mtx.lock();
         if (*dc).running {
             (*dc).ctx.remaining_cycles += 2_000_000;
-            //sh4_ipr_dispatcher(&mut (*dc).ctx);
-            sh4_fns_dispatcher(&mut (*dc).ctx);
+            sh4_ipr_dispatcher(&mut (*dc).ctx);
+            //sh4_fns_dispatcher(&mut (*dc).ctx);
         }
     }
 }
@@ -213,19 +314,4 @@ pub fn get_sh4_register(dc: *mut Dreamcast, register_name: &str) -> Option<u32> 
             }
         }
     }
-}
-
-pub fn rgb565_to_color32(buf: &[u16], w: usize, h: usize) -> egui::ColorImage {
-    let mut pixels = Vec::with_capacity(w * h);
-    for &px in buf {
-        let r = ((px >> 11) & 0x1F) as u8;
-        let g = ((px >> 5) & 0x3F) as u8;
-        let b = (px & 0x1F) as u8;
-        // Expand to 8-bit
-        let r = (r << 3) | (r >> 2);
-        let g = (g << 2) | (g >> 4);
-        let b = (b << 3) | (b >> 2);
-        pixels.push(egui::Color32::from_rgb(r, g, b));
-    }
-    egui::ColorImage { size: [w, h], pixels, source_size: egui::vec2(w as f32, h as f32) }
 }

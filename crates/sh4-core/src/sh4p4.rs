@@ -1,0 +1,1260 @@
+#![allow(non_camel_case_types)]
+
+////// Addresses
+//
+// ==== CCN ====
+pub const CCN_PTEH_ADDR:      u32 = 0x1F000000;
+pub const CCN_PTEL_ADDR:      u32 = 0x1F000004;
+pub const CCN_TTB_ADDR:       u32 = 0x1F000008;
+pub const CCN_TEA_ADDR:       u32 = 0x1F00000C;
+pub const CCN_MMUCR_ADDR:     u32 = 0x1F000010;
+pub const CCN_BASRA_ADDR:     u32 = 0x1F000014;
+pub const CCN_BASRB_ADDR:     u32 = 0x1F000018;
+pub const CCN_CCR_ADDR:       u32 = 0x1F00001C;
+pub const CCN_TRA_ADDR:       u32 = 0x1F000020;
+pub const CCN_EXPEVT_ADDR:    u32 = 0x1F000024;
+pub const CCN_INTEVT_ADDR:    u32 = 0x1F000028;
+pub const CCN_CPU_VERSION_ADDR:   u32 = 0x1F000030;
+pub const CCN_PTEA_ADDR:      u32 = 0x1F000034;
+pub const CCN_QACR0_ADDR:     u32 = 0x1F000038;
+pub const CCN_QACR1_ADDR:     u32 = 0x1F00003C;
+pub const CCN_PRR_ADDR:       u32 = 0x1F000044;
+
+//
+// ==== UBC ====
+pub const UBC_BARA_ADDR:      u32 = 0x1F200000;
+pub const UBC_BAMRA_ADDR:     u32 = 0x1F200004;
+pub const UBC_BBRA_ADDR:      u32 = 0x1F200008;
+pub const UBC_BARB_ADDR:      u32 = 0x1F20000C;
+pub const UBC_BAMRB_ADDR:     u32 = 0x1F200010;
+pub const UBC_BBRB_ADDR:      u32 = 0x1F200014;
+pub const UBC_BDRB_ADDR:      u32 = 0x1F200018;
+pub const UBC_BDMRB_ADDR:     u32 = 0x1F20001C;
+pub const UBC_BRCR_ADDR:      u32 = 0x1F200020;
+
+//
+// ==== BSC ====
+pub const BSC_BCR1_ADDR:      u32 = 0x1F800000;
+pub const BSC_BCR2_ADDR:      u32 = 0x1F800004;
+pub const BSC_WCR1_ADDR:      u32 = 0x1F800008;
+pub const BSC_WCR2_ADDR:      u32 = 0x1F80000C;
+pub const BSC_WCR3_ADDR:      u32 = 0x1F800010;
+pub const BSC_MCR_ADDR:       u32 = 0x1F800014;
+pub const BSC_PCR_ADDR:       u32 = 0x1F800018;
+pub const BSC_RTCSR_ADDR:     u32 = 0x1F80001C;
+pub const BSC_RTCNT_ADDR:     u32 = 0x1F800020;
+pub const BSC_RTCOR_ADDR:     u32 = 0x1F800024;
+pub const BSC_RFCR_ADDR:      u32 = 0x1F800028;
+pub const BSC_PCTRA_ADDR:     u32 = 0x1F80002C;
+pub const BSC_PDTRA_ADDR:     u32 = 0x1F800030;
+pub const BSC_PCTRB_ADDR:     u32 = 0x1F800040;
+pub const BSC_PDTRB_ADDR:     u32 = 0x1F800044;
+pub const BSC_GPIOIC_ADDR:    u32 = 0x1F800048;
+pub const BSC_SDMR2_ADDR:     u32 = 0x1F900000;
+pub const BSC_SDMR3_ADDR:     u32 = 0x1F940000;
+
+//
+// ==== DMAC ====
+pub const DMAC_SAR0_ADDR:     u32 = 0x1FA00000;
+pub const DMAC_DAR0_ADDR:     u32 = 0x1FA00004;
+pub const DMAC_DMATCR0_ADDR:  u32 = 0x1FA00008;
+pub const DMAC_CHCR0_ADDR:    u32 = 0x1FA0000C;
+pub const DMAC_SAR1_ADDR:     u32 = 0x1FA00010;
+pub const DMAC_DAR1_ADDR:     u32 = 0x1FA00014;
+pub const DMAC_DMATCR1_ADDR:  u32 = 0x1FA00018;
+pub const DMAC_CHCR1_ADDR:    u32 = 0x1FA0001C;
+pub const DMAC_SAR2_ADDR:     u32 = 0x1FA00020;
+pub const DMAC_DAR2_ADDR:     u32 = 0x1FA00024;
+pub const DMAC_DMATCR2_ADDR:  u32 = 0x1FA00028;
+pub const DMAC_CHCR2_ADDR:    u32 = 0x1FA0002C;
+pub const DMAC_SAR3_ADDR:     u32 = 0x1FA00030;
+pub const DMAC_DAR3_ADDR:     u32 = 0x1FA00034;
+pub const DMAC_DMATCR3_ADDR:  u32 = 0x1FA00038;
+pub const DMAC_CHCR3_ADDR:    u32 = 0x1FA0003C;
+pub const DMAC_DMAOR_ADDR:    u32 = 0x1FA00040;
+
+//
+// ==== CPG ====
+pub const CPG_FRQCR_ADDR:     u32 = 0x1FC00000;
+pub const CPG_STBCR_ADDR:     u32 = 0x1FC00004;
+pub const CPG_WTCNT_ADDR:     u32 = 0x1FC00008;
+pub const CPG_WTCSR_ADDR:     u32 = 0x1FC0000C;
+pub const CPG_STBCR2_ADDR:    u32 = 0x1FC00010;
+
+//
+// ==== RTC ====
+pub const RTC_R64CNT_ADDR:    u32 = 0x1FC80000;
+pub const RTC_RSECCNT_ADDR:   u32 = 0x1FC80004;
+pub const RTC_RMINCNT_ADDR:   u32 = 0x1FC80008;
+pub const RTC_RHRCNT_ADDR:    u32 = 0x1FC8000C;
+pub const RTC_RWKCNT_ADDR:    u32 = 0x1FC80010;
+pub const RTC_RDAYCNT_ADDR:   u32 = 0x1FC80014;
+pub const RTC_RMONCNT_ADDR:   u32 = 0x1FC80018;
+pub const RTC_RYRCNT_ADDR:    u32 = 0x1FC8001C;
+pub const RTC_RSECAR_ADDR:    u32 = 0x1FC80020;
+pub const RTC_RMINAR_ADDR:    u32 = 0x1FC80024;
+pub const RTC_RHRAR_ADDR:     u32 = 0x1FC80028;
+pub const RTC_RWKAR_ADDR:     u32 = 0x1FC8002C;
+pub const RTC_RDAYAR_ADDR:    u32 = 0x1FC80030;
+pub const RTC_RMONAR_ADDR:    u32 = 0x1FC80034;
+pub const RTC_RCR1_ADDR:      u32 = 0x1FC80038;
+pub const RTC_RCR2_ADDR:      u32 = 0x1FC8003C;
+
+//
+// ==== INTC ====
+pub const INTC_ICR_ADDR:      u32 = 0x1FD00000;
+pub const INTC_IPRA_ADDR:     u32 = 0x1FD00004;
+pub const INTC_IPRB_ADDR:     u32 = 0x1FD00008;
+pub const INTC_IPRC_ADDR:     u32 = 0x1FD0000C;
+pub const INTC_IPRD_ADDR:     u32 = 0x1FD00010;
+
+//
+// ==== TMU ====
+pub const TMU_TOCR_ADDR:      u32 = 0x1FD80000;
+pub const TMU_TSTR_ADDR:      u32 = 0x1FD80004;
+pub const TMU_TCOR0_ADDR:     u32 = 0x1FD80008;
+pub const TMU_TCNT0_ADDR:     u32 = 0x1FD8000C;
+pub const TMU_TCR0_ADDR:      u32 = 0x1FD80010;
+pub const TMU_TCOR1_ADDR:     u32 = 0x1FD80014;
+pub const TMU_TCNT1_ADDR:     u32 = 0x1FD80018;
+pub const TMU_TCR1_ADDR:      u32 = 0x1FD8001C;
+pub const TMU_TCOR2_ADDR:     u32 = 0x1FD80020;
+pub const TMU_TCNT2_ADDR:     u32 = 0x1FD80024;
+pub const TMU_TCR2_ADDR:      u32 = 0x1FD80028;
+pub const TMU_TCPR2_ADDR:     u32 = 0x1FD8002C;
+
+//
+// ==== SCI ====
+pub const SCI_SCSMR1_ADDR:    u32 = 0x1FE00000;
+pub const SCI_SCBRR1_ADDR:    u32 = 0x1FE00004;
+pub const SCI_SCSCR1_ADDR:    u32 = 0x1FE00008;
+pub const SCI_SCTDR1_ADDR:    u32 = 0x1FE0000C;
+pub const SCI_SCSSR1_ADDR:    u32 = 0x1FE00010;
+pub const SCI_SCRDR1_ADDR:    u32 = 0x1FE00014;
+pub const SCI_SCSCMR1_ADDR:   u32 = 0x1FE00018;
+pub const SCI_SCSPTR1_ADDR:   u32 = 0x1FE0001C;
+
+//
+// ==== SCIF ====
+pub const SCIF_SCSMR2_ADDR:   u32 = 0x1FE80000;
+pub const SCIF_SCBRR2_ADDR:   u32 = 0x1FE80004;
+pub const SCIF_SCSCR2_ADDR:   u32 = 0x1FE80008;
+pub const SCIF_SCFTDR2_ADDR:  u32 = 0x1FE8000C;
+pub const SCIF_SCFSR2_ADDR:   u32 = 0x1FE80010;
+pub const SCIF_SCFRDR2_ADDR:  u32 = 0x1FE80014;
+pub const SCIF_SCFCR2_ADDR:   u32 = 0x1FE80018;
+pub const SCIF_SCFDR2_ADDR:   u32 = 0x1FE8001C;
+pub const SCIF_SCSPTR2_ADDR:  u32 = 0x1FE80020;
+pub const SCIF_SCLSR2_ADDR:   u32 = 0x1FE80024;
+
+//
+// ==== UDI ====
+pub const UDI_SDIR_ADDR:      u32 = 0x1FF00000;
+pub const UDI_SDDR_ADDR:      u32 = 0x1FF00008;
+
+use bitfield::bitfield;
+
+//
+// ==== BSC ===
+//
+
+bitfield! {
+    #[derive(Copy, Clone, Default)]
+    pub struct BSC_BCR1(u32);
+    impl Debug;
+
+    pub a56pcm, set_a56pcm: 0;
+    pub res_0, _: 1;
+    pub dramtp0, set_dramtp0: 2;
+    pub dramtp1, set_dramtp1: 3;
+    pub dramtp2, set_dramtp2: 4;
+    pub a6bst0, set_a6bst0: 5;
+    pub a6bst1, set_a6bst1: 6;
+    pub a6bst2, set_a6bst2: 7;
+
+    pub a5bst0, set_a5bst0: 8;
+    pub a5bst1, set_a5bst1: 9;
+    pub a5bst2, set_a5bst2: 10;
+    pub a0bst0, set_a0bst0: 11;
+    pub a0bst1, set_a0bst1: 12;
+    pub a0bst2, set_a0bst2: 13;
+    pub hizcnt, set_hizcnt: 14;
+    pub hizmem, set_hizmem: 15;
+
+    pub res_1, _: 16;
+    pub memmpx, set_memmpx: 17;
+    pub pshr, set_pshr: 18;
+    pub breqen, set_breqen: 19;
+    pub a4mbc, set_a4mbc: 20;
+    pub a1mbc, set_a1mbc: 21;
+    pub res_2, _: 22;
+    pub res_3, _: 23;
+
+    pub opup, set_opup: 24;
+    pub ipup, set_ipup: 25;
+    pub res_4, _: 26;
+    pub res_5, _: 27;
+    pub res_6, _: 28;
+    pub a0mpx, set_a0mpx: 29;
+    pub master, set_master: 30;
+    pub endian, set_endian: 31;
+}
+
+bitfield! {
+    #[derive(Copy, Clone, Default)]
+    pub struct BSC_BCR2(u16);
+    impl Debug;
+
+    pub porten, set_porten: 0;
+    pub res_0, _: 1;
+    pub a0sz0, _: 2;     // read-only
+    pub a1sz1, set_a1sz1: 3;
+    pub a2sz0, set_a2sz0: 4;
+    pub a2sz1, set_a2sz1: 5;
+    pub a3sz0, set_a3sz0: 6;
+    pub a3sz1, set_a3sz1: 7;
+    pub a4sz0, set_a4sz0: 8;
+    pub a4sz1, set_a4sz1: 9;
+    pub a5sz0, set_a5sz0: 10;
+    pub a5sz1, set_a5sz1: 11;
+    pub a6sz0, set_a6sz0: 12;
+    pub a6sz1, set_a6sz1: 13;
+    pub a0sz0_inp, _: 14;
+    pub a0sz1_inp, _: 15;
+}
+
+bitfield! {
+    #[derive(Copy, Clone, Default)]
+    pub struct BSC_WCR1(u32);
+    impl Debug;
+
+    pub a0iw0, set_a0iw0: 0;
+    pub a0iw1, set_a0iw1: 1;
+    pub a0iw2, set_a0iw2: 2;
+    pub res_0, _: 3;
+    pub a1iw0, set_a1iw0: 4;
+    pub a1iw1, set_a1iw1: 5;
+    pub a1iw2, set_a1iw2: 6;
+    pub res_1, _: 7;
+    pub a2iw0, set_a2iw0: 8;
+    pub a2iw1, set_a2iw1: 9;
+    pub a2iw2, set_a2iw2: 10;
+    pub res_2, _: 11;
+    pub a3iw0, set_a3iw0: 12;
+    pub a3iw1, set_a3iw1: 13;
+    pub a3iw2, set_a3iw2: 14;
+    pub res_3, _: 15;
+    pub a4iw0, set_a4iw0: 16;
+    pub a4iw1, set_a4iw1: 17;
+    pub a4iw2, set_a4iw2: 18;
+    pub res_4, _: 19;
+    pub a5iw0, set_a5iw0: 20;
+    pub a5iw1, set_a5iw1: 21;
+    pub a5iw2, set_a5iw2: 22;
+    pub res_5, _: 23;
+    pub a6iw0, set_a6iw0: 24;
+    pub a6iw1, set_a6iw1: 25;
+    pub a6iw2, set_a6iw2: 26;
+    pub res_6, _: 27;
+    pub dmaiw0, set_dmaiw0: 28;
+    pub dmaiw1, set_dmaiw1: 29;
+    pub dmaiw2, set_dmaiw2: 30;
+    pub res_7, _: 31;
+}
+
+bitfield! {
+    #[derive(Copy, Clone, Default)]
+    pub struct BSC_WCR2(u32);
+    impl Debug;
+
+    pub a0b0, set_a0b0: 0;
+    pub a0b1, set_a0b1: 1;
+    pub a0b2, set_a0b2: 2;
+    pub a0w0, set_a0w0: 3;
+    pub a0w1, set_a0w1: 4;
+    pub a0w2, set_a0w2: 5;
+    pub a1w0, set_a1w0: 6;
+    pub a1w1, set_a1w1: 7;
+    pub a1w2, set_a1w2: 8;
+    pub a2w0, set_a2w0: 9;
+    pub a2w1, set_a2w1: 10;
+    pub a2w2, set_a2w2: 11;
+    pub res_0, _: 12;
+    pub a3w0, set_a3w0: 13;
+    pub a3w1, set_a3w1: 14;
+    pub a3w2, set_a3w2: 15;
+    pub res_1, _: 16;
+    pub a4w0, set_a4w0: 17;
+    pub a4w1, set_a4w1: 18;
+    pub a4w2, set_a4w2: 19;
+    pub a5b0, set_a5b0: 20;
+    pub a5b1, set_a5b1: 21;
+    pub a5b2, set_a5b2: 22;
+    pub a5w0, set_a5w0: 23;
+    pub a5w1, set_a5w1: 24;
+    pub a5w2, set_a5w2: 25;
+    pub a6b0, set_a6b0: 26;
+    pub a6b1, set_a6b1: 27;
+    pub a6b2, set_a6b2: 28;
+    pub a6w0, set_a6w0: 29;
+    pub a6w1, set_a6w1: 30;
+    pub a6w2, set_a6w2: 31;
+}
+
+bitfield! {
+    #[derive(Copy, Clone, Default)]
+    pub struct BSC_WCR3(u32);
+    impl Debug;
+
+    pub a0h0, set_a0h0: 0;
+    pub a0h1, set_a0h1: 1;
+    pub a0s0, set_a0s0: 2;
+    pub res_0, _: 3;
+    pub a1h0, set_a1h0: 4;
+    pub a1h1, set_a1h1: 5;
+    pub a1s0, set_a1s0: 6;
+    pub res_1, _: 7;
+    pub a2h0, set_a2h0: 8;
+    pub a2h1, set_a2h1: 9;
+    pub a2s0, set_a2s0: 10;
+    pub res_2, _: 11;
+    pub a3h0, set_a3h0: 12;
+    pub a3h1, set_a3h1: 13;
+    pub a3s0, set_a3s0: 14;
+    pub res_3, _: 15;
+    pub a4h0, set_a4h0: 16;
+    pub a4h1, set_a4h1: 17;
+    pub a4s0, set_a4s0: 18;
+    pub res_4, _: 19;
+    pub a5h0, set_a5h0: 20;
+    pub a5h1, set_a5h1: 21;
+    pub a5s0, set_a5s0: 22;
+    pub res_5, _: 23;
+    pub a6h0, set_a6h0: 24;
+    pub a6h1, set_a6h1: 25;
+    pub a6s0, set_a6s0: 26;
+    pub res_6, _: 31, 27;
+}
+
+bitfield! {
+    #[derive(Copy, Clone, Default)]
+    pub struct BSC_MCR(u32);
+    impl Debug;
+
+    pub edo_mode, set_edo_mode: 0;
+    pub rmode, set_rmode: 1;
+    pub rfsh, set_rfsh: 2;
+    pub amx0, set_amx0: 3;
+    pub amx1, set_amx1: 4;
+    pub amx2, set_amx2: 5;
+    pub amxext, set_amxext: 6;
+    pub sz0, set_sz0: 7;
+    pub sz1, set_sz1: 8;
+    pub be, set_be: 9;
+    pub tras, set_tras: 12, 10;
+    pub trwl, set_trwl: 14, 13;
+    pub rcd, set_rcd: 16, 15;
+    pub tpc, set_tpc: 21, 19;
+    pub tcas, set_tcas: 23;
+    pub trc, set_trc: 26, 24;
+    pub mrset, set_mrset: 27;
+    pub rasd, set_rasd: 28;
+}
+
+bitfield! {
+    #[derive(Copy, Clone, Default)]
+    pub struct DMAC_CHCR(u32);
+    impl Debug;
+
+    pub de, set_de: 0;
+    pub te, set_te: 1;
+    pub ie, set_ie: 2;
+    pub res0, _: 3;
+    pub ts, set_ts: 6, 4;
+    pub tm, set_tm: 7;
+    pub rs, set_rs: 11, 8;
+    pub sm, set_sm: 13, 12;
+    pub dm, set_dm: 15, 14;
+    pub al, set_al: 16;
+    pub am, set_am: 17;
+    pub rl, set_rl: 18;
+    pub ds, set_ds: 19;
+    pub res1, _: 23, 20;
+    pub dtc, set_dtc: 24;
+    pub dsa, set_dsa: 27, 25;
+    pub stc, set_stc: 28;
+    pub ssa, set_ssa: 31, 29;
+}
+
+//
+// ==== BSC Peripheral Control and Timing ===
+//
+
+bitfield! {
+    #[derive(Copy, Clone, Default)]
+    pub struct BSC_PCR(u16);
+    impl Debug;
+
+    pub a6teh0, set_a6teh0: 0;
+    pub a6teh1, set_a6teh1: 1;
+    pub a6teh2, set_a6teh2: 2;
+    pub a5teh0, set_a5teh0: 3;
+    pub a5teh1, set_a5teh1: 4;
+    pub a5teh2, set_a5teh2: 5;
+    pub a6ted0, set_a6ted0: 6;
+    pub a6ted1, set_a6ted1: 7;
+    pub a6ted2, set_a6ted2: 8;
+    pub a5ted0, set_a5ted0: 9;
+    pub a5ted1, set_a5ted1: 10;
+    pub a5ted2, set_a5ted2: 11;
+    pub a6pcw0, set_a6pcw0: 12;
+    pub a6pcw1, set_a6pcw1: 13;
+    pub a5pcw0, set_a5pcw0: 14;
+    pub a5pcw1, set_a5pcw1: 15;
+}
+
+bitfield! {
+    #[derive(Copy, Clone, Default)]
+    pub struct BSC_RTCSR(u16);
+    impl Debug;
+
+    pub lmts, set_lmts: 0;
+    pub ovie, set_ovie: 1;
+    pub ovf, set_ovf: 2;
+    pub cks, set_cks: 5, 3;
+    pub cmie, set_cmie: 6;
+    pub cmf, set_cmf: 7;
+}
+
+bitfield! {
+    #[derive(Copy, Clone, Default)]
+    pub struct BSC_RTCNT(u16);
+    impl Debug;
+
+    pub value, set_value: 7, 0;
+}
+
+bitfield! {
+    #[derive(Copy, Clone, Default)]
+    pub struct BSC_RTCOR(u16);
+    impl Debug;
+
+    pub value, set_value: 7, 0;
+}
+
+bitfield! {
+    #[derive(Copy, Clone, Default)]
+    pub struct BSC_RFCR(u16);
+    impl Debug;
+
+    pub value, set_value: 9, 0;
+}
+
+bitfield! {
+    #[derive(Copy, Clone, Default)]
+    pub struct BSC_PCTRA(u32);
+    impl Debug;
+
+    pub pb0io, set_pb0io: 0;
+    pub pb0pup, set_pb0pup: 1;
+    pub pb1io, set_pb1io: 2;
+    pub pb1pup, set_pb1pup: 3;
+    pub pb2io, set_pb2io: 4;
+    pub pb2pup, set_pb2pup: 5;
+    pub pb3io, set_pb3io: 6;
+    pub pb3pup, set_pb3pup: 7;
+    pub pb4io, set_pb4io: 8;
+    pub pb4pup, set_pb4pup: 9;
+    pub pb5io, set_pb5io: 10;
+    pub pb5pup, set_pb5pup: 11;
+    pub pb6io, set_pb6io: 12;
+    pub pb6pup, set_pb6pup: 13;
+    pub pb7io, set_pb7io: 14;
+    pub pb7pup, set_pb7pup: 15;
+    pub pb8io, set_pb8io: 16;
+    pub pb8pup, set_pb8pup: 17;
+    pub pb9io, set_pb9io: 18;
+    pub pb9pup, set_pb9pup: 19;
+    pub pb10io, set_pb10io: 20;
+    pub pb10pup, set_pb10pup: 21;
+    pub pb11io, set_pb11io: 22;
+    pub pb11pup, set_pb11pup: 23;
+    pub pb12io, set_pb12io: 24;
+    pub pb12pup, set_pb12pup: 25;
+    pub pb13io, set_pb13io: 26;
+    pub pb13pup, set_pb13pup: 27;
+    pub pb14io, set_pb14io: 28;
+    pub pb14pup, set_pb14pup: 29;
+    pub pb15io, set_pb15io: 30;
+    pub pb15pup, set_pb15pup: 31;
+}
+
+bitfield! {
+    #[derive(Copy, Clone, Default)]
+    pub struct BSC_PCTRB(u32);
+    impl Debug;
+
+    pub pb16io, set_pb16io: 0;
+    pub pb16pup, set_pb16pup: 1;
+    pub pb17io, set_pb17io: 2;
+    pub pb17pup, set_pb17pup: 3;
+    pub pb18io, set_pb18io: 4;
+    pub pb18pup, set_pb18pup: 5;
+    pub pb19io, set_pb19io: 6;
+    pub pb19pup, set_pb19pup: 7;
+}
+
+bitfield! {
+    #[derive(Copy, Clone, Default)]
+    pub struct BSC_PDTRA(u16);
+    impl Debug;
+
+    pub pb0dt, set_pb0dt: 0;
+    pub pb1dt, set_pb1dt: 1;
+    pub pb2dt, set_pb2dt: 2;
+    pub pb3dt, set_pb3dt: 3;
+    pub pb4dt, set_pb4dt: 4;
+    pub pb5dt, set_pb5dt: 5;
+    pub pb6dt, set_pb6dt: 6;
+    pub pb7dt, set_pb7dt: 7;
+    pub pb8dt, set_pb8dt: 8;
+    pub pb9dt, set_pb9dt: 9;
+    pub pb10dt, set_pb10dt: 10;
+    pub pb11dt, set_pb11dt: 11;
+    pub pb12dt, set_pb12dt: 12;
+    pub pb13dt, set_pb13dt: 13;
+    pub pb14dt, set_pb14dt: 14;
+    pub pb15dt, set_pb15dt: 15;
+}
+
+bitfield! {
+    #[derive(Copy, Clone, Default)]
+    pub struct BSC_PDTRB(u16);
+    impl Debug;
+
+    pub pb16dt, set_pb16dt: 0;
+    pub pb17dt, set_pb17dt: 1;
+    pub pb18dt, set_pb18dt: 2;
+    pub pb19dt, set_pb19dt: 3;
+}
+
+bitfield! {
+    #[derive(Copy, Clone, Default)]
+    pub struct BSC_GPIOIC(u16);
+    impl Debug;
+
+    pub ptiren0, set_ptiren0: 0;
+    pub ptiren1, set_ptiren1: 1;
+    pub ptiren2, set_ptiren2: 2;
+    pub ptiren3, set_ptiren3: 3;
+    pub ptiren4, set_ptiren4: 4;
+    pub ptiren5, set_ptiren5: 5;
+    pub ptiren6, set_ptiren6: 6;
+    pub ptiren7, set_ptiren7: 7;
+    pub ptiren8, set_ptiren8: 8;
+    pub ptiren9, set_ptiren9: 9;
+    pub ptiren10, set_ptiren10: 10;
+    pub ptiren11, set_ptiren11: 11;
+    pub ptiren12, set_ptiren12: 12;
+    pub ptiren13, set_ptiren13: 13;
+    pub ptiren14, set_ptiren14: 14;
+    pub ptiren15, set_ptiren15: 15;
+}
+
+//
+// ==== CCN and MMU ===
+//
+
+bitfield! {
+    #[derive(Copy, Clone, Default)]
+    pub struct CCN_PTEH(u32);
+    impl Debug;
+
+    pub asid, set_asid: 7, 0;
+    pub vpn, set_vpn: 31, 10;
+}
+
+bitfield! {
+    #[derive(Copy, Clone, Default)]
+    pub struct CCN_PTEL(u32);
+    impl Debug;
+
+    pub wt, set_wt: 0;
+    pub sh, set_sh: 1;
+    pub d, set_d: 2;
+    pub c, set_c: 3;
+    pub sz0, set_sz0: 4;
+    pub pr, set_pr: 6, 5;
+    pub sz1, set_sz1: 7;
+    pub v, set_v: 8;
+    pub ppn, set_ppn: 28, 10;
+}
+
+bitfield! {
+    #[derive(Copy, Clone, Default)]
+    pub struct CCN_PTEA(u32);
+    impl Debug;
+
+    pub sa, set_sa: 2, 0;
+    pub tc, set_tc: 3;
+}
+
+bitfield! {
+    #[derive(Copy, Clone, Default)]
+    pub struct CCN_MMUCR(u32);
+    impl Debug;
+
+    pub at, set_at: 0;
+    pub ti, set_ti: 2;
+    pub sv, set_sv: 8;
+    pub sqmd, set_sqmd: 9;
+    pub urc, set_urc: 15, 10;
+    pub urb, set_urb: 21, 16;
+    pub lrui, set_lrui: 27, 22;
+}
+
+bitfield! {
+    #[derive(Copy, Clone, Default)]
+    pub struct CCN_CCR(u32);
+    impl Debug;
+
+    pub oce, set_oce: 0;
+    pub wt, set_wt: 1;
+    pub cb, set_cb: 2;
+    pub oci, set_oci: 3;
+    pub ora, set_ora: 5;
+    pub oix, set_oix: 7;
+    pub ice, set_ice: 8;
+    pub ici, set_ici: 11;
+    pub iix, set_iix: 15;
+}
+
+bitfield! {
+    #[derive(Copy, Clone, Default)]
+    pub struct CCN_QACR(u32);
+    impl Debug;
+
+    pub area, set_area: 4, 2;
+}
+
+//
+// ==== INTC ===
+//
+
+bitfield! {
+    #[derive(Copy, Clone, Default)]
+    pub struct INTC_ICR(u16);
+    impl Debug;
+
+    pub irlm, set_irlm: 7;
+    pub nmie, set_nmie: 8;
+    pub nmib, set_nmib: 9;
+    pub mai, set_mai: 14;
+    pub nmil, set_nmil: 15;
+}
+
+bitfield! {
+    #[derive(Copy, Clone, Default)]
+    pub struct INTC_IPRA(u16);
+    impl Debug;
+
+    pub rtc, set_rtc: 3, 0;
+    pub tmu2, set_tmu2: 7, 4;
+    pub tmu1, set_tmu1: 11, 8;
+    pub tmu0, set_tmu0: 15, 12;
+}
+
+bitfield! {
+    #[derive(Copy, Clone, Default)]
+    pub struct INTC_IPRB(u16);
+    impl Debug;
+
+    pub sci1, set_sci1: 7, 4;
+    pub ref_, set_ref: 11, 8;
+    pub wdt, set_wdt: 15, 12;
+}
+
+bitfield! {
+    #[derive(Copy, Clone, Default)]
+    pub struct INTC_IPRC(u16);
+    impl Debug;
+
+    pub hitachi_udi, set_hitachi_udi: 3, 0;
+    pub scif, set_scif: 7, 4;
+    pub dmac, set_dmac: 11, 8;
+    pub gpio, set_gpio: 15, 12;
+}
+
+//
+// ==== SCIF ===
+//
+
+bitfield! {
+    #[derive(Copy, Clone, Default)]
+    pub struct SCIF_SCSMR2(u16);
+    impl Debug;
+
+    pub cks, set_cks: 1, 0;
+    pub stop, set_stop: 3;
+    pub paritymode, set_paritymode: 4;
+    pub pe, set_pe: 5;
+    pub chr, set_chr: 6;
+}
+
+bitfield! {
+    #[derive(Copy, Clone, Default)]
+    pub struct SCIF_SCSCR2(u16);
+    impl Debug;
+
+    pub cke1, set_cke1: 1;
+    pub reie, set_reie: 3;
+    pub re, set_re: 4;
+    pub te, set_te: 5;
+    pub rie, set_rie: 6;
+    pub tie, set_tie: 7;
+}
+
+bitfield! {
+    #[derive(Copy, Clone, Default)]
+    pub struct SCIF_SCFSR2(u16);
+    impl Debug;
+
+    pub dr, set_dr: 0;
+    pub rdf, set_rdf: 1;
+    pub per, set_per: 2;
+    pub fer, set_fer: 3;
+    pub brk, set_brk: 4;
+    pub tdfe, set_tdfe: 5;
+    pub tend, set_tend: 6;
+    pub er, set_er: 7;
+}
+
+bitfield! {
+    #[derive(Copy, Clone, Default)]
+    pub struct SCIF_SCFCR2(u16);
+    impl Debug;
+
+    pub loopback, set_loopback: 0;
+    pub rfrst, set_rfrst: 1;
+    pub tfrst, set_tfrst: 2;
+    pub mce, set_mce: 3;
+    pub ttrg, set_ttrg: 5, 4;
+    pub rtrg, set_rtrg: 7, 6;
+}
+
+bitfield! {
+    #[derive(Copy, Clone, Default)]
+    pub struct SCIF_SCFDR2(u16);
+    impl Debug;
+
+    pub r, set_r: 4, 0;
+    pub t, set_t: 12, 8;
+}
+
+bitfield! {
+    #[derive(Copy, Clone, Default)]
+    pub struct SCIF_SCSPTR2(u16);
+    impl Debug;
+
+    pub spb2dt, set_spb2dt: 0;
+    pub spb2io, set_spb2io: 1;
+    pub ctsdt, set_ctsdt: 4;
+    pub ctsio, set_ctsio: 5;
+    pub rtsdt, set_rtsdt: 6;
+    pub rtsio, set_rtsio: 7;
+}
+
+bitfield! {
+    #[derive(Copy, Clone, Default)]
+    pub struct SCIF_SCLSR2(u16);
+    impl Debug;
+
+    pub orer, set_orer: 0;
+}
+
+// dataz
+
+// INTC
+static mut INTC_ICR_DATA:  INTC_ICR  = INTC_ICR(0);
+static mut INTC_IPRA_DATA: INTC_IPRA = INTC_IPRA(0);
+static mut INTC_IPRB_DATA: INTC_IPRB = INTC_IPRB(0);
+static mut INTC_IPRC_DATA: INTC_IPRC = INTC_IPRC(0);
+static mut INTC_IPRD_DATA: u32 = 0;
+
+// RTC
+static mut RTC_R64CNT_DATA:  u32 = 0;
+static mut RTC_RSECCNT_DATA: u32 = 0;
+static mut RTC_RMINCNT_DATA: u32 = 0;
+static mut RTC_RHRCNT_DATA:  u32 = 0;
+static mut RTC_RWKCNT_DATA:  u32 = 0;
+static mut RTC_RDAYCNT_DATA: u32 = 0;
+static mut RTC_RMONCNT_DATA: u32 = 0;
+static mut RTC_RYRCNT_DATA:  u32 = 0;
+static mut RTC_RSECAR_DATA:  u32 = 0;
+static mut RTC_RMINAR_DATA:  u32 = 0;
+static mut RTC_RHRAR_DATA:   u32 = 0;
+static mut RTC_RWKAR_DATA:   u32 = 0;
+static mut RTC_RDAYAR_DATA:  u32 = 0;
+static mut RTC_RMONAR_DATA:  u32 = 0;
+static mut RTC_RCR1_DATA:    u32 = 0;
+static mut RTC_RCR2_DATA:    u32 = 0;
+
+// BSC
+static mut BSC_BCR1_DATA:   BSC_BCR1   = BSC_BCR1(0);
+static mut BSC_BCR2_DATA:   BSC_BCR2   = BSC_BCR2(0);
+static mut BSC_WCR1_DATA:   BSC_WCR1   = BSC_WCR1(0);
+static mut BSC_WCR2_DATA:   BSC_WCR2   = BSC_WCR2(0);
+static mut BSC_WCR3_DATA:   BSC_WCR3   = BSC_WCR3(0);
+static mut BSC_MCR_DATA:    BSC_MCR    = BSC_MCR(0);
+static mut BSC_PCR_DATA:    BSC_PCR    = BSC_PCR(0);
+static mut BSC_RTCSR_DATA:  BSC_RTCSR  = BSC_RTCSR(0);
+static mut BSC_RTCNT_DATA:  BSC_RTCNT  = BSC_RTCNT(0);
+static mut BSC_RTCOR_DATA:  BSC_RTCOR  = BSC_RTCOR(0);
+static mut BSC_RFCR_DATA:   BSC_RFCR   = BSC_RFCR(0);
+static mut BSC_PCTRA_DATA:  BSC_PCTRA  = BSC_PCTRA(0);
+static mut BSC_PDTRA_DATA:  BSC_PDTRA  = BSC_PDTRA(0);
+static mut BSC_PCTRB_DATA:  BSC_PCTRB  = BSC_PCTRB(0);
+static mut BSC_PDTRB_DATA:  BSC_PDTRB  = BSC_PDTRB(0);
+static mut BSC_GPIOIC_DATA: BSC_GPIOIC = BSC_GPIOIC(0);
+
+// UBC
+static mut UBC_BARA_DATA:  u32 = 0;
+static mut UBC_BAMRA_DATA: u32 = 0;
+static mut UBC_BBRA_DATA:  u32 = 0;
+static mut UBC_BARB_DATA:  u32 = 0;
+static mut UBC_BAMRB_DATA: u32 = 0;
+static mut UBC_BBRB_DATA:  u32 = 0;
+static mut UBC_BDRB_DATA:  u32 = 0;
+static mut UBC_BDMRB_DATA: u32 = 0;
+static mut UBC_BRCR_DATA:  u32 = 0;
+
+// SCIF
+static mut SCIF_SCSMR2_DATA:  SCIF_SCSMR2  = SCIF_SCSMR2(0);
+static mut SCIF_SCBRR2_DATA:  u32 = 0;
+static mut SCIF_SCSCR2_DATA:  SCIF_SCSCR2  = SCIF_SCSCR2(0);
+static mut SCIF_SCFTDR2_DATA: u32 = 0;
+static mut SCIF_SCFSR2_DATA:  SCIF_SCFSR2  = SCIF_SCFSR2(0);
+static mut SCIF_SCFRDR2_DATA: u32 = 0;
+static mut SCIF_SCFCR2_DATA:  SCIF_SCFCR2  = SCIF_SCFCR2(0);
+static mut SCIF_SCFDR2_DATA:  SCIF_SCFDR2  = SCIF_SCFDR2(0);
+static mut SCIF_SCSPTR2_DATA: SCIF_SCSPTR2 = SCIF_SCSPTR2(0);
+static mut SCIF_SCLSR2_DATA:  SCIF_SCLSR2  = SCIF_SCLSR2(0);
+
+// TMU
+static mut TMU_TOCR_DATA:  u32 = 0;
+static mut TMU_TSTR_DATA:  u32 = 0;
+static mut TMU_TCOR0_DATA: u32 = 0;
+static mut TMU_TCNT0_DATA: u32 = 0;
+static mut TMU_TCR0_DATA:  u32 = 0;
+static mut TMU_TCOR1_DATA: u32 = 0;
+static mut TMU_TCNT1_DATA: u32 = 0;
+static mut TMU_TCR1_DATA:  u32 = 0;
+static mut TMU_TCOR2_DATA: u32 = 0;
+static mut TMU_TCNT2_DATA: u32 = 0;
+static mut TMU_TCR2_DATA:  u32 = 0;
+static mut TMU_TCPR2_DATA: u32 = 0;
+
+// DMAC
+static mut DMAC_SAR0_DATA:    u32 = 0;
+static mut DMAC_DAR0_DATA:    u32 = 0;
+static mut DMAC_DMATCR0_DATA: u32 = 0;
+static mut DMAC_CHCR0_DATA:   DMAC_CHCR = DMAC_CHCR(0);
+static mut DMAC_SAR1_DATA:    u32 = 0;
+static mut DMAC_DAR1_DATA:    u32 = 0;
+static mut DMAC_DMATCR1_DATA: u32 = 0;
+static mut DMAC_CHCR1_DATA:   DMAC_CHCR = DMAC_CHCR(0);
+static mut DMAC_SAR2_DATA:    u32 = 0;
+static mut DMAC_DAR2_DATA:    u32 = 0;
+static mut DMAC_DMATCR2_DATA: u32 = 0;
+static mut DMAC_CHCR2_DATA:   DMAC_CHCR = DMAC_CHCR(0);
+static mut DMAC_SAR3_DATA:    u32 = 0;
+static mut DMAC_DAR3_DATA:    u32 = 0;
+static mut DMAC_DMATCR3_DATA: u32 = 0;
+static mut DMAC_CHCR3_DATA:   DMAC_CHCR = DMAC_CHCR(0);
+static mut DMAC_DMAOR_DATA:   u32 = 0;
+
+// CPG
+static mut CPG_FRQCR_DATA:  u32 = 0;
+static mut CPG_STBCR_DATA:  u32 = 0;
+static mut CPG_WTCNT_DATA:  u32 = 0;
+static mut CPG_WTCSR_DATA:  u32 = 0;
+static mut CPG_STBCR2_DATA: u32 = 0;
+
+// CCN
+static mut CCN_PTEH_DATA:         CCN_PTEH      = CCN_PTEH(0);
+static mut CCN_PTEL_DATA:         CCN_PTEL      = CCN_PTEL(0);
+static mut CCN_TTB_DATA:          u32 = 0;
+static mut CCN_TEA_DATA:          u32 = 0;
+static mut CCN_MMUCR_DATA:        CCN_MMUCR     = CCN_MMUCR(0);
+static mut CCN_BASRA_DATA:        u32 = 0;
+static mut CCN_BASRB_DATA:        u32 = 0;
+static mut CCN_CCR_DATA:          CCN_CCR       = CCN_CCR(0);
+static mut CCN_TRA_DATA:          u32 = 0;
+static mut CCN_EXPEVT_DATA:       u32 = 0;
+static mut CCN_INTEVT_DATA:       u32 = 0;
+static mut CCN_CPU_VERSION_DATA:  u32 = 0;
+static mut CCN_PTEA_DATA:         CCN_PTEA      = CCN_PTEA(0);
+static mut CCN_QACR0_DATA:        CCN_QACR      = CCN_QACR(0);
+static mut CCN_QACR1_DATA:        CCN_QACR      = CCN_QACR(0);
+static mut CCN_PRR_DATA:          u32 = 0;
+
+pub struct P4Register {
+    pub read: fn(ctx: *mut u8, addr: u32) -> u32,
+    pub write: fn(ctx: *mut u8, addr: u32, data: u32),
+    pub size: u8, // in bytes
+    ctx: *mut u8, // context pointer, usually the register data
+}
+
+unsafe impl Sync for P4Register {}
+
+const P4REGISTER_UNREACHABLE : P4Register = P4Register { read: |_ctx, addr| { panic!("Unrachable area7 read: {:08X}", addr) }, write: |_ctx, addr, data| { panic!("Unrachable area7 read: {:08X} data = {:08X}", addr, data) }, size: 4, ctx: std::ptr::null_mut() };
+
+static mut RIO_CCN : [P4Register; 18] = [P4REGISTER_UNREACHABLE; 18 ];
+static mut RIO_UBC : [P4Register; 9] = [P4REGISTER_UNREACHABLE; 9 ];
+static mut RIO_BSC : [P4Register; 19] = [P4REGISTER_UNREACHABLE; 19 ];
+static mut RIO_DMAC : [P4Register; 17] = [P4REGISTER_UNREACHABLE; 17 ];
+static mut RIO_CPG : [P4Register; 5] = [P4REGISTER_UNREACHABLE; 5 ];
+static mut RIO_RTC : [P4Register; 16] = [P4REGISTER_UNREACHABLE; 16 ];
+static mut RIO_INTC : [P4Register; 5] = [P4REGISTER_UNREACHABLE; 5 ];
+static mut RIO_TMU : [P4Register; 12] = [P4REGISTER_UNREACHABLE; 12 ];
+static mut RIO_SCI : [P4Register; 8] = [P4REGISTER_UNREACHABLE; 8 ];
+static mut RIO_SCIF : [P4Register; 10] = [P4REGISTER_UNREACHABLE; 10 ];
+
+pub fn area7_router(mut addr: u32) -> &'static P4Register {
+    addr &= 0x1FFFFFFF;
+    let idx: usize = ((addr / 4) & 0x3F) as usize;
+    unsafe {
+        match addr {
+            0x1F000000..=0x1F000044 => &RIO_CCN[idx],
+            0x1F200000..=0x1F200020 => &RIO_UBC[idx],
+            0x1F800000..=0x1F800048 => &RIO_BSC[idx],
+            // 0x1F900000..=0x1F90FFFF => &P4REGISTER_UNREACHABLE, // DRAM Settings 2
+            // 0x1F940000..=0x1F94FFFF => &P4REGISTER_UNREACHABLE, // DRAM Settings 3
+            0x1FA00000..=0x1FA00040 => &RIO_DMAC[idx],
+            0x1FC00000..=0x1FC00010 => &RIO_CPG[idx],
+            0x1FC80000..=0x1FC8003C => &RIO_RTC[idx],
+            0x1FD00000..=0x1FD00010 => &RIO_INTC[idx],
+    
+            0x1FD80000..=0x1FD8002C => &RIO_TMU[idx],
+            0x1FE00000..=0x1FE0001C => &RIO_SCI[idx],
+            0x1FE80000..=0x1FE80024 => &RIO_SCIF[idx],
+    
+            _ => &P4REGISTER_UNREACHABLE,
+        }
+    }
+}
+
+pub fn p4_read<T: crate::sh4mem::MemoryData>(_ctx: *mut u8, addr: u32) -> T {
+
+    // Bits [31:24] select the area within P4 space
+    let area = (addr >> 24) & 0xFF;
+
+    match area {
+        // Store queue — unimplemented
+        0xE0..=0xE3 => {
+            println!("Unhandled p4 read [Store queue] 0x{:08X}", addr);
+            T::default()
+        }
+
+        // F0–F1 areas — reserved / dummy reads
+        0xF0 | 0xF1 => {
+            T::default()
+        }
+
+        // ITLB Address + Data.V
+        0xF2 => {
+            println!("Unhandled p4 read [ITLB Address + Data.V] 0x{:08X}", addr);
+            T::default()
+        }
+
+        // ITLB Data
+        0xF3 => {
+            println!("Unhandled p4 read [ITLB Data] 0x{:08X}", addr);
+            T::default()
+        }
+
+        // Operand cache address array (unimplemented)
+        0xF4 => {
+            println!("Unhandled p4 read [Operand cache address array] 0x{:08X}", addr);
+            T::default()
+        }
+
+        0xF5 => T::default(),
+
+        // UTLB Address + flags
+        0xF6 => {
+            println!("Unhandled p4 read [UTLB Address + flags] 0x{:08X}", addr);
+            T::default()
+        }
+
+        // UTLB Data
+        0xF7 => {
+            println!("Unhandled p4 read [UTLB Data] 0x{:08X}", addr);
+            T::default()
+        }
+
+        0xFF => {
+            let handler = area7_router(addr);
+            if handler.size as usize != std::mem::size_of::<T>() {
+                panic!("p4_read::<u{}> {:x} size mismatch, handler size = {}", std::mem::size_of::<T>(), addr, handler.size);
+            }
+            let raw_value = (handler.read)(_ctx, addr);
+            T::from_u32(raw_value)
+        }
+
+        _ => {
+            println!("Unhandled p4 read [Reserved] 0x{:08X}", addr);
+            T::default()
+        }
+    }
+}
+
+fn p4_write<T: crate::sh4mem::MemoryData>(ctx: *mut u8, addr: u32, data: T) {
+    // Bits [31:24] select the area within P4 space
+    let area = (addr >> 24) & 0xFF;
+
+    match area {
+        // Store queue — unimplemented
+        0xE0..=0xE3 => {
+            println!("Unhandled p4_write::<u{}> [Store queue] {:x} data = {:x}", std::mem::size_of::<T>(), addr, data);
+        }
+
+        // F0–F1 areas — reserved / dummy reads
+        0xF0 | 0xF1 => {
+            // println!("Unhandled p4_write::<u{}> [reserved] {:x} data = {:x}", std::mem::size_of::<T>(), addr, vadatalue);
+        }
+
+        // ITLB Address + Data.V
+        0xF2 => {
+            println!("Unhandled p4_write::<u{}> [ITLB Address + Data.V] {:x} data = {:x}", std::mem::size_of::<T>(), addr, data);
+        }
+
+        // ITLB Data
+        0xF3 => {
+            println!("Unhandled p4_write::<u{}> [ITLB Data] {:x} data = {:x}", std::mem::size_of::<T>(), addr, data);
+        }
+
+        // Operand cache address array (unimplemented)
+        0xF4 => {
+            println!("Unhandled p4_write::<u{}> [Operand cache address array] {:x} data = {:x}", std::mem::size_of::<T>(), addr, data);
+        }
+
+        0xF5 => {
+            // println!("Unhandled p4_write::<u{}> [Reserved] {:x} data = {:x}", std::mem::size_of::<T>(), addr, data);
+        },
+
+        // UTLB Address + flags
+        0xF6 => {
+            println!("Unhandled p4_write::<u{}> [UTLB Address + flags] {:x} data = {:x}", std::mem::size_of::<T>(), addr, data);
+        }
+
+        // UTLB Data
+        0xF7 => {
+            println!("Unhandled p4_write::<u{}> [UTLB Data] {:x} data = {:x}", std::mem::size_of::<T>(), addr, data);
+        }
+
+        0xFF => {
+            let handler = area7_router(addr);
+            if handler.size as usize != std::mem::size_of::<T>() {
+                panic!("p4_write::<u{}> {:x} data = {:x} size mismatch, handler size = {}", std::mem::size_of::<T>(), addr, data, handler.size);
+            }
+            (handler.write)(ctx, addr, data.to_u32());
+        }
+
+        _ => {
+            println!("Unhandled p4_write::<u{}> [Reserved] {:x} data = {:x}", std::mem::size_of::<T>(), addr, data);
+        }
+    }
+
+}
+
+pub const P4_HANDLERS: crate::MemHandlers = crate::MemHandlers {
+    read8: p4_read::<u8>,
+    read16: p4_read::<u16>,
+    read32: p4_read::<u32>,
+    read64: p4_read::<u64>,
+
+    write8: p4_write::<u8>,
+    write16: p4_write::<u16>,
+    write32: p4_write::<u32>,
+    write64: p4_write::<u64>,
+};
+
+fn read_data_8(ctx: *mut u8, _addr: u32) -> u32 {
+    unsafe { *(ctx as *mut u8) as u32 }
+}
+fn read_data_16(ctx: *mut u8, _addr: u32) -> u32 {
+    unsafe { *(ctx as *mut u16) as u32 }
+}
+fn read_data_32(ctx: *mut u8, _addr: u32) -> u32 {
+    unsafe { *(ctx as *mut u32) }
+}
+fn write_data_8(ctx: *mut u8, _addr: u32, data: u32) {
+    unsafe { *(ctx as *mut u8) = data as u8; }
+}
+fn write_data_16(ctx: *mut u8, _addr: u32, data: u32) {
+    unsafe { *(ctx as *mut u16) = data as u16; }
+}
+fn write_data_32(ctx: *mut u8, _addr: u32, data: u32) {
+    unsafe { *(ctx as *mut u32) = data; }
+}
+
+fn area7_read_only(_ctx: *mut u8, addr: u32, data: u32) {
+    panic!("Unimplemented area7 read {:08X} data = {:08X}", addr, data);
+}
+
+
+
+macro_rules! reg_ctx {
+    ($name:ident, $ty:ty) => {
+        unsafe { &raw mut $name as *mut $ty as *mut u8 }
+    };
+}
+
+use paste::paste;
+
+macro_rules! rio {
+    ($mod:ident, $reg:ident, $read:expr, $write:expr, $size:expr) => {
+        paste::paste! {
+            {
+                let idx = (([<$mod _ $reg _ADDR>] as usize & 0xFF) / 4);
+                [<RIO_ $mod>][idx] = P4Register {
+                    read: $read,
+                    write: $write,
+                    size: $size / 8,
+                    ctx: std::ptr::addr_of_mut!([<$mod _ $reg _DATA>]) as *mut _ as *mut u8,
+                };
+            }
+        }
+    };
+}
+
+
+pub fn p4_init() {
+    unsafe {
+        /* INTC */
+        rio!(INTC, ICR,  read_data_16, write_data_16, 16);
+        rio!(INTC, IPRA, read_data_16, |_ctx, addr, _| panic!("Unimplemented write INTC.IPRA {:08X}", addr), 16);
+        rio!(INTC, IPRB, read_data_16, |_ctx, addr, _| panic!("Unimplemented write INTC.IPRB {:08X}", addr), 16);
+        rio!(INTC, IPRC, read_data_16, |_ctx, addr, _| panic!("Unimplemented write INTC.IPRC {:08X}", addr), 16);
+        rio!(INTC, IPRD, |_ctx, addr| panic!("Unimplemented read INTC.IPRD {:08X}", addr), area7_read_only, 16);
+
+        /* RTC */
+        rio!(RTC, R64CNT,  read_data_8,  write_data_8,  8);
+        rio!(RTC, RSECCNT, read_data_8,  write_data_8,  8);
+        rio!(RTC, RMINCNT, read_data_8,  write_data_8,  8);
+        rio!(RTC, RHRCNT,  read_data_8,  write_data_8,  8);
+        rio!(RTC, RWKCNT,  read_data_8,  write_data_8,  8);
+        rio!(RTC, RDAYCNT, read_data_8,  write_data_8,  8);
+        rio!(RTC, RMONCNT, read_data_8,  write_data_8,  8);
+        rio!(RTC, RYRCNT,  read_data_16, write_data_16, 16);
+        rio!(RTC, RSECAR,  read_data_8,  write_data_8,  8);
+        rio!(RTC, RMINAR,  read_data_8,  write_data_8,  8);
+        rio!(RTC, RHRAR,   read_data_8,  write_data_8,  8);
+        rio!(RTC, RWKAR,   read_data_8,  write_data_8,  8);
+        rio!(RTC, RDAYAR,  read_data_8,  write_data_8,  8);
+        rio!(RTC, RMONAR,  read_data_8,  write_data_8,  8);
+        rio!(RTC, RCR1,    read_data_8,  write_data_8,  8);
+        rio!(RTC, RCR2,    read_data_8,  write_data_8,  8);
+
+        /* BSC */
+        rio!(BSC, BCR1,   read_data_32, write_data_32, 32);
+        rio!(BSC, BCR2,   read_data_16, write_data_16, 16);
+        rio!(BSC, WCR1,   read_data_32, write_data_32, 32);
+        rio!(BSC, WCR2,   read_data_32, write_data_32, 32);
+        rio!(BSC, WCR3,   read_data_32, write_data_32, 32);
+        rio!(BSC, MCR,    read_data_32, write_data_32, 32);
+        rio!(BSC, PCR,    read_data_16, write_data_16, 16);
+        rio!(BSC, RTCSR,  read_data_16, write_data_16, 16);
+        rio!(BSC, RTCNT,  read_data_16, write_data_16, 16);
+        rio!(BSC, RTCOR,  read_data_16, write_data_16, 16);
+        rio!(BSC, RFCR,   read_data_16, area7_read_only, 16);
+        rio!(BSC, PCTRA,  read_data_16, |_ctx, addr, _| panic!("Unimplemented write BSC.PCTRA {:08X}", addr), 16);
+        rio!(BSC, PDTRA,  |_ctx, addr| panic!("Unimplemented read BSC.PDTRA {:08X}", addr), |_ctx, addr, _| panic!("Unimplemented write BSC.PDTRA {:08X}", addr), 16);
+        rio!(BSC, PCTRB,  read_data_32, write_data_32, 32);
+        rio!(BSC, PDTRB,  read_data_16, write_data_16, 16);
+        rio!(BSC, GPIOIC, read_data_16, write_data_16, 16);
+
+        /* UBC */
+        rio!(UBC, BARA,  read_data_32, write_data_32, 32);
+        rio!(UBC, BAMRA, read_data_8,  write_data_8,  8);
+        rio!(UBC, BBRA,  read_data_16, write_data_16, 16);
+        rio!(UBC, BARB,  read_data_32, write_data_32, 32);
+        rio!(UBC, BAMRB, read_data_8,  write_data_8,  8);
+        rio!(UBC, BBRB,  read_data_16, write_data_16, 16);
+        rio!(UBC, BDRB,  read_data_32, write_data_32, 32);
+        rio!(UBC, BDMRB, read_data_32, write_data_32, 32);
+        rio!(UBC, BRCR,  read_data_16, write_data_16, 16);
+
+        /* SCIF */
+        rio!(SCIF, SCSMR2,  read_data_16, write_data_16, 16);
+        rio!(SCIF, SCBRR2,  read_data_8,  write_data_8,  8);
+        rio!(SCIF, SCSCR2,  read_data_16, write_data_16, 16);
+        rio!(SCIF, SCFTDR2, read_data_8,  |_ctx, addr, _| panic!("Unimplemented write SCIF.SCFTDR2 {:08X}", addr), 8);
+        rio!(SCIF, SCFSR2,  |_ctx, addr| panic!("Unimplemented read SCIF.SCFSR2 {:08X}", addr), |_ctx, addr, _| panic!("Unimplemented write SCIF.SCFSR2 {:08X}", addr), 16);
+        rio!(SCIF, SCFRDR2, |_ctx, addr| panic!("Unimplemented read SCIF.SCFRDR2 {:08X}", addr), area7_read_only, 8);
+        rio!(SCIF, SCFCR2,  read_data_16, write_data_16, 16);
+        rio!(SCIF, SCFDR2,  |_ctx, addr| panic!("Unimplemented read SCIF.SCFDR2 {:08X}", addr), area7_read_only, 16);
+        rio!(SCIF, SCSPTR2, read_data_16, write_data_16, 16);
+        rio!(SCIF, SCLSR2,  read_data_16, write_data_16, 16);
+
+        /* TMU */
+        rio!(TMU, TOCR,  read_data_8,  write_data_8,  8);
+        rio!(TMU, TSTR,  read_data_8,  |_ctx, addr, _| panic!("Unimplemented write TMU.TSTR {:08X}", addr), 8);
+        rio!(TMU, TCOR0, read_data_32, write_data_32, 32);
+        rio!(TMU, TCNT0, |_ctx, addr| panic!("Unimplemented read TMU.TCNT0 {:08X}", addr), |_ctx, addr, _| panic!("Unimplemented write TMU.TCNT0 {:08X}", addr), 32);
+        rio!(TMU, TCR0,  read_data_16, |_ctx, addr, _| panic!("Unimplemented write TMU.TCR0 {:08X}", addr), 16);
+        rio!(TMU, TCOR1, read_data_32, write_data_32, 32);
+        rio!(TMU, TCNT1, |_ctx, addr| panic!("Unimplemented read TMU.TCNT1 {:08X}", addr), |_ctx, addr, _| panic!("Unimplemented write TMU.TCNT1 {:08X}", addr), 32);
+        rio!(TMU, TCR1,  read_data_16, |_ctx, addr, _| panic!("Unimplemented write TMU.TCR1 {:08X}", addr), 16);
+        rio!(TMU, TCOR2, read_data_32, write_data_32, 32);
+        rio!(TMU, TCNT2, |_ctx, addr| panic!("Unimplemented read TMU.TCNT2 {:08X}", addr), |_ctx, addr, _| panic!("Unimplemented write TMU.TCNT2 {:08X}", addr), 32);
+        rio!(TMU, TCR2,  read_data_16, |_ctx, addr, _| panic!("Unimplemented write TMU.TCR2 {:08X}", addr), 16);
+        rio!(TMU, TCPR2, |_ctx, addr| panic!("Unimplemented read TMU.TCPR2 {:08X}", addr), |_ctx, addr, _| panic!("Unimplemented write TMU.TCPR2 {:08X}", addr), 32);
+
+        /* DMAC */
+        rio!(DMAC, SAR0,    read_data_32, write_data_32, 32);
+        rio!(DMAC, DAR0,    read_data_32, write_data_32, 32);
+        rio!(DMAC, DMATCR0, read_data_32, write_data_32, 32);
+        rio!(DMAC, CHCR0,   read_data_32, |_ctx, addr, _| panic!("Unimplemented write DMAC.CHCR0 {:08X}", addr), 32);
+        rio!(DMAC, SAR1,    read_data_32, write_data_32, 32);
+        rio!(DMAC, DAR1,    read_data_32, write_data_32, 32);
+        rio!(DMAC, DMATCR1, read_data_32, write_data_32, 32);
+        rio!(DMAC, CHCR1,   read_data_32, |_ctx, addr, _| panic!("Unimplemented write DMAC.CHCR1 {:08X}", addr), 32);
+        rio!(DMAC, SAR2,    read_data_32, write_data_32, 32);
+        rio!(DMAC, DAR2,    read_data_32, write_data_32, 32);
+        rio!(DMAC, DMATCR2, read_data_32, write_data_32, 32);
+        rio!(DMAC, CHCR2,   read_data_32, |_ctx, addr, _| panic!("Unimplemented write DMAC.CHCR2 {:08X}", addr), 32);
+        rio!(DMAC, SAR3,    read_data_32, write_data_32, 32);
+        rio!(DMAC, DAR3,    read_data_32, write_data_32, 32);
+        rio!(DMAC, DMATCR3, read_data_32, write_data_32, 32);
+        rio!(DMAC, CHCR3,   read_data_32, |_ctx, addr, _| panic!("Unimplemented write DMAC.CHCR3 {:08X}", addr), 32);
+        rio!(DMAC, DMAOR,   read_data_32, |_ctx, addr, _| panic!("Unimplemented write DMAC.DMAOR {:08X}", addr), 32);
+
+        /* CPG */
+        rio!(CPG, FRQCR,  read_data_16, write_data_16, 16);
+        rio!(CPG, STBCR,  read_data_8,  write_data_8,  8);
+        rio!(CPG, WTCNT,  read_data_16, write_data_16, 16);
+        rio!(CPG, WTCSR,  read_data_16, write_data_16, 16);
+        rio!(CPG, STBCR2, read_data_8,  write_data_8,  8);
+
+        /* CCN */
+        rio!(CCN, PTEH,   read_data_32, write_data_32, 32);
+        rio!(CCN, PTEL,   read_data_32, write_data_32, 32);
+        rio!(CCN, TTB,    read_data_32, write_data_32, 32);
+        rio!(CCN, TEA,    read_data_32, write_data_32, 32);
+        rio!(CCN, MMUCR,  read_data_32, |_ctx, addr, _| panic!("Unimplemented write CCN.MMUCR {:08X}", addr), 32);
+        rio!(CCN, BASRA,  read_data_8,  write_data_8,  8);
+        rio!(CCN, BASRB,  read_data_8,  write_data_8,  8);
+        rio!(CCN, CCR,    read_data_32, |_ctx, addr, _| panic!("Unimplemented write CCN.CCR {:08X}", addr), 32);
+        rio!(CCN, TRA,    read_data_32, write_data_32, 32);
+        rio!(CCN, EXPEVT, read_data_32, write_data_32, 32);
+        rio!(CCN, INTEVT, read_data_32, write_data_32, 32);
+        rio!(CCN, CPU_VERSION, |_ctx, addr| panic!("Unimplemented read CCN.CPU_VERSION {:08X}", addr), area7_read_only, 32);
+        rio!(CCN, PTEA,   read_data_32, write_data_32, 32);
+        rio!(CCN, QACR0,  read_data_32, |_ctx, addr, _| panic!("Unimplemented write CCN.QACR0 {:08X}", addr), 32);
+        rio!(CCN, QACR1,  read_data_32, |_ctx, addr, _| panic!("Unimplemented write CCN.QACR1 {:08X}", addr), 32);
+        rio!(CCN, PRR,    |_ctx, addr| panic!("Unimplemented read CCN.PRR {:08X}", addr), area7_read_only, 32);
+
+    }
+}

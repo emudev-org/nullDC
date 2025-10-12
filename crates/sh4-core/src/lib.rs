@@ -4,6 +4,10 @@ use std::ptr;
 use std::ptr::{ addr_of, addr_of_mut };
 use bitfield::bitfield;
 
+use crate::sh4mem::MAX_MEMHANDLERS;
+
+mod sh4p4;
+
 #[repr(C)]
 pub union FRBank {
     pub f32s: [f32; 32],
@@ -78,58 +82,37 @@ bitfield! {
     // bits 22-31 reserved (pad)
 }
 
-extern "C" fn dummy_read8(_ctx: *mut u8, addr: u32) -> u8 {
-    panic!("Unhandled read8 at address: 0x{:08X}", addr)
-}
-extern "C" fn dummy_read16(_ctx: *mut u8, addr: u32) -> u16 {
-    panic!("Unhandled read16 at address: 0x{:08X}", addr)
-}
-extern "C" fn dummy_read32(_ctx: *mut u8, addr: u32) -> u32 {
-    panic!("Unhandled read32 at address: 0x{:08X}", addr)
-}
-extern "C" fn dummy_read64(_ctx: *mut u8, addr: u32) -> u64 {
-    panic!("Unhandled read64 at address: 0x{:08X}", addr)
-}
-extern "C" fn dummy_write8(_ctx: *mut u8, addr: u32, value: u8) {
-    panic!("Unhandled write8 at address: 0x{:08X}, value: 0x{:02X}", addr, value)
-}
-extern "C" fn dummy_write16(_ctx: *mut u8, addr: u32, value: u16) {
-    panic!("Unhandled write16 at address: 0x{:08X}, value: 0x{:04X}", addr, value)
-}
-extern "C" fn dummy_write32(_ctx: *mut u8, addr: u32, value: u32) {
-    panic!("Unhandled write32 at address: 0x{:08X}, value: 0x{:08X}", addr, value)
-}
-extern "C" fn dummy_write64(_ctx: *mut u8, addr: u32, value: u64) {
-    panic!("Unhandled write64 at address: 0x{:08X}, value: 0x{:016X}", addr, value)
+fn dummy_read<T: Copy + std::fmt::LowerHex>(_ctx: *mut u8, offset: u32) -> T {
+    panic!("dummy_read: Attempted read::<u{}> {:x}", std::mem::size_of::<T>(), offset);
 }
 
-#[repr(C)]
+fn dummy_write<T: Copy + std::fmt::LowerHex>(_ctx: *mut u8, addr: u32, value: T) {
+    panic!("dummy_write: Attempted write::<u{}> {:x} data = {:x}", std::mem::size_of::<T>(), addr, value);
+}
+
 #[derive(Copy, Clone)]
 pub struct MemHandlers {
-    pub read8: extern "C" fn(ctx: *mut u8, addr: u32) -> u8,
-    pub read16: extern "C" fn(ctx: *mut u8, addr: u32) -> u16,
-    pub read32: extern "C" fn(ctx: *mut u8, addr: u32) -> u32,
-    pub read64: extern "C" fn(ctx: *mut u8, addr: u32) -> u64,
-    pub write8: extern "C" fn(ctx: *mut u8, addr: u32, value: u8),
-    pub write16: extern "C" fn(ctx: *mut u8, addr: u32, value: u16),
-    pub write32: extern "C" fn(ctx: *mut u8, addr: u32, value: u32),
-    pub write64: extern "C" fn(ctx: *mut u8, addr: u32, value: u64),
+    pub read8: fn(ctx: *mut u8, addr: u32) -> u8,
+    pub read16: fn(ctx: *mut u8, addr: u32) -> u16,
+    pub read32: fn(ctx: *mut u8, addr: u32) -> u32,
+    pub read64: fn(ctx: *mut u8, addr: u32) -> u64,
+    pub write8: fn(ctx: *mut u8, addr: u32, value: u8),
+    pub write16: fn(ctx: *mut u8, addr: u32, value: u16),
+    pub write32: fn(ctx: *mut u8, addr: u32, value: u32),
+    pub write64: fn(ctx: *mut u8, addr: u32, value: u64),
 }
 
-impl Default for MemHandlers {
-    fn default() -> Self {
-        Self {
-            read8: dummy_read8,
-            read16: dummy_read16,
-            read32: dummy_read32,
-            read64: dummy_read64,
-            write8: dummy_write8,
-            write16: dummy_write16,
-            write32: dummy_write32,
-            write64: dummy_write64,
-        }
-    }
-}
+pub const DEFAULT_HANDLERS: MemHandlers = MemHandlers {
+    read8: dummy_read::<u8>,
+    read16: dummy_read::<u16>,
+    read32: dummy_read::<u32>,
+    read64: dummy_read::<u64>,
+
+    write8: dummy_write::<u8>,
+    write16: dummy_write::<u16>,
+    write32: dummy_write::<u32>,
+    write64: dummy_write::<u64>,
+};
 
 #[repr(C)]
 pub struct Sh4Ctx {
@@ -171,6 +154,8 @@ pub struct Sh4Ctx {
     pub memmask: [u32; 256],
     pub memhandlers: [MemHandlers; 256],
     pub memcontexts: [*mut u8; 256],
+
+    pub memhandler_idx: u32,
 
     // Decoder state (for fns/recompiler)
     pub dec_branch: u32,
@@ -221,9 +206,10 @@ impl Default for Sh4Ctx {
             fns_entrypoint: ptr::null(),
 
             memmap: [ptr::null_mut(); 256],
-            memmask: [0; 256],
-            memhandlers: [MemHandlers::default(); 256],
+            memmask: [0xFFFF_FFFF; 256],
+            memhandlers: [DEFAULT_HANDLERS; 256],
             memcontexts: [ptr::null_mut(); 256],
+            memhandler_idx: 1,
 
             ptrs: vec![ptr::null(); 0],
 
@@ -252,8 +238,8 @@ pub fn sh4_ipr_dispatcher(ctx: *mut Sh4Ctx) {
         loop {
             let mut opcode: u16 = 0;
 
-            // Equivalent of: read_mem(ctx, ctx->pc, opcode);
             read_mem(ctx, (*ctx).pc0, &mut opcode);
+            // println!("PC: {:08X} Opcode: {:04X}", (*ctx).pc0, opcode);
 
             // Call the opcode handler
             let handler = *SH4_OP_PTR.get_unchecked(opcode as usize);
@@ -391,9 +377,51 @@ pub fn sh4_init_ctx(ctx: *mut Sh4Ctx) {
         (*ctx).fns_entrypoint = default_fns_entrypoint;
         (*ctx).ptrs = vec![default_fns_entrypoint; 8192 * 1024];
     }
+
+    sh4_register_mem_handler(ctx, 0xF000_0000, 0xFFFF_FFFF, 0xFFFF_FFFF, sh4p4::P4_HANDLERS, ctx as *mut _ as *mut u8);
+
+    sh4p4::p4_init();
 }
 
 pub fn sh4_term_ctx(ctx: &mut Sh4Ctx) {
     // TODO: Free also ctx.ptrs here
     unsafe { dec_free(ctx.fns_entrypoint); }
+}
+
+pub fn sh4_register_mem_handler(ctx: *mut Sh4Ctx, base: u32, end: u32, mask: u32, handler: MemHandlers, memctx: *mut u8) {
+    assert!(base <= end);
+    
+    unsafe {
+        assert!((*ctx).memhandler_idx < (MAX_MEMHANDLERS - 1) as u32);
+
+        let registered_memhandler = (*ctx).memhandler_idx as usize;
+        (*ctx).memhandler_idx += 1;
+
+        (*ctx).memhandlers[registered_memhandler] = handler;
+        (*ctx).memcontexts[registered_memhandler] = memctx;
+
+        let start_index = (base >> 24) as usize;
+        let end_index = (end >> 24) as usize;
+
+        for i in start_index..=end_index {
+            (*ctx).memmap[i] = registered_memhandler as *mut u8;
+            (*ctx).memmask[i] = mask;
+        }
+    }
+}
+
+pub fn sh4_register_mem_buffer(ctx: *mut Sh4Ctx, base: u32, end: u32, mask: u32, buffer: *mut u8) {
+    assert!(base <= end);
+    
+    unsafe {
+        let start_index = (base >> 24) as usize;
+        let end_index = (end >> 24) as usize;
+
+        for i in start_index..=end_index {
+            (*ctx).memmap[i] = buffer.wrapping_add((i << 24) & mask as usize);
+            (*ctx).memmask[i] = mask;
+            (*ctx).memhandlers[i] = DEFAULT_HANDLERS;
+            (*ctx).memcontexts[i] = ptr::null_mut();
+        }
+    }
 }

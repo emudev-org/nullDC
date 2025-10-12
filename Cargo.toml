@@ -1,5 +1,10 @@
 [workspace]
-members = ["crates/sh4-core"]
+members = [
+    "crates/sh4-core",
+    "crates/dreamcast",
+    "crates/nulldc-minimal"
+]
+
 default-members = ["."]
 
 [package]
@@ -16,6 +21,9 @@ all-features = true
 name = "nulldc"
 crate-type = ["rlib", "cdylib"]
 
+[profile.dev]
+incremental = true
+
 [profile.release]
 lto = "thin"
 opt-level = 3
@@ -27,7 +35,7 @@ debug = false
 strip = true
 
 [dependencies]
-sh4-core = { path = "crates/sh4-core" }
+dreamcast = { path = "crates/dreamcast" }
 git-version = "0.3"
 wgpu = "26.0.1"
 winit = "0.30.12"

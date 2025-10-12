@@ -666,6 +666,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
 
 [[package]]
+name = "dreamcast"
+version = "0.1.0"
+dependencies = [
+ "sh4-core",
+]
+
+[[package]]
 name = "ecolor"
 version = "0.32.3"
 source = "git+https://github.com/emilk/egui?rev=18ea9ff#18ea9ff0bd3e6e1e6bea4ec1cbcf2756707cc5f4"
@@ -1740,6 +1747,7 @@ dependencies = [
  "axum",
  "bytemuck",
  "console_error_panic_hook",
+ "dreamcast",
  "egui",
  "egui-wgpu",
  "egui-winit",
@@ -1751,7 +1759,6 @@ dependencies = [
  "pollster",
  "serde",
  "serde_json",
- "sh4-core",
  "sha2",
  "tokio",
  "tower 0.4.13",
@@ -1762,6 +1769,13 @@ dependencies = [
  "wasm-logger",
  "wgpu",
  "winit",
+]
+
+[[package]]
+name = "nulldc-minimal"
+version = "0.1.0"
+dependencies = [
+ "dreamcast",
 ]
 
 [[package]]

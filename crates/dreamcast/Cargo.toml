@@ -1,0 +1,7 @@
+[package]
+name = "dreamcast"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+sh4-core = { path = "../sh4-core" }
