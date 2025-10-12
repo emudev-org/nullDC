@@ -1,11 +1,11 @@
-use include_dir::{include_dir, Dir};
 use axum::{
-    routing::get,
     Router,
-    response::{Response, IntoResponse},
+    extract::ws::{WebSocket, WebSocketUpgrade},
     http::{StatusCode, header},
-    extract::ws::{WebSocketUpgrade, WebSocket},
+    response::{IntoResponse, Response},
+    routing::get,
 };
+use include_dir::{Dir, include_dir};
 use nulldc::dreamcast::Dreamcast;
 
 static DEBUGGER_UI: Dir = include_dir!("$CARGO_MANIFEST_DIR/devtools/dist");
@@ -22,13 +22,18 @@ pub fn start_debugger_server(dreamcast: *mut Dreamcast) {
         let runtime = tokio::runtime::Runtime::new().unwrap();
         runtime.block_on(async move {
             let app = Router::new()
-                .route("/ws", get(move |ws: WebSocketUpgrade| websocket_handler(ws, dc_ptr)))
+                .route(
+                    "/ws",
+                    get(move |ws: WebSocketUpgrade| websocket_handler(ws, dc_ptr)),
+                )
                 .fallback(static_file_handler);
 
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
 
-            println!("Debugger UI server started at http://{}",  listener.local_addr().unwrap());
-
+            println!(
+                "Debugger UI server started at http://{}",
+                listener.local_addr().unwrap()
+            );
 
             axum::serve(listener, app).await.unwrap();
         });

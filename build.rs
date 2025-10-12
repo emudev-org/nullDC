@@ -1,5 +1,5 @@
-use std::process::Command;
 use std::path::Path;
+use std::process::Command;
 
 fn main() {
     // Only rerun build script if these files change
@@ -18,9 +18,16 @@ fn main() {
         let target_arch = std::env::var("TARGET").unwrap_or_default();
         let is_wasm = target_arch.contains("wasm32");
 
-        println!("cargo:warning=Building devtools for target: {}", target_arch);
+        println!(
+            "cargo:warning=Building devtools for target: {}",
+            target_arch
+        );
 
-        let npm_cmd = if cfg!(target_os = "windows") { "npm.cmd" } else { "npm" };
+        let npm_cmd = if cfg!(target_os = "windows") {
+            "npm.cmd"
+        } else {
+            "npm"
+        };
 
         let status = Command::new(npm_cmd)
             .args(&["ci"])
@@ -33,17 +40,14 @@ fn main() {
         }
 
         let mut build_cmd = Command::new(npm_cmd);
-        build_cmd
-            .args(&["run", "build"])
-            .current_dir("devtools");
+        build_cmd.args(&["run", "build"]).current_dir("devtools");
 
         // Set environment variable for vite to know if building for wasm
         if is_wasm {
             build_cmd.env("VITE_USE_BROADCAST", "true");
         }
 
-        let status = build_cmd.status()
-            .expect("Failed to run npm build");
+        let status = build_cmd.status().expect("Failed to run npm build");
 
         if !status.success() {
             panic!("npm run build failed");

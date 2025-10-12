@@ -2,6 +2,9 @@
 
 use std::cell::UnsafeCell;
 use std::ptr::{self, addr_of, addr_of_mut};
+use std::sync::atomic::{AtomicPtr, Ordering};
+
+use crate::Sh4Ctx;
 
 struct Global<T>(UnsafeCell<T>);
 
@@ -65,7 +68,11 @@ struct TmuRuntime {
 impl TmuRuntime {
     const fn new() -> Self {
         Self {
-            channels: [TmuChannelRuntime::new(), TmuChannelRuntime::new(), TmuChannelRuntime::new()],
+            channels: [
+                TmuChannelRuntime::new(),
+                TmuChannelRuntime::new(),
+                TmuChannelRuntime::new(),
+            ],
         }
     }
 }
@@ -73,154 +80,154 @@ impl TmuRuntime {
 ////// Addresses
 //
 // ==== CCN ====
-pub const CCN_PTEH_ADDR:      u32 = 0x1F000000;
-pub const CCN_PTEL_ADDR:      u32 = 0x1F000004;
-pub const CCN_TTB_ADDR:       u32 = 0x1F000008;
-pub const CCN_TEA_ADDR:       u32 = 0x1F00000C;
-pub const CCN_MMUCR_ADDR:     u32 = 0x1F000010;
-pub const CCN_BASRA_ADDR:     u32 = 0x1F000014;
-pub const CCN_BASRB_ADDR:     u32 = 0x1F000018;
-pub const CCN_CCR_ADDR:       u32 = 0x1F00001C;
-pub const CCN_TRA_ADDR:       u32 = 0x1F000020;
-pub const CCN_EXPEVT_ADDR:    u32 = 0x1F000024;
-pub const CCN_INTEVT_ADDR:    u32 = 0x1F000028;
-pub const CCN_CPU_VERSION_ADDR:   u32 = 0x1F000030;
-pub const CCN_PTEA_ADDR:      u32 = 0x1F000034;
-pub const CCN_QACR0_ADDR:     u32 = 0x1F000038;
-pub const CCN_QACR1_ADDR:     u32 = 0x1F00003C;
-pub const CCN_PRR_ADDR:       u32 = 0x1F000044;
+pub const CCN_PTEH_ADDR: u32 = 0x1F000000;
+pub const CCN_PTEL_ADDR: u32 = 0x1F000004;
+pub const CCN_TTB_ADDR: u32 = 0x1F000008;
+pub const CCN_TEA_ADDR: u32 = 0x1F00000C;
+pub const CCN_MMUCR_ADDR: u32 = 0x1F000010;
+pub const CCN_BASRA_ADDR: u32 = 0x1F000014;
+pub const CCN_BASRB_ADDR: u32 = 0x1F000018;
+pub const CCN_CCR_ADDR: u32 = 0x1F00001C;
+pub const CCN_TRA_ADDR: u32 = 0x1F000020;
+pub const CCN_EXPEVT_ADDR: u32 = 0x1F000024;
+pub const CCN_INTEVT_ADDR: u32 = 0x1F000028;
+pub const CCN_CPU_VERSION_ADDR: u32 = 0x1F000030;
+pub const CCN_PTEA_ADDR: u32 = 0x1F000034;
+pub const CCN_QACR0_ADDR: u32 = 0x1F000038;
+pub const CCN_QACR1_ADDR: u32 = 0x1F00003C;
+pub const CCN_PRR_ADDR: u32 = 0x1F000044;
 
 //
 // ==== UBC ====
-pub const UBC_BARA_ADDR:      u32 = 0x1F200000;
-pub const UBC_BAMRA_ADDR:     u32 = 0x1F200004;
-pub const UBC_BBRA_ADDR:      u32 = 0x1F200008;
-pub const UBC_BARB_ADDR:      u32 = 0x1F20000C;
-pub const UBC_BAMRB_ADDR:     u32 = 0x1F200010;
-pub const UBC_BBRB_ADDR:      u32 = 0x1F200014;
-pub const UBC_BDRB_ADDR:      u32 = 0x1F200018;
-pub const UBC_BDMRB_ADDR:     u32 = 0x1F20001C;
-pub const UBC_BRCR_ADDR:      u32 = 0x1F200020;
+pub const UBC_BARA_ADDR: u32 = 0x1F200000;
+pub const UBC_BAMRA_ADDR: u32 = 0x1F200004;
+pub const UBC_BBRA_ADDR: u32 = 0x1F200008;
+pub const UBC_BARB_ADDR: u32 = 0x1F20000C;
+pub const UBC_BAMRB_ADDR: u32 = 0x1F200010;
+pub const UBC_BBRB_ADDR: u32 = 0x1F200014;
+pub const UBC_BDRB_ADDR: u32 = 0x1F200018;
+pub const UBC_BDMRB_ADDR: u32 = 0x1F20001C;
+pub const UBC_BRCR_ADDR: u32 = 0x1F200020;
 
 //
 // ==== BSC ====
-pub const BSC_BCR1_ADDR:      u32 = 0x1F800000;
-pub const BSC_BCR2_ADDR:      u32 = 0x1F800004;
-pub const BSC_WCR1_ADDR:      u32 = 0x1F800008;
-pub const BSC_WCR2_ADDR:      u32 = 0x1F80000C;
-pub const BSC_WCR3_ADDR:      u32 = 0x1F800010;
-pub const BSC_MCR_ADDR:       u32 = 0x1F800014;
-pub const BSC_PCR_ADDR:       u32 = 0x1F800018;
-pub const BSC_RTCSR_ADDR:     u32 = 0x1F80001C;
-pub const BSC_RTCNT_ADDR:     u32 = 0x1F800020;
-pub const BSC_RTCOR_ADDR:     u32 = 0x1F800024;
-pub const BSC_RFCR_ADDR:      u32 = 0x1F800028;
-pub const BSC_PCTRA_ADDR:     u32 = 0x1F80002C;
-pub const BSC_PDTRA_ADDR:     u32 = 0x1F800030;
-pub const BSC_PCTRB_ADDR:     u32 = 0x1F800040;
-pub const BSC_PDTRB_ADDR:     u32 = 0x1F800044;
-pub const BSC_GPIOIC_ADDR:    u32 = 0x1F800048;
-pub const BSC_SDMR2_ADDR:     u32 = 0x1F900000;
-pub const BSC_SDMR3_ADDR:     u32 = 0x1F940000;
+pub const BSC_BCR1_ADDR: u32 = 0x1F800000;
+pub const BSC_BCR2_ADDR: u32 = 0x1F800004;
+pub const BSC_WCR1_ADDR: u32 = 0x1F800008;
+pub const BSC_WCR2_ADDR: u32 = 0x1F80000C;
+pub const BSC_WCR3_ADDR: u32 = 0x1F800010;
+pub const BSC_MCR_ADDR: u32 = 0x1F800014;
+pub const BSC_PCR_ADDR: u32 = 0x1F800018;
+pub const BSC_RTCSR_ADDR: u32 = 0x1F80001C;
+pub const BSC_RTCNT_ADDR: u32 = 0x1F800020;
+pub const BSC_RTCOR_ADDR: u32 = 0x1F800024;
+pub const BSC_RFCR_ADDR: u32 = 0x1F800028;
+pub const BSC_PCTRA_ADDR: u32 = 0x1F80002C;
+pub const BSC_PDTRA_ADDR: u32 = 0x1F800030;
+pub const BSC_PCTRB_ADDR: u32 = 0x1F800040;
+pub const BSC_PDTRB_ADDR: u32 = 0x1F800044;
+pub const BSC_GPIOIC_ADDR: u32 = 0x1F800048;
+pub const BSC_SDMR2_ADDR: u32 = 0x1F900000;
+pub const BSC_SDMR3_ADDR: u32 = 0x1F940000;
 
 //
 // ==== DMAC ====
-pub const DMAC_SAR0_ADDR:     u32 = 0x1FA00000;
-pub const DMAC_DAR0_ADDR:     u32 = 0x1FA00004;
-pub const DMAC_DMATCR0_ADDR:  u32 = 0x1FA00008;
-pub const DMAC_CHCR0_ADDR:    u32 = 0x1FA0000C;
-pub const DMAC_SAR1_ADDR:     u32 = 0x1FA00010;
-pub const DMAC_DAR1_ADDR:     u32 = 0x1FA00014;
-pub const DMAC_DMATCR1_ADDR:  u32 = 0x1FA00018;
-pub const DMAC_CHCR1_ADDR:    u32 = 0x1FA0001C;
-pub const DMAC_SAR2_ADDR:     u32 = 0x1FA00020;
-pub const DMAC_DAR2_ADDR:     u32 = 0x1FA00024;
-pub const DMAC_DMATCR2_ADDR:  u32 = 0x1FA00028;
-pub const DMAC_CHCR2_ADDR:    u32 = 0x1FA0002C;
-pub const DMAC_SAR3_ADDR:     u32 = 0x1FA00030;
-pub const DMAC_DAR3_ADDR:     u32 = 0x1FA00034;
-pub const DMAC_DMATCR3_ADDR:  u32 = 0x1FA00038;
-pub const DMAC_CHCR3_ADDR:    u32 = 0x1FA0003C;
-pub const DMAC_DMAOR_ADDR:    u32 = 0x1FA00040;
+pub const DMAC_SAR0_ADDR: u32 = 0x1FA00000;
+pub const DMAC_DAR0_ADDR: u32 = 0x1FA00004;
+pub const DMAC_DMATCR0_ADDR: u32 = 0x1FA00008;
+pub const DMAC_CHCR0_ADDR: u32 = 0x1FA0000C;
+pub const DMAC_SAR1_ADDR: u32 = 0x1FA00010;
+pub const DMAC_DAR1_ADDR: u32 = 0x1FA00014;
+pub const DMAC_DMATCR1_ADDR: u32 = 0x1FA00018;
+pub const DMAC_CHCR1_ADDR: u32 = 0x1FA0001C;
+pub const DMAC_SAR2_ADDR: u32 = 0x1FA00020;
+pub const DMAC_DAR2_ADDR: u32 = 0x1FA00024;
+pub const DMAC_DMATCR2_ADDR: u32 = 0x1FA00028;
+pub const DMAC_CHCR2_ADDR: u32 = 0x1FA0002C;
+pub const DMAC_SAR3_ADDR: u32 = 0x1FA00030;
+pub const DMAC_DAR3_ADDR: u32 = 0x1FA00034;
+pub const DMAC_DMATCR3_ADDR: u32 = 0x1FA00038;
+pub const DMAC_CHCR3_ADDR: u32 = 0x1FA0003C;
+pub const DMAC_DMAOR_ADDR: u32 = 0x1FA00040;
 
 //
 // ==== CPG ====
-pub const CPG_FRQCR_ADDR:     u32 = 0x1FC00000;
-pub const CPG_STBCR_ADDR:     u32 = 0x1FC00004;
-pub const CPG_WTCNT_ADDR:     u32 = 0x1FC00008;
-pub const CPG_WTCSR_ADDR:     u32 = 0x1FC0000C;
-pub const CPG_STBCR2_ADDR:    u32 = 0x1FC00010;
+pub const CPG_FRQCR_ADDR: u32 = 0x1FC00000;
+pub const CPG_STBCR_ADDR: u32 = 0x1FC00004;
+pub const CPG_WTCNT_ADDR: u32 = 0x1FC00008;
+pub const CPG_WTCSR_ADDR: u32 = 0x1FC0000C;
+pub const CPG_STBCR2_ADDR: u32 = 0x1FC00010;
 
 //
 // ==== RTC ====
-pub const RTC_R64CNT_ADDR:    u32 = 0x1FC80000;
-pub const RTC_RSECCNT_ADDR:   u32 = 0x1FC80004;
-pub const RTC_RMINCNT_ADDR:   u32 = 0x1FC80008;
-pub const RTC_RHRCNT_ADDR:    u32 = 0x1FC8000C;
-pub const RTC_RWKCNT_ADDR:    u32 = 0x1FC80010;
-pub const RTC_RDAYCNT_ADDR:   u32 = 0x1FC80014;
-pub const RTC_RMONCNT_ADDR:   u32 = 0x1FC80018;
-pub const RTC_RYRCNT_ADDR:    u32 = 0x1FC8001C;
-pub const RTC_RSECAR_ADDR:    u32 = 0x1FC80020;
-pub const RTC_RMINAR_ADDR:    u32 = 0x1FC80024;
-pub const RTC_RHRAR_ADDR:     u32 = 0x1FC80028;
-pub const RTC_RWKAR_ADDR:     u32 = 0x1FC8002C;
-pub const RTC_RDAYAR_ADDR:    u32 = 0x1FC80030;
-pub const RTC_RMONAR_ADDR:    u32 = 0x1FC80034;
-pub const RTC_RCR1_ADDR:      u32 = 0x1FC80038;
-pub const RTC_RCR2_ADDR:      u32 = 0x1FC8003C;
+pub const RTC_R64CNT_ADDR: u32 = 0x1FC80000;
+pub const RTC_RSECCNT_ADDR: u32 = 0x1FC80004;
+pub const RTC_RMINCNT_ADDR: u32 = 0x1FC80008;
+pub const RTC_RHRCNT_ADDR: u32 = 0x1FC8000C;
+pub const RTC_RWKCNT_ADDR: u32 = 0x1FC80010;
+pub const RTC_RDAYCNT_ADDR: u32 = 0x1FC80014;
+pub const RTC_RMONCNT_ADDR: u32 = 0x1FC80018;
+pub const RTC_RYRCNT_ADDR: u32 = 0x1FC8001C;
+pub const RTC_RSECAR_ADDR: u32 = 0x1FC80020;
+pub const RTC_RMINAR_ADDR: u32 = 0x1FC80024;
+pub const RTC_RHRAR_ADDR: u32 = 0x1FC80028;
+pub const RTC_RWKAR_ADDR: u32 = 0x1FC8002C;
+pub const RTC_RDAYAR_ADDR: u32 = 0x1FC80030;
+pub const RTC_RMONAR_ADDR: u32 = 0x1FC80034;
+pub const RTC_RCR1_ADDR: u32 = 0x1FC80038;
+pub const RTC_RCR2_ADDR: u32 = 0x1FC8003C;
 
 //
 // ==== INTC ====
-pub const INTC_ICR_ADDR:      u32 = 0x1FD00000;
-pub const INTC_IPRA_ADDR:     u32 = 0x1FD00004;
-pub const INTC_IPRB_ADDR:     u32 = 0x1FD00008;
-pub const INTC_IPRC_ADDR:     u32 = 0x1FD0000C;
-pub const INTC_IPRD_ADDR:     u32 = 0x1FD00010;
+pub const INTC_ICR_ADDR: u32 = 0x1FD00000;
+pub const INTC_IPRA_ADDR: u32 = 0x1FD00004;
+pub const INTC_IPRB_ADDR: u32 = 0x1FD00008;
+pub const INTC_IPRC_ADDR: u32 = 0x1FD0000C;
+pub const INTC_IPRD_ADDR: u32 = 0x1FD00010;
 
 //
 // ==== TMU ====
-pub const TMU_TOCR_ADDR:      u32 = 0x1FD80000;
-pub const TMU_TSTR_ADDR:      u32 = 0x1FD80004;
-pub const TMU_TCOR0_ADDR:     u32 = 0x1FD80008;
-pub const TMU_TCNT0_ADDR:     u32 = 0x1FD8000C;
-pub const TMU_TCR0_ADDR:      u32 = 0x1FD80010;
-pub const TMU_TCOR1_ADDR:     u32 = 0x1FD80014;
-pub const TMU_TCNT1_ADDR:     u32 = 0x1FD80018;
-pub const TMU_TCR1_ADDR:      u32 = 0x1FD8001C;
-pub const TMU_TCOR2_ADDR:     u32 = 0x1FD80020;
-pub const TMU_TCNT2_ADDR:     u32 = 0x1FD80024;
-pub const TMU_TCR2_ADDR:      u32 = 0x1FD80028;
-pub const TMU_TCPR2_ADDR:     u32 = 0x1FD8002C;
+pub const TMU_TOCR_ADDR: u32 = 0x1FD80000;
+pub const TMU_TSTR_ADDR: u32 = 0x1FD80004;
+pub const TMU_TCOR0_ADDR: u32 = 0x1FD80008;
+pub const TMU_TCNT0_ADDR: u32 = 0x1FD8000C;
+pub const TMU_TCR0_ADDR: u32 = 0x1FD80010;
+pub const TMU_TCOR1_ADDR: u32 = 0x1FD80014;
+pub const TMU_TCNT1_ADDR: u32 = 0x1FD80018;
+pub const TMU_TCR1_ADDR: u32 = 0x1FD8001C;
+pub const TMU_TCOR2_ADDR: u32 = 0x1FD80020;
+pub const TMU_TCNT2_ADDR: u32 = 0x1FD80024;
+pub const TMU_TCR2_ADDR: u32 = 0x1FD80028;
+pub const TMU_TCPR2_ADDR: u32 = 0x1FD8002C;
 
 //
 // ==== SCI ====
-pub const SCI_SCSMR1_ADDR:    u32 = 0x1FE00000;
-pub const SCI_SCBRR1_ADDR:    u32 = 0x1FE00004;
-pub const SCI_SCSCR1_ADDR:    u32 = 0x1FE00008;
-pub const SCI_SCTDR1_ADDR:    u32 = 0x1FE0000C;
-pub const SCI_SCSSR1_ADDR:    u32 = 0x1FE00010;
-pub const SCI_SCRDR1_ADDR:    u32 = 0x1FE00014;
-pub const SCI_SCSCMR1_ADDR:   u32 = 0x1FE00018;
-pub const SCI_SCSPTR1_ADDR:   u32 = 0x1FE0001C;
+pub const SCI_SCSMR1_ADDR: u32 = 0x1FE00000;
+pub const SCI_SCBRR1_ADDR: u32 = 0x1FE00004;
+pub const SCI_SCSCR1_ADDR: u32 = 0x1FE00008;
+pub const SCI_SCTDR1_ADDR: u32 = 0x1FE0000C;
+pub const SCI_SCSSR1_ADDR: u32 = 0x1FE00010;
+pub const SCI_SCRDR1_ADDR: u32 = 0x1FE00014;
+pub const SCI_SCSCMR1_ADDR: u32 = 0x1FE00018;
+pub const SCI_SCSPTR1_ADDR: u32 = 0x1FE0001C;
 
 //
 // ==== SCIF ====
-pub const SCIF_SCSMR2_ADDR:   u32 = 0x1FE80000;
-pub const SCIF_SCBRR2_ADDR:   u32 = 0x1FE80004;
-pub const SCIF_SCSCR2_ADDR:   u32 = 0x1FE80008;
-pub const SCIF_SCFTDR2_ADDR:  u32 = 0x1FE8000C;
-pub const SCIF_SCFSR2_ADDR:   u32 = 0x1FE80010;
-pub const SCIF_SCFRDR2_ADDR:  u32 = 0x1FE80014;
-pub const SCIF_SCFCR2_ADDR:   u32 = 0x1FE80018;
-pub const SCIF_SCFDR2_ADDR:   u32 = 0x1FE8001C;
-pub const SCIF_SCSPTR2_ADDR:  u32 = 0x1FE80020;
-pub const SCIF_SCLSR2_ADDR:   u32 = 0x1FE80024;
+pub const SCIF_SCSMR2_ADDR: u32 = 0x1FE80000;
+pub const SCIF_SCBRR2_ADDR: u32 = 0x1FE80004;
+pub const SCIF_SCSCR2_ADDR: u32 = 0x1FE80008;
+pub const SCIF_SCFTDR2_ADDR: u32 = 0x1FE8000C;
+pub const SCIF_SCFSR2_ADDR: u32 = 0x1FE80010;
+pub const SCIF_SCFRDR2_ADDR: u32 = 0x1FE80014;
+pub const SCIF_SCFCR2_ADDR: u32 = 0x1FE80018;
+pub const SCIF_SCFDR2_ADDR: u32 = 0x1FE8001C;
+pub const SCIF_SCSPTR2_ADDR: u32 = 0x1FE80020;
+pub const SCIF_SCLSR2_ADDR: u32 = 0x1FE80024;
 
 //
 // ==== UDI ====
-pub const UDI_SDIR_ADDR:      u32 = 0x1FF00000;
-pub const UDI_SDDR_ADDR:      u32 = 0x1FF00008;
+pub const UDI_SDIR_ADDR: u32 = 0x1FF00000;
+pub const UDI_SDDR_ADDR: u32 = 0x1FF00008;
 
 use bitfield::bitfield;
 
@@ -845,7 +852,7 @@ bitfield! {
 // dataz
 
 // INTC
-static mut INTC_ICR_DATA:  INTC_ICR  = INTC_ICR(0);
+static mut INTC_ICR_DATA: INTC_ICR = INTC_ICR(0);
 static mut INTC_IPRA_DATA: INTC_IPRA = INTC_IPRA(0);
 static mut INTC_IPRB_DATA: INTC_IPRB = INTC_IPRB(0);
 static mut INTC_IPRC_DATA: INTC_IPRC = INTC_IPRC(0);
@@ -1082,6 +1089,14 @@ impl InterruptController {
 
 static INTERRUPT_CONTROLLER: Global<InterruptController> = Global::new(InterruptController::new());
 
+type PeripheralHook = fn(*mut Sh4Ctx, u32);
+static PERIPHERAL_HOOK: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
+
+pub fn register_peripheral_hook(hook: Option<PeripheralHook>) {
+    let ptr = hook.map(|f| f as *mut ()).unwrap_or(std::ptr::null_mut());
+    PERIPHERAL_HOOK.store(ptr, Ordering::SeqCst);
+}
+
 fn with_controller<F, R>(f: F) -> R
 where
     F: FnOnce(&mut InterruptController) -> R,
@@ -1166,9 +1181,7 @@ pub fn intc_initialize() {
 }
 
 fn compose_full_sr(ctx: *mut crate::Sh4Ctx) -> u32 {
-    unsafe {
-        (*ctx).sr.0 | (*ctx).sr_t
-    }
+    unsafe { (*ctx).sr.0 | (*ctx).sr_t }
 }
 
 pub(crate) unsafe fn intc_try_service(ctx: *mut crate::Sh4Ctx) -> bool {
@@ -1194,7 +1207,10 @@ pub(crate) unsafe fn intc_try_service(ctx: *mut crate::Sh4Ctx) -> bool {
             let old_rb = (*ctx).sr.rb();
             (*ctx).sr.set_rb(true);
             if !old_rb {
-                crate::backend_ipr::sh4_rbank_switch(addr_of_mut!((*ctx).r[0]), addr_of_mut!((*ctx).r_bank[0]));
+                crate::backend_ipr::sh4_rbank_switch(
+                    addr_of_mut!((*ctx).r[0]),
+                    addr_of_mut!((*ctx).r_bank[0]),
+                );
             }
 
             let vector = (*ctx).vbr.wrapping_add(0x0000_0600);
@@ -1214,79 +1230,84 @@ pub(crate) unsafe fn intc_try_service(ctx: *mut crate::Sh4Ctx) -> bool {
 
 pub(crate) fn peripherals_step(ctx: *mut crate::Sh4Ctx, cycles: u32) {
     tmu_step(ctx, cycles);
+    let hook_ptr = PERIPHERAL_HOOK.load(Ordering::Relaxed);
+    if !hook_ptr.is_null() {
+        let hook: PeripheralHook = unsafe { std::mem::transmute(hook_ptr) };
+        hook(ctx, cycles);
+    }
 }
 
 // RTC
-static mut RTC_R64CNT_DATA:  Reg8 = Reg8(0);
+static mut RTC_R64CNT_DATA: Reg8 = Reg8(0);
 static mut RTC_RSECCNT_DATA: Reg8 = Reg8(0);
 static mut RTC_RMINCNT_DATA: Reg8 = Reg8(0);
-static mut RTC_RHRCNT_DATA:  Reg8 = Reg8(0);
-static mut RTC_RWKCNT_DATA:  Reg8 = Reg8(0);
+static mut RTC_RHRCNT_DATA: Reg8 = Reg8(0);
+static mut RTC_RWKCNT_DATA: Reg8 = Reg8(0);
 static mut RTC_RDAYCNT_DATA: Reg8 = Reg8(0);
 static mut RTC_RMONCNT_DATA: Reg8 = Reg8(0);
-static mut RTC_RYRCNT_DATA:  Reg16 = Reg16(0);
-static mut RTC_RSECAR_DATA:  Reg8 = Reg8(0);
-static mut RTC_RMINAR_DATA:  Reg8 = Reg8(0);
-static mut RTC_RHRAR_DATA:   Reg8 = Reg8(0);
-static mut RTC_RWKAR_DATA:   Reg8 = Reg8(0);
-static mut RTC_RDAYAR_DATA:  Reg8 = Reg8(0);
-static mut RTC_RMONAR_DATA:  Reg8 = Reg8(0);
-static mut RTC_RCR1_DATA:    Reg8 = Reg8(0);
-static mut RTC_RCR2_DATA:    Reg8 = Reg8(0);
+static mut RTC_RYRCNT_DATA: Reg16 = Reg16(0);
+static mut RTC_RSECAR_DATA: Reg8 = Reg8(0);
+static mut RTC_RMINAR_DATA: Reg8 = Reg8(0);
+static mut RTC_RHRAR_DATA: Reg8 = Reg8(0);
+static mut RTC_RWKAR_DATA: Reg8 = Reg8(0);
+static mut RTC_RDAYAR_DATA: Reg8 = Reg8(0);
+static mut RTC_RMONAR_DATA: Reg8 = Reg8(0);
+static mut RTC_RCR1_DATA: Reg8 = Reg8(0);
+static mut RTC_RCR2_DATA: Reg8 = Reg8(0);
 
 // BSC
-static mut BSC_BCR1_DATA:   BSC_BCR1   = BSC_BCR1(0);
-static mut BSC_BCR2_DATA:   BSC_BCR2   = BSC_BCR2(0);
-static mut BSC_WCR1_DATA:   BSC_WCR1   = BSC_WCR1(0);
-static mut BSC_WCR2_DATA:   BSC_WCR2   = BSC_WCR2(0);
-static mut BSC_WCR3_DATA:   BSC_WCR3   = BSC_WCR3(0);
-static mut BSC_MCR_DATA:    BSC_MCR    = BSC_MCR(0);
-static mut BSC_PCR_DATA:    BSC_PCR    = BSC_PCR(0);
-static mut BSC_RTCSR_DATA:  BSC_RTCSR  = BSC_RTCSR(0);
-static mut BSC_RTCNT_DATA:  BSC_RTCNT  = BSC_RTCNT(0);
-static mut BSC_RTCOR_DATA:  BSC_RTCOR  = BSC_RTCOR(0);
-static mut BSC_RFCR_DATA:   BSC_RFCR   = BSC_RFCR(0);
-static mut BSC_PCTRA_DATA:  BSC_PCTRA  = BSC_PCTRA(0);
-static mut BSC_PDTRA_DATA:  BSC_PDTRA  = BSC_PDTRA(0);
-static mut BSC_PCTRB_DATA:  BSC_PCTRB  = BSC_PCTRB(0);
-static mut BSC_PDTRB_DATA:  BSC_PDTRB  = BSC_PDTRB(0);
+static mut BSC_BCR1_DATA: BSC_BCR1 = BSC_BCR1(0);
+static mut BSC_BCR2_DATA: BSC_BCR2 = BSC_BCR2(0);
+static mut BSC_WCR1_DATA: BSC_WCR1 = BSC_WCR1(0);
+static mut BSC_WCR2_DATA: BSC_WCR2 = BSC_WCR2(0);
+static mut BSC_WCR3_DATA: BSC_WCR3 = BSC_WCR3(0);
+static mut BSC_MCR_DATA: BSC_MCR = BSC_MCR(0);
+static mut BSC_PCR_DATA: BSC_PCR = BSC_PCR(0);
+static mut BSC_RTCSR_DATA: BSC_RTCSR = BSC_RTCSR(0);
+static mut BSC_RTCNT_DATA: BSC_RTCNT = BSC_RTCNT(0);
+static mut BSC_RTCOR_DATA: BSC_RTCOR = BSC_RTCOR(0);
+static mut BSC_RFCR_DATA: BSC_RFCR = BSC_RFCR(0);
+static mut BSC_PCTRA_DATA: BSC_PCTRA = BSC_PCTRA(0);
+static mut BSC_PDTRA_DATA: BSC_PDTRA = BSC_PDTRA(0);
+static mut BSC_PCTRB_DATA: BSC_PCTRB = BSC_PCTRB(0);
+static mut BSC_PDTRB_DATA: BSC_PDTRB = BSC_PDTRB(0);
 static mut BSC_GPIOIC_DATA: BSC_GPIOIC = BSC_GPIOIC(0);
 
 // UBC
-static mut UBC_BARA_DATA:  Reg32 = Reg32(0);
+static mut UBC_BARA_DATA: Reg32 = Reg32(0);
 static mut UBC_BAMRA_DATA: Reg8 = Reg8(0);
-static mut UBC_BBRA_DATA:  Reg16 = Reg16(0);
-static mut UBC_BARB_DATA:  Reg32 = Reg32(0);
+static mut UBC_BBRA_DATA: Reg16 = Reg16(0);
+static mut UBC_BARB_DATA: Reg32 = Reg32(0);
 static mut UBC_BAMRB_DATA: Reg8 = Reg8(0);
-static mut UBC_BBRB_DATA:  Reg16 = Reg16(0);
-static mut UBC_BDRB_DATA:  Reg32 = Reg32(0);
+static mut UBC_BBRB_DATA: Reg16 = Reg16(0);
+static mut UBC_BDRB_DATA: Reg32 = Reg32(0);
 static mut UBC_BDMRB_DATA: Reg32 = Reg32(0);
-static mut UBC_BRCR_DATA:  Reg16 = Reg16(0);
+static mut UBC_BRCR_DATA: Reg16 = Reg16(0);
 
 // SCIF
-static mut SCIF_SCSMR2_DATA:  SCIF_SCSMR2  = SCIF_SCSMR2(0);
-static mut SCIF_SCBRR2_DATA:  Reg8 = Reg8(0);
-static mut SCIF_SCSCR2_DATA:  SCIF_SCSCR2  = SCIF_SCSCR2(0);
+static mut SCIF_SCSMR2_DATA: SCIF_SCSMR2 = SCIF_SCSMR2(0);
+static mut SCIF_SCBRR2_DATA: Reg8 = Reg8(0);
+static mut SCIF_SCSCR2_DATA: SCIF_SCSCR2 = SCIF_SCSCR2(0);
 static mut SCIF_SCFTDR2_DATA: Reg8 = Reg8(0);
-static mut SCIF_SCFSR2_DATA:  SCIF_SCFSR2  = SCIF_SCFSR2(0);
+static mut SCIF_SCFSR2_DATA: SCIF_SCFSR2 = SCIF_SCFSR2(0);
 static mut SCIF_SCFRDR2_DATA: Reg8 = Reg8(0);
-static mut SCIF_SCFCR2_DATA:  SCIF_SCFCR2  = SCIF_SCFCR2(0);
-static mut SCIF_SCFDR2_DATA:  SCIF_SCFDR2  = SCIF_SCFDR2(0);
+static mut SCIF_SCFCR2_DATA: SCIF_SCFCR2 = SCIF_SCFCR2(0);
+static mut SCIF_SCFDR2_DATA: SCIF_SCFDR2 = SCIF_SCFDR2(0);
 static mut SCIF_SCSPTR2_DATA: SCIF_SCSPTR2 = SCIF_SCSPTR2(0);
-static mut SCIF_SCLSR2_DATA:  SCIF_SCLSR2  = SCIF_SCLSR2(0);
+static mut SCIF_SCLSR2_DATA: SCIF_SCLSR2 = SCIF_SCLSR2(0);
 
 // TMU
-static mut TMU_TOCR_DATA:  Reg8  = Reg8(0);
-static mut TMU_TSTR_DATA:  Reg8  = Reg8(0);
+static mut TMU_TOCR_DATA: Reg8 = Reg8(0);
+static mut TMU_TSTR_DATA: Reg8 = Reg8(0);
 static mut TMU_TCOR0_DATA: Reg32 = Reg32(0);
 static mut TMU_TCNT0_DATA: Reg32 = Reg32(0);
-static mut TMU_TCR0_DATA:  Reg16 = Reg16(0);
+static mut TMU_TCR0_DATA: Reg16 = Reg16(0);
 static mut TMU_TCOR1_DATA: Reg32 = Reg32(0);
 static mut TMU_TCNT1_DATA: Reg32 = Reg32(0);
-static mut TMU_TCR1_DATA:  Reg16 = Reg16(0);
+static mut TMU_TCR1_DATA: Reg16 = Reg16(0);
 static mut TMU_TCOR2_DATA: Reg32 = Reg32(0);
 static mut TMU_TCNT2_DATA: Reg32 = Reg32(0);
-static mut TMU_TCR2_DATA:  Reg16 = Reg16(0);
+static mut TMU_TCR2_DATA: Reg16 = Reg16(0);
 static mut TMU_TCPR2_DATA: Reg32 = Reg32(0);
 
 static TMU_RUNTIME: Global<TmuRuntime> = Global::new(TmuRuntime::new());
@@ -1468,48 +1489,48 @@ fn tmu_step(ctx: *mut crate::Sh4Ctx, cycles: u32) {
 }
 
 // DMAC
-static mut DMAC_SAR0_DATA:    Reg32 = Reg32(0);
-static mut DMAC_DAR0_DATA:    Reg32 = Reg32(0);
+static mut DMAC_SAR0_DATA: Reg32 = Reg32(0);
+static mut DMAC_DAR0_DATA: Reg32 = Reg32(0);
 static mut DMAC_DMATCR0_DATA: Reg32 = Reg32(0);
-static mut DMAC_CHCR0_DATA:   DMAC_CHCR = DMAC_CHCR(0);
-static mut DMAC_SAR1_DATA:    Reg32 = Reg32(0);
-static mut DMAC_DAR1_DATA:    Reg32 = Reg32(0);
+static mut DMAC_CHCR0_DATA: DMAC_CHCR = DMAC_CHCR(0);
+static mut DMAC_SAR1_DATA: Reg32 = Reg32(0);
+static mut DMAC_DAR1_DATA: Reg32 = Reg32(0);
 static mut DMAC_DMATCR1_DATA: Reg32 = Reg32(0);
-static mut DMAC_CHCR1_DATA:   DMAC_CHCR = DMAC_CHCR(0);
-static mut DMAC_SAR2_DATA:    Reg32 = Reg32(0);
-static mut DMAC_DAR2_DATA:    Reg32 = Reg32(0);
+static mut DMAC_CHCR1_DATA: DMAC_CHCR = DMAC_CHCR(0);
+static mut DMAC_SAR2_DATA: Reg32 = Reg32(0);
+static mut DMAC_DAR2_DATA: Reg32 = Reg32(0);
 static mut DMAC_DMATCR2_DATA: Reg32 = Reg32(0);
-static mut DMAC_CHCR2_DATA:   DMAC_CHCR = DMAC_CHCR(0);
-static mut DMAC_SAR3_DATA:    Reg32 = Reg32(0);
-static mut DMAC_DAR3_DATA:    Reg32 = Reg32(0);
+static mut DMAC_CHCR2_DATA: DMAC_CHCR = DMAC_CHCR(0);
+static mut DMAC_SAR3_DATA: Reg32 = Reg32(0);
+static mut DMAC_DAR3_DATA: Reg32 = Reg32(0);
 static mut DMAC_DMATCR3_DATA: Reg32 = Reg32(0);
-static mut DMAC_CHCR3_DATA:   DMAC_CHCR = DMAC_CHCR(0);
-static mut DMAC_DMAOR_DATA:   Reg32 = Reg32(0);
+static mut DMAC_CHCR3_DATA: DMAC_CHCR = DMAC_CHCR(0);
+static mut DMAC_DMAOR_DATA: Reg32 = Reg32(0);
 
 // CPG
-static mut CPG_FRQCR_DATA:  Reg32 = Reg32(0);
-static mut CPG_STBCR_DATA:  Reg8  = Reg8(0);
-static mut CPG_WTCNT_DATA:  Reg16 = Reg16(0);
-static mut CPG_WTCSR_DATA:  Reg16 = Reg16(0);
-static mut CPG_STBCR2_DATA: Reg8  = Reg8(0);
+static mut CPG_FRQCR_DATA: Reg32 = Reg32(0);
+static mut CPG_STBCR_DATA: Reg8 = Reg8(0);
+static mut CPG_WTCNT_DATA: Reg16 = Reg16(0);
+static mut CPG_WTCSR_DATA: Reg16 = Reg16(0);
+static mut CPG_STBCR2_DATA: Reg8 = Reg8(0);
 
 // CCN
-static mut CCN_PTEH_DATA:         CCN_PTEH      = CCN_PTEH(0);
-static mut CCN_PTEL_DATA:         CCN_PTEL      = CCN_PTEL(0);
-static mut CCN_TTB_DATA:          Reg32 = Reg32(0);
-static mut CCN_TEA_DATA:          Reg32 = Reg32(0);
-static mut CCN_MMUCR_DATA:        CCN_MMUCR     = CCN_MMUCR(0);
-static mut CCN_BASRA_DATA:        Reg8 = Reg8(0);
-static mut CCN_BASRB_DATA:        Reg8 = Reg8(0);
-static mut CCN_CCR_DATA:          CCN_CCR       = CCN_CCR(0);
-static mut CCN_TRA_DATA:          Reg32 = Reg32(0);
-static mut CCN_EXPEVT_DATA:       Reg32 = Reg32(0);
-static mut CCN_INTEVT_DATA:       Reg32 = Reg32(0);
-static mut CCN_CPU_VERSION_DATA:  Reg32 = Reg32(0);
-static mut CCN_PTEA_DATA:         CCN_PTEA      = CCN_PTEA(0);
-static mut CCN_QACR0_DATA:        CCN_QACR      = CCN_QACR(0);
-static mut CCN_QACR1_DATA:        CCN_QACR      = CCN_QACR(0);
-static mut CCN_PRR_DATA:          Reg32 = Reg32(0);
+static mut CCN_PTEH_DATA: CCN_PTEH = CCN_PTEH(0);
+static mut CCN_PTEL_DATA: CCN_PTEL = CCN_PTEL(0);
+static mut CCN_TTB_DATA: Reg32 = Reg32(0);
+static mut CCN_TEA_DATA: Reg32 = Reg32(0);
+static mut CCN_MMUCR_DATA: CCN_MMUCR = CCN_MMUCR(0);
+static mut CCN_BASRA_DATA: Reg8 = Reg8(0);
+static mut CCN_BASRB_DATA: Reg8 = Reg8(0);
+static mut CCN_CCR_DATA: CCN_CCR = CCN_CCR(0);
+static mut CCN_TRA_DATA: Reg32 = Reg32(0);
+static mut CCN_EXPEVT_DATA: Reg32 = Reg32(0);
+static mut CCN_INTEVT_DATA: Reg32 = Reg32(0);
+static mut CCN_CPU_VERSION_DATA: Reg32 = Reg32(0);
+static mut CCN_PTEA_DATA: CCN_PTEA = CCN_PTEA(0);
+static mut CCN_QACR0_DATA: CCN_QACR = CCN_QACR(0);
+static mut CCN_QACR1_DATA: CCN_QACR = CCN_QACR(0);
+static mut CCN_PRR_DATA: Reg32 = Reg32(0);
 
 pub struct P4Register {
     pub read: fn(ctx: *mut u8, addr: u32) -> u32,
@@ -1528,7 +1549,7 @@ fn area7_unreachable_write(_ctx: *mut u8, addr: u32, data: u32) {
     panic!("Unreachable area7 write: {:08X} data = {:08X}", addr, data);
 }
 
-const P4REGISTER_UNREACHABLE : P4Register = P4Register {
+const P4REGISTER_UNREACHABLE: P4Register = P4Register {
     read: area7_unreachable_read,
     write: area7_unreachable_write,
     size: 0,
@@ -1540,27 +1561,29 @@ fn area7_dram_cfg_read(_ctx: *mut u8, addr: u32) -> u32 {
 }
 
 fn area7_dram_cfg_write(_ctx: *mut u8, addr: u32, data: u32) {
-    println!("area7_dram_cfg_write write: {:08X} data = {:08X}", addr, data);
+    println!(
+        "area7_dram_cfg_write write: {:08X} data = {:08X}",
+        addr, data
+    );
 }
 
-
-const P4REGISTER_DRAM_CFG : P4Register = P4Register {
+const P4REGISTER_DRAM_CFG: P4Register = P4Register {
     read: area7_dram_cfg_read,
     write: area7_dram_cfg_write,
     size: 0,
     ctx: std::ptr::null_mut(),
 };
 
-static mut RIO_CCN : [P4Register; 18] = [P4REGISTER_UNREACHABLE; 18 ];
-static mut RIO_UBC : [P4Register; 9] = [P4REGISTER_UNREACHABLE; 9 ];
-static mut RIO_BSC : [P4Register; 19] = [P4REGISTER_UNREACHABLE; 19 ];
-static mut RIO_DMAC : [P4Register; 17] = [P4REGISTER_UNREACHABLE; 17 ];
-static mut RIO_CPG : [P4Register; 5] = [P4REGISTER_UNREACHABLE; 5 ];
-static mut RIO_RTC : [P4Register; 16] = [P4REGISTER_UNREACHABLE; 16 ];
-static mut RIO_INTC : [P4Register; 5] = [P4REGISTER_UNREACHABLE; 5 ];
-static mut RIO_TMU : [P4Register; 12] = [P4REGISTER_UNREACHABLE; 12 ];
-static mut RIO_SCI : [P4Register; 8] = [P4REGISTER_UNREACHABLE; 8 ];
-static mut RIO_SCIF : [P4Register; 10] = [P4REGISTER_UNREACHABLE; 10 ];
+static mut RIO_CCN: [P4Register; 18] = [P4REGISTER_UNREACHABLE; 18];
+static mut RIO_UBC: [P4Register; 9] = [P4REGISTER_UNREACHABLE; 9];
+static mut RIO_BSC: [P4Register; 19] = [P4REGISTER_UNREACHABLE; 19];
+static mut RIO_DMAC: [P4Register; 17] = [P4REGISTER_UNREACHABLE; 17];
+static mut RIO_CPG: [P4Register; 5] = [P4REGISTER_UNREACHABLE; 5];
+static mut RIO_RTC: [P4Register; 16] = [P4REGISTER_UNREACHABLE; 16];
+static mut RIO_INTC: [P4Register; 5] = [P4REGISTER_UNREACHABLE; 5];
+static mut RIO_TMU: [P4Register; 12] = [P4REGISTER_UNREACHABLE; 12];
+static mut RIO_SCI: [P4Register; 8] = [P4REGISTER_UNREACHABLE; 8];
+static mut RIO_SCIF: [P4Register; 10] = [P4REGISTER_UNREACHABLE; 10];
 
 pub fn area7_router(mut addr: u32) -> &'static P4Register {
     addr &= 0x1FFFFFFF;
@@ -1576,11 +1599,11 @@ pub fn area7_router(mut addr: u32) -> &'static P4Register {
             0x1FC00000..=0x1FC00010 => &RIO_CPG[idx],
             0x1FC80000..=0x1FC8003C => &RIO_RTC[idx],
             0x1FD00000..=0x1FD00010 => &RIO_INTC[idx],
-    
+
             0x1FD80000..=0x1FD8002C => &RIO_TMU[idx],
             0x1FE00000..=0x1FE0001C => &RIO_SCI[idx],
             0x1FE80000..=0x1FE80024 => &RIO_SCIF[idx],
-    
+
             _ => &P4REGISTER_UNREACHABLE,
         }
     }
@@ -1598,9 +1621,7 @@ pub fn p4_read<T: crate::sh4mem::MemoryData>(_ctx: *mut u8, addr: u32) -> T {
         }
 
         // F0–F1 areas — reserved / dummy reads
-        0xF0 | 0xF1 => {
-            T::default()
-        }
+        0xF0 | 0xF1 => T::default(),
 
         // ITLB Address + Data.V
         0xF2 => {
@@ -1616,7 +1637,10 @@ pub fn p4_read<T: crate::sh4mem::MemoryData>(_ctx: *mut u8, addr: u32) -> T {
 
         // Operand cache address array (unimplemented)
         0xF4 => {
-            println!("Unhandled p4 read [Operand cache address array] 0x{:08X}", addr);
+            println!(
+                "Unhandled p4 read [Operand cache address array] 0x{:08X}",
+                addr
+            );
             T::default()
         }
 
@@ -1637,7 +1661,12 @@ pub fn p4_read<T: crate::sh4mem::MemoryData>(_ctx: *mut u8, addr: u32) -> T {
         0xFF => {
             let handler = area7_router(addr);
             if handler.size as usize != std::mem::size_of::<T>() {
-                panic!("p4_read::<u{}> {:x} size mismatch, handler size = {}", std::mem::size_of::<T>(), addr, handler.size);
+                panic!(
+                    "p4_read::<u{}> {:x} size mismatch, handler size = {}",
+                    std::mem::size_of::<T>(),
+                    addr,
+                    handler.size
+                );
             }
             let raw_value = (handler.read)(handler.ctx, addr);
             T::from_u32(raw_value)
@@ -1651,7 +1680,6 @@ pub fn p4_read<T: crate::sh4mem::MemoryData>(_ctx: *mut u8, addr: u32) -> T {
 }
 
 fn p4_write<T: crate::sh4mem::MemoryData>(_ctx: *mut u8, addr: u32, data: T) {
-    println!("p4_write::<u{}> {:08X} data = {:08X}", std::mem::size_of::<T>(), addr, data.to_u32());
 
     // Bits [31:24] select the area within P4 space
     let area = (addr >> 24) & 0xFF;
@@ -1659,7 +1687,12 @@ fn p4_write<T: crate::sh4mem::MemoryData>(_ctx: *mut u8, addr: u32, data: T) {
     match area {
         // Store queue — unimplemented
         0xE0..=0xE3 => {
-            println!("Unhandled p4_write::<u{}> [Store queue] {:x} data = {:x}", std::mem::size_of::<T>(), addr, data);
+            println!(
+                "Unhandled p4_write::<u{}> [Store queue] {:x} data = {:x}",
+                std::mem::size_of::<T>(),
+                addr,
+                data
+            );
         }
 
         // F0–F1 areas — reserved / dummy reads
@@ -1669,46 +1702,81 @@ fn p4_write<T: crate::sh4mem::MemoryData>(_ctx: *mut u8, addr: u32, data: T) {
 
         // ITLB Address + Data.V
         0xF2 => {
-            println!("Unhandled p4_write::<u{}> [ITLB Address + Data.V] {:x} data = {:x}", std::mem::size_of::<T>(), addr, data);
+            println!(
+                "Unhandled p4_write::<u{}> [ITLB Address + Data.V] {:x} data = {:x}",
+                std::mem::size_of::<T>(),
+                addr,
+                data
+            );
         }
 
         // ITLB Data
         0xF3 => {
-            println!("Unhandled p4_write::<u{}> [ITLB Data] {:x} data = {:x}", std::mem::size_of::<T>(), addr, data);
+            println!(
+                "Unhandled p4_write::<u{}> [ITLB Data] {:x} data = {:x}",
+                std::mem::size_of::<T>(),
+                addr,
+                data
+            );
         }
 
         // Operand cache address array (unimplemented)
         0xF4 => {
-            println!("Unhandled p4_write::<u{}> [Operand cache address array] {:x} data = {:x}", std::mem::size_of::<T>(), addr, data);
+            println!(
+                "Unhandled p4_write::<u{}> [Operand cache address array] {:x} data = {:x}",
+                std::mem::size_of::<T>(),
+                addr,
+                data
+            );
         }
 
         0xF5 => {
             // println!("Unhandled p4_write::<u{}> [Reserved] {:x} data = {:x}", std::mem::size_of::<T>(), addr, data);
-        },
+        }
 
         // UTLB Address + flags
         0xF6 => {
-            println!("Unhandled p4_write::<u{}> [UTLB Address + flags] {:x} data = {:x}", std::mem::size_of::<T>(), addr, data);
+            println!(
+                "Unhandled p4_write::<u{}> [UTLB Address + flags] {:x} data = {:x}",
+                std::mem::size_of::<T>(),
+                addr,
+                data
+            );
         }
 
         // UTLB Data
         0xF7 => {
-            println!("Unhandled p4_write::<u{}> [UTLB Data] {:x} data = {:x}", std::mem::size_of::<T>(), addr, data);
+            println!(
+                "Unhandled p4_write::<u{}> [UTLB Data] {:x} data = {:x}",
+                std::mem::size_of::<T>(),
+                addr,
+                data
+            );
         }
 
         0xFF => {
             let handler = area7_router(addr);
             if handler.size != 0 && handler.size as usize != std::mem::size_of::<T>() {
-                panic!("p4_write::<u{}> {:x} data = {:x} size mismatch, handler size = {}", std::mem::size_of::<T>(), addr, data, handler.size);
+                panic!(
+                    "p4_write::<u{}> {:x} data = {:x} size mismatch, handler size = {}",
+                    std::mem::size_of::<T>(),
+                    addr,
+                    data,
+                    handler.size
+                );
             }
             (handler.write)(handler.ctx, addr, data.to_u32());
         }
 
         _ => {
-            println!("Unhandled p4_write::<u{}> [Reserved] {:x} data = {:x}", std::mem::size_of::<T>(), addr, data);
+            println!(
+                "Unhandled p4_write::<u{}> [Reserved] {:x} data = {:x}",
+                std::mem::size_of::<T>(),
+                addr,
+                data
+            );
         }
     }
-
 }
 
 pub const P4_HANDLERS: crate::MemHandlers = crate::MemHandlers {
@@ -1733,13 +1801,19 @@ fn read_data_32(ctx: *mut u8, _addr: u32) -> u32 {
     unsafe { *(ctx as *mut u32) }
 }
 fn write_data_8(ctx: *mut u8, _addr: u32, data: u32) {
-    unsafe { *(ctx as *mut u8) = data as u8; }
+    unsafe {
+        *(ctx as *mut u8) = data as u8;
+    }
 }
 fn write_data_16(ctx: *mut u8, _addr: u32, data: u32) {
-    unsafe { *(ctx as *mut u16) = data as u16; }
+    unsafe {
+        *(ctx as *mut u16) = data as u16;
+    }
 }
 fn write_data_32(ctx: *mut u8, _addr: u32, data: u32) {
-    unsafe { *(ctx as *mut u32) = data; }
+    unsafe {
+        *(ctx as *mut u32) = data;
+    }
 }
 
 fn area7_read_only(_ctx: *mut u8, addr: u32, _data: u32) {
@@ -1763,7 +1837,9 @@ fn read_intc_iprd(_ctx: *mut u8, _addr: u32) -> u32 {
 }
 
 fn write_bsc_pctra(ctx: *mut u8, _addr: u32, data: u32) {
-    unsafe { *(ctx as *mut BSC_PCTRA) = BSC_PCTRA(data); }
+    unsafe {
+        *(ctx as *mut BSC_PCTRA) = BSC_PCTRA(data);
+    }
 }
 
 fn dreamcast_cable_setting() -> u32 {
@@ -1799,7 +1875,9 @@ fn write_bsc_pdtra(ctx: *mut u8, _addr: u32, data: u32) {
 
 fn scif_write_transmit(ctx: *mut u8, _addr: u32, data: u32) {
     let byte = (data & 0xFF) as u8;
-    unsafe { *(ctx as *mut u8) = byte; }
+    unsafe {
+        *(ctx as *mut u8) = byte;
+    }
     #[cfg(debug_assertions)]
     eprint!("{}", byte as char);
 }
@@ -1813,7 +1891,9 @@ fn scif_read_status(ctx: *mut u8, _addr: u32) -> u32 {
 }
 
 fn scif_write_status(ctx: *mut u8, _addr: u32, data: u32) {
-    unsafe { *(ctx as *mut u16) = data as u16; }
+    unsafe {
+        *(ctx as *mut u16) = data as u16;
+    }
 }
 
 fn scif_read_data(ctx: *mut u8, _addr: u32) -> u32 {
@@ -1868,19 +1948,27 @@ fn read_tmu_tcpr2(ctx: *mut u8, _addr: u32) -> u32 {
 }
 
 fn write_tmu_tcpr2(ctx: *mut u8, _addr: u32, data: u32) {
-    unsafe { *(ctx as *mut u32) = data; }
+    unsafe {
+        *(ctx as *mut u32) = data;
+    }
 }
 
 fn write_dmac_control(ctx: *mut u8, _addr: u32, data: u32) {
-    unsafe { *(ctx as *mut u32) = data; }
+    unsafe {
+        *(ctx as *mut u32) = data;
+    }
 }
 
 fn write_ccn_mmucr(ctx: *mut u8, _addr: u32, data: u32) {
-    unsafe { *(ctx as *mut u32) = data; }
+    unsafe {
+        *(ctx as *mut u32) = data;
+    }
 }
 
 fn write_ccn_ccr(ctx: *mut u8, _addr: u32, data: u32) {
-    unsafe { *(ctx as *mut u32) = data & !0x300; }
+    unsafe {
+        *(ctx as *mut u32) = data & !0x300;
+    }
 }
 
 fn read_ccn_cpu_version(_ctx: *mut u8, _addr: u32) -> u32 {
@@ -1888,7 +1976,9 @@ fn read_ccn_cpu_version(_ctx: *mut u8, _addr: u32) -> u32 {
 }
 
 fn write_ccn_qacr(ctx: *mut u8, _addr: u32, data: u32) {
-    unsafe { *(ctx as *mut u32) = data; }
+    unsafe {
+        *(ctx as *mut u32) = data;
+    }
 }
 
 fn read_ccn_prr(_ctx: *mut u8, _addr: u32) -> u32 {
@@ -1990,134 +2080,132 @@ macro_rules! rio {
     };
 }
 
-
 pub fn p4_init() {
     unsafe {
         initialize_default_register_values();
 
         /* INTC */
-        rio!(INTC, ICR,  read_data_16, write_data_16, 16);
+        rio!(INTC, ICR, read_data_16, write_data_16, 16);
         rio!(INTC, IPRA, read_data_16, write_intc_ipr, 16);
         rio!(INTC, IPRB, read_data_16, write_intc_ipr, 16);
         rio!(INTC, IPRC, read_data_16, write_intc_ipr, 16);
         rio!(INTC, IPRD, read_intc_iprd, area7_read_only, 16);
 
         /* RTC */
-        rio!(RTC, R64CNT,  read_data_8,  write_data_8,  8);
-        rio!(RTC, RSECCNT, read_data_8,  write_data_8,  8);
-        rio!(RTC, RMINCNT, read_data_8,  write_data_8,  8);
-        rio!(RTC, RHRCNT,  read_data_8,  write_data_8,  8);
-        rio!(RTC, RWKCNT,  read_data_8,  write_data_8,  8);
-        rio!(RTC, RDAYCNT, read_data_8,  write_data_8,  8);
-        rio!(RTC, RMONCNT, read_data_8,  write_data_8,  8);
-        rio!(RTC, RYRCNT,  read_data_16, write_data_16, 16);
-        rio!(RTC, RSECAR,  read_data_8,  write_data_8,  8);
-        rio!(RTC, RMINAR,  read_data_8,  write_data_8,  8);
-        rio!(RTC, RHRAR,   read_data_8,  write_data_8,  8);
-        rio!(RTC, RWKAR,   read_data_8,  write_data_8,  8);
-        rio!(RTC, RDAYAR,  read_data_8,  write_data_8,  8);
-        rio!(RTC, RMONAR,  read_data_8,  write_data_8,  8);
-        rio!(RTC, RCR1,    read_data_8,  write_data_8,  8);
-        rio!(RTC, RCR2,    read_data_8,  write_data_8,  8);
+        rio!(RTC, R64CNT, read_data_8, write_data_8, 8);
+        rio!(RTC, RSECCNT, read_data_8, write_data_8, 8);
+        rio!(RTC, RMINCNT, read_data_8, write_data_8, 8);
+        rio!(RTC, RHRCNT, read_data_8, write_data_8, 8);
+        rio!(RTC, RWKCNT, read_data_8, write_data_8, 8);
+        rio!(RTC, RDAYCNT, read_data_8, write_data_8, 8);
+        rio!(RTC, RMONCNT, read_data_8, write_data_8, 8);
+        rio!(RTC, RYRCNT, read_data_16, write_data_16, 16);
+        rio!(RTC, RSECAR, read_data_8, write_data_8, 8);
+        rio!(RTC, RMINAR, read_data_8, write_data_8, 8);
+        rio!(RTC, RHRAR, read_data_8, write_data_8, 8);
+        rio!(RTC, RWKAR, read_data_8, write_data_8, 8);
+        rio!(RTC, RDAYAR, read_data_8, write_data_8, 8);
+        rio!(RTC, RMONAR, read_data_8, write_data_8, 8);
+        rio!(RTC, RCR1, read_data_8, write_data_8, 8);
+        rio!(RTC, RCR2, read_data_8, write_data_8, 8);
 
         /* BSC */
-        rio!(BSC, BCR1,   read_data_32, write_data_32, 32);
-        rio!(BSC, BCR2,   read_data_16, write_data_16, 16);
-        rio!(BSC, WCR1,   read_data_32, write_data_32, 32);
-        rio!(BSC, WCR2,   read_data_32, write_data_32, 32);
-        rio!(BSC, WCR3,   read_data_32, write_data_32, 32);
-        rio!(BSC, MCR,    read_data_32, write_data_32, 32);
-        rio!(BSC, PCR,    read_data_16, write_data_16, 16);
-        rio!(BSC, RTCSR,  read_data_16, write_data_16, 16);
-        rio!(BSC, RTCNT,  read_data_16, write_data_16, 16);
-        rio!(BSC, RTCOR,  read_data_16, write_data_16, 16);
-        rio!(BSC, RFCR,   read_data_16, write_data_16, 16);
-        rio!(BSC, PCTRA,  read_data_32, write_bsc_pctra, 32);
-        rio!(BSC, PDTRA,  read_bsc_pdtra, write_bsc_pdtra, 16);
-        rio!(BSC, PCTRB,  read_data_32, write_data_32, 32);
-        rio!(BSC, PDTRB,  read_data_16, write_data_16, 16);
+        rio!(BSC, BCR1, read_data_32, write_data_32, 32);
+        rio!(BSC, BCR2, read_data_16, write_data_16, 16);
+        rio!(BSC, WCR1, read_data_32, write_data_32, 32);
+        rio!(BSC, WCR2, read_data_32, write_data_32, 32);
+        rio!(BSC, WCR3, read_data_32, write_data_32, 32);
+        rio!(BSC, MCR, read_data_32, write_data_32, 32);
+        rio!(BSC, PCR, read_data_16, write_data_16, 16);
+        rio!(BSC, RTCSR, read_data_16, write_data_16, 16);
+        rio!(BSC, RTCNT, read_data_16, write_data_16, 16);
+        rio!(BSC, RTCOR, read_data_16, write_data_16, 16);
+        rio!(BSC, RFCR, read_data_16, write_data_16, 16);
+        rio!(BSC, PCTRA, read_data_32, write_bsc_pctra, 32);
+        rio!(BSC, PDTRA, read_bsc_pdtra, write_bsc_pdtra, 16);
+        rio!(BSC, PCTRB, read_data_32, write_data_32, 32);
+        rio!(BSC, PDTRB, read_data_16, write_data_16, 16);
         rio!(BSC, GPIOIC, read_data_16, write_data_16, 16);
 
         /* UBC */
-        rio!(UBC, BARA,  read_data_32, write_data_32, 32);
-        rio!(UBC, BAMRA, read_data_8,  write_data_8,  8);
-        rio!(UBC, BBRA,  read_data_16, write_data_16, 16);
-        rio!(UBC, BARB,  read_data_32, write_data_32, 32);
-        rio!(UBC, BAMRB, read_data_8,  write_data_8,  8);
-        rio!(UBC, BBRB,  read_data_16, write_data_16, 16);
-        rio!(UBC, BDRB,  read_data_32, write_data_32, 32);
+        rio!(UBC, BARA, read_data_32, write_data_32, 32);
+        rio!(UBC, BAMRA, read_data_8, write_data_8, 8);
+        rio!(UBC, BBRA, read_data_16, write_data_16, 16);
+        rio!(UBC, BARB, read_data_32, write_data_32, 32);
+        rio!(UBC, BAMRB, read_data_8, write_data_8, 8);
+        rio!(UBC, BBRB, read_data_16, write_data_16, 16);
+        rio!(UBC, BDRB, read_data_32, write_data_32, 32);
         rio!(UBC, BDMRB, read_data_32, write_data_32, 32);
-        rio!(UBC, BRCR,  read_data_16, write_data_16, 16);
+        rio!(UBC, BRCR, read_data_16, write_data_16, 16);
 
         /* SCIF */
-        rio!(SCIF, SCSMR2,  read_data_16, write_data_16, 16);
-        rio!(SCIF, SCBRR2,  read_data_8,  write_data_8,  8);
-        rio!(SCIF, SCSCR2,  read_data_16, write_data_16, 16);
-        rio!(SCIF, SCFTDR2, read_data_8,  scif_write_transmit, 8);
-        rio!(SCIF, SCFSR2,  scif_read_status, scif_write_status, 16);
+        rio!(SCIF, SCSMR2, read_data_16, write_data_16, 16);
+        rio!(SCIF, SCBRR2, read_data_8, write_data_8, 8);
+        rio!(SCIF, SCSCR2, read_data_16, write_data_16, 16);
+        rio!(SCIF, SCFTDR2, read_data_8, scif_write_transmit, 8);
+        rio!(SCIF, SCFSR2, scif_read_status, scif_write_status, 16);
         rio!(SCIF, SCFRDR2, scif_read_data, area7_read_only, 8);
-        rio!(SCIF, SCFCR2,  read_data_16, write_data_16, 16);
-        rio!(SCIF, SCFDR2,  scif_read_fifo_depth, area7_read_only, 16);
+        rio!(SCIF, SCFCR2, read_data_16, write_data_16, 16);
+        rio!(SCIF, SCFDR2, scif_read_fifo_depth, area7_read_only, 16);
         rio!(SCIF, SCSPTR2, read_data_16, write_data_16, 16);
-        rio!(SCIF, SCLSR2,  read_data_16, write_data_16, 16);
+        rio!(SCIF, SCLSR2, read_data_16, write_data_16, 16);
 
         /* TMU */
-        rio!(TMU, TOCR,  read_data_8,  write_data_8,  8);
-        rio!(TMU, TSTR,  read_data_8,  write_tmu_tstr, 8);
+        rio!(TMU, TOCR, read_data_8, write_data_8, 8);
+        rio!(TMU, TSTR, read_data_8, write_tmu_tstr, 8);
         rio!(TMU, TCOR0, read_data_32, write_data_32, 32);
         rio!(TMU, TCNT0, read_tmu_tcnt, write_tmu_tcnt, 32);
-        rio!(TMU, TCR0,  read_data_16, write_tmu_tcr, 16);
+        rio!(TMU, TCR0, read_data_16, write_tmu_tcr, 16);
         rio!(TMU, TCOR1, read_data_32, write_data_32, 32);
         rio!(TMU, TCNT1, read_tmu_tcnt, write_tmu_tcnt, 32);
-        rio!(TMU, TCR1,  read_data_16, write_tmu_tcr, 16);
+        rio!(TMU, TCR1, read_data_16, write_tmu_tcr, 16);
         rio!(TMU, TCOR2, read_data_32, write_data_32, 32);
         rio!(TMU, TCNT2, read_tmu_tcnt, write_tmu_tcnt, 32);
-        rio!(TMU, TCR2,  read_data_16, write_tmu_tcr, 16);
+        rio!(TMU, TCR2, read_data_16, write_tmu_tcr, 16);
         rio!(TMU, TCPR2, read_tmu_tcpr2, write_tmu_tcpr2, 32);
 
         /* DMAC */
-        rio!(DMAC, SAR0,    read_data_32, write_data_32, 32);
-        rio!(DMAC, DAR0,    read_data_32, write_data_32, 32);
+        rio!(DMAC, SAR0, read_data_32, write_data_32, 32);
+        rio!(DMAC, DAR0, read_data_32, write_data_32, 32);
         rio!(DMAC, DMATCR0, read_data_32, write_data_32, 32);
-        rio!(DMAC, CHCR0,   read_data_32, write_dmac_control, 32);
-        rio!(DMAC, SAR1,    read_data_32, write_data_32, 32);
-        rio!(DMAC, DAR1,    read_data_32, write_data_32, 32);
+        rio!(DMAC, CHCR0, read_data_32, write_dmac_control, 32);
+        rio!(DMAC, SAR1, read_data_32, write_data_32, 32);
+        rio!(DMAC, DAR1, read_data_32, write_data_32, 32);
         rio!(DMAC, DMATCR1, read_data_32, write_data_32, 32);
-        rio!(DMAC, CHCR1,   read_data_32, write_dmac_control, 32);
-        rio!(DMAC, SAR2,    read_data_32, write_data_32, 32);
-        rio!(DMAC, DAR2,    read_data_32, write_data_32, 32);
+        rio!(DMAC, CHCR1, read_data_32, write_dmac_control, 32);
+        rio!(DMAC, SAR2, read_data_32, write_data_32, 32);
+        rio!(DMAC, DAR2, read_data_32, write_data_32, 32);
         rio!(DMAC, DMATCR2, read_data_32, write_data_32, 32);
-        rio!(DMAC, CHCR2,   read_data_32, write_dmac_control, 32);
-        rio!(DMAC, SAR3,    read_data_32, write_data_32, 32);
-        rio!(DMAC, DAR3,    read_data_32, write_data_32, 32);
+        rio!(DMAC, CHCR2, read_data_32, write_dmac_control, 32);
+        rio!(DMAC, SAR3, read_data_32, write_data_32, 32);
+        rio!(DMAC, DAR3, read_data_32, write_data_32, 32);
         rio!(DMAC, DMATCR3, read_data_32, write_data_32, 32);
-        rio!(DMAC, CHCR3,   read_data_32, write_dmac_control, 32);
-        rio!(DMAC, DMAOR,   read_data_32, write_dmac_control, 32);
+        rio!(DMAC, CHCR3, read_data_32, write_dmac_control, 32);
+        rio!(DMAC, DMAOR, read_data_32, write_dmac_control, 32);
 
         /* CPG */
-        rio!(CPG, FRQCR,  read_data_16, write_data_16, 16);
-        rio!(CPG, STBCR,  read_data_8,  write_data_8,  8);
-        rio!(CPG, WTCNT,  read_data_16, write_data_16, 16);
-        rio!(CPG, WTCSR,  read_data_16, write_data_16, 16);
-        rio!(CPG, STBCR2, read_data_8,  write_data_8,  8);
+        rio!(CPG, FRQCR, read_data_16, write_data_16, 16);
+        rio!(CPG, STBCR, read_data_8, write_data_8, 8);
+        rio!(CPG, WTCNT, read_data_16, write_data_16, 16);
+        rio!(CPG, WTCSR, read_data_16, write_data_16, 16);
+        rio!(CPG, STBCR2, read_data_8, write_data_8, 8);
 
         /* CCN */
-        rio!(CCN, PTEH,   read_data_32, write_data_32, 32);
-        rio!(CCN, PTEL,   read_data_32, write_data_32, 32);
-        rio!(CCN, TTB,    read_data_32, write_data_32, 32);
-        rio!(CCN, TEA,    read_data_32, write_data_32, 32);
-        rio!(CCN, MMUCR,  read_data_32, write_ccn_mmucr, 32);
-        rio!(CCN, BASRA,  read_data_8,  write_data_8,  8);
-        rio!(CCN, BASRB,  read_data_8,  write_data_8,  8);
-        rio!(CCN, CCR,    read_data_32, write_ccn_ccr, 32);
-        rio!(CCN, TRA,    read_data_32, write_data_32, 32);
+        rio!(CCN, PTEH, read_data_32, write_data_32, 32);
+        rio!(CCN, PTEL, read_data_32, write_data_32, 32);
+        rio!(CCN, TTB, read_data_32, write_data_32, 32);
+        rio!(CCN, TEA, read_data_32, write_data_32, 32);
+        rio!(CCN, MMUCR, read_data_32, write_ccn_mmucr, 32);
+        rio!(CCN, BASRA, read_data_8, write_data_8, 8);
+        rio!(CCN, BASRB, read_data_8, write_data_8, 8);
+        rio!(CCN, CCR, read_data_32, write_ccn_ccr, 32);
+        rio!(CCN, TRA, read_data_32, write_data_32, 32);
         rio!(CCN, EXPEVT, read_data_32, write_data_32, 32);
         rio!(CCN, INTEVT, read_data_32, write_data_32, 32);
         rio!(CCN, CPU_VERSION, read_ccn_cpu_version, area7_read_only, 32);
-        rio!(CCN, PTEA,   read_data_32, write_data_32, 32);
-        rio!(CCN, QACR0,  read_data_32, write_ccn_qacr, 32);
-        rio!(CCN, QACR1,  read_data_32, write_ccn_qacr, 32);
-        rio!(CCN, PRR,    read_ccn_prr, area7_read_only, 32);
-
+        rio!(CCN, PTEA, read_data_32, write_data_32, 32);
+        rio!(CCN, QACR0, read_data_32, write_ccn_qacr, 32);
+        rio!(CCN, QACR1, read_data_32, write_ccn_qacr, 32);
+        rio!(CCN, PRR, read_ccn_prr, area7_read_only, 32);
     }
 }

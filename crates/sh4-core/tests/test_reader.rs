@@ -5,10 +5,10 @@ use std::path::Path;
 
 #[derive(Debug, Clone)]
 pub struct Sh4State {
-    pub r: [u32; 16],        // R0-R15
-    pub r_bank: [u32; 8],    // R_0-R_7
-    pub fp0: [u32; 16],      // FP bank 0
-    pub fp1: [u32; 16],      // FP bank 1
+    pub r: [u32; 16],     // R0-R15
+    pub r_bank: [u32; 8], // R_0-R_7
+    pub fp0: [u32; 16],   // FP bank 0
+    pub fp1: [u32; 16],   // FP bank 1
     pub pc: u32,
     pub gbr: u32,
     pub sr: u32,
@@ -43,17 +43,33 @@ pub struct Test {
 }
 
 fn read_u32_le(buf: &[u8], offset: usize) -> u32 {
-    u32::from_le_bytes([buf[offset], buf[offset + 1], buf[offset + 2], buf[offset + 3]])
+    u32::from_le_bytes([
+        buf[offset],
+        buf[offset + 1],
+        buf[offset + 2],
+        buf[offset + 3],
+    ])
 }
 
 fn read_i32_le(buf: &[u8], offset: usize) -> i32 {
-    i32::from_le_bytes([buf[offset], buf[offset + 1], buf[offset + 2], buf[offset + 3]])
+    i32::from_le_bytes([
+        buf[offset],
+        buf[offset + 1],
+        buf[offset + 2],
+        buf[offset + 3],
+    ])
 }
 
 fn read_u64_le(buf: &[u8], offset: usize) -> u64 {
     u64::from_le_bytes([
-        buf[offset], buf[offset + 1], buf[offset + 2], buf[offset + 3],
-        buf[offset + 4], buf[offset + 5], buf[offset + 6], buf[offset + 7]
+        buf[offset],
+        buf[offset + 1],
+        buf[offset + 2],
+        buf[offset + 3],
+        buf[offset + 4],
+        buf[offset + 5],
+        buf[offset + 6],
+        buf[offset + 7],
     ])
 }
 
@@ -106,18 +122,30 @@ fn load_state(buf: &[u8], ptr: usize) -> (usize, Sh4State) {
     }
 
     // Read remaining registers
-    state.pc = read_u32_le(buf, offset); offset += 4;
-    state.gbr = read_u32_le(buf, offset); offset += 4;
-    state.sr = read_u32_le(buf, offset); offset += 4;
-    state.ssr = read_u32_le(buf, offset); offset += 4;
-    state.spc = read_u32_le(buf, offset); offset += 4;
-    state.vbr = read_u32_le(buf, offset); offset += 4;
-    state.sgr = read_u32_le(buf, offset); offset += 4;
-    state.dbr = read_u32_le(buf, offset); offset += 4;
-    state.macl = read_u32_le(buf, offset); offset += 4;
-    state.mach = read_u32_le(buf, offset); offset += 4;
-    state.pr = read_u32_le(buf, offset); offset += 4;
-    state.fpscr = read_u32_le(buf, offset); offset += 4;
+    state.pc = read_u32_le(buf, offset);
+    offset += 4;
+    state.gbr = read_u32_le(buf, offset);
+    offset += 4;
+    state.sr = read_u32_le(buf, offset);
+    offset += 4;
+    state.ssr = read_u32_le(buf, offset);
+    offset += 4;
+    state.spc = read_u32_le(buf, offset);
+    offset += 4;
+    state.vbr = read_u32_le(buf, offset);
+    offset += 4;
+    state.sgr = read_u32_le(buf, offset);
+    offset += 4;
+    state.dbr = read_u32_le(buf, offset);
+    offset += 4;
+    state.macl = read_u32_le(buf, offset);
+    offset += 4;
+    state.mach = read_u32_le(buf, offset);
+    offset += 4;
+    state.pr = read_u32_le(buf, offset);
+    offset += 4;
+    state.fpscr = read_u32_le(buf, offset);
+    offset += 4;
     state.fpul = read_u32_le(buf, offset);
 
     (full_sz, state)
@@ -129,21 +157,52 @@ fn load_cycles(buf: &[u8], ptr: usize) -> (usize, Vec<Cycle>) {
     let mut cycles = Vec::new();
 
     for _ in 0..4 {
-        let actions = read_u32_le(buf, offset); offset += 4;
-        let fetch_addr = read_u32_le(buf, offset); offset += 4;
-        let fetch_val = read_u32_le(buf, offset); offset += 4;
-        let write_addr = read_u32_le(buf, offset); offset += 4;
-        let write_val = read_u64_le(buf, offset); offset += 8;
-        let read_addr = read_u32_le(buf, offset); offset += 4;  // Changed from u64 to u32
-        let read_val = read_u64_le(buf, offset); offset += 8;
+        let actions = read_u32_le(buf, offset);
+        offset += 4;
+        let fetch_addr = read_u32_le(buf, offset);
+        offset += 4;
+        let fetch_val = read_u32_le(buf, offset);
+        offset += 4;
+        let write_addr = read_u32_le(buf, offset);
+        offset += 4;
+        let write_val = read_u64_le(buf, offset);
+        offset += 8;
+        let read_addr = read_u32_le(buf, offset);
+        offset += 4; // Changed from u64 to u32
+        let read_val = read_u64_le(buf, offset);
+        offset += 8;
 
         let cycle = Cycle {
-            fetch_addr: if actions & 4 != 0 { Some(fetch_addr) } else { None },
-            fetch_val: if actions & 4 != 0 { Some(fetch_val) } else { None },
-            write_addr: if actions & 2 != 0 { Some(write_addr) } else { None },
-            write_val: if actions & 2 != 0 { Some(write_val) } else { None },
-            read_addr: if actions & 1 != 0 { Some(read_addr) } else { None },
-            read_val: if actions & 1 != 0 { Some(read_val) } else { None },
+            fetch_addr: if actions & 4 != 0 {
+                Some(fetch_addr)
+            } else {
+                None
+            },
+            fetch_val: if actions & 4 != 0 {
+                Some(fetch_val)
+            } else {
+                None
+            },
+            write_addr: if actions & 2 != 0 {
+                Some(write_addr)
+            } else {
+                None
+            },
+            write_val: if actions & 2 != 0 {
+                Some(write_val)
+            } else {
+                None
+            },
+            read_addr: if actions & 1 != 0 {
+                Some(read_addr)
+            } else {
+                None
+            },
+            read_val: if actions & 1 != 0 {
+                Some(read_val)
+            } else {
+                None
+            },
         };
 
         cycles.push(cycle);

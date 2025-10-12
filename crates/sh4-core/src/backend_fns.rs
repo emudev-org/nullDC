@@ -4,10 +4,10 @@ use super::Sh4Ctx;
 use super::backend_ipr;
 
 use core::{mem, ptr};
-use std::alloc::{alloc, dealloc, realloc, handle_alloc_error, Layout};
 use paste::paste;
 use seq_macro::seq;
-use std::ptr::{ addr_of_mut };
+use std::alloc::{Layout, alloc, dealloc, handle_alloc_error, realloc};
+use std::ptr::addr_of_mut;
 /* ------------------------------ Types ------------------------------ */
 
 /// Handler receives pointer just after the stored handler ptr, returns pointer
@@ -17,9 +17,9 @@ pub type Handler = unsafe extern "C" fn(data_ptr: *const u8) -> *const u8;
 /* --------------------- Global, NOT thread-safe --------------------- */
 
 static mut START: *mut u8 = ptr::null_mut();
-static mut CUR:   *mut u8 = ptr::null_mut();
-static mut END:   *mut u8 = ptr::null_mut();
-static mut CAP:   usize = 0;
+static mut CUR: *mut u8 = ptr::null_mut();
+static mut END: *mut u8 = ptr::null_mut();
+static mut CAP: usize = 0;
 static mut STEPS: usize = 0;
 
 /// Required buffer alignment for the whole allocation.
@@ -65,12 +65,14 @@ pub unsafe fn dec_start(initial_capacity_bytes: usize) {
         let cap = initial_capacity_bytes.max(64);
         let layout = layout_for(cap);
         let p = alloc(layout);
-        if p.is_null() { handle_alloc_error(layout) }
+        if p.is_null() {
+            handle_alloc_error(layout)
+        }
         STEPS = 0;
         START = p;
-        CUR   = p;
-        END   = p.add(cap);
-        CAP   = cap;
+        CUR = p;
+        END = p.add(cap);
+        CAP = cap;
     }
 }
 
@@ -100,13 +102,15 @@ pub unsafe fn dec_finalize_shrink() -> (*const u8, usize) {
             START
         } else {
             let p = realloc(START, old_layout, used);
-            if p.is_null() { handle_alloc_error(new_layout) }
+            if p.is_null() {
+                handle_alloc_error(new_layout)
+            }
             p
         };
         START = ptr::null_mut();
-        CUR   = ptr::null_mut();
-        END   = ptr::null_mut();
-        CAP   = 0;
+        CUR = ptr::null_mut();
+        END = ptr::null_mut();
+        CAP = 0;
         (new_ptr, used)
     }
 }
@@ -134,7 +138,11 @@ unsafe fn emit_record(h: Handler) -> *mut u8 {
 }
 
 #[inline(always)]
-unsafe fn emit_arg<T: Copy>(v: T) { unsafe { let _ = write_seq::<T>(v); } }
+unsafe fn emit_arg<T: Copy>(v: T) {
+    unsafe {
+        let _ = write_seq::<T>(v);
+    }
+}
 
 /* ----------------------------- Execution API ----------------------------- */
 
@@ -180,7 +188,6 @@ pub static EXECUTORS: [Handler; 24] = seq!(N in 1..=24 {
     ]
 });
 
-
 pub fn dec_patch_dispatcher() {
     unsafe {
         assert!(STEPS > 0, "Too few steps");
@@ -188,7 +195,7 @@ pub fn dec_patch_dispatcher() {
 
         let old_cur = CUR;
         CUR = START;
-        write_seq::<Handler>(EXECUTORS[STEPS-1]);
+        write_seq::<Handler>(EXECUTORS[STEPS - 1]);
         CUR = old_cur;
     }
 }
@@ -292,7 +299,13 @@ pub fn sh4_branch_cond(ctx: *mut Sh4Ctx, t: *const u32, condition: u32, next: u3
 }
 
 #[inline(always)]
-pub fn sh4_branch_cond_delay(ctx: *mut Sh4Ctx, t: *const u32, condition: u32, next: u32, target: u32) {
+pub fn sh4_branch_cond_delay(
+    ctx: *mut Sh4Ctx,
+    t: *const u32,
+    condition: u32,
+    next: u32,
+    target: u32,
+) {
     unsafe {
         sh4_store32(addr_of_mut!((*ctx).virt_jdyn), t);
 
@@ -481,4 +494,3 @@ define_op!(sh4_ftrv (fr: *mut f32, xf: *const f32));
 
 define_op!(sh4_mac_w_mul (mac_full: *mut u64, temp0: *const u32, temp1: *const u32));
 define_op!(sh4_mac_l_mul (mac_full: *mut u64, temp0: *const u32, temp1: *const u32));
-

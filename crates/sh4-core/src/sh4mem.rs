@@ -15,22 +15,37 @@ pub trait MemoryData: sealed::IntType + Copy + Default + std::fmt::LowerHex {
 }
 
 impl MemoryData for u8 {
-    fn from_u32(v: u32) -> Self { v as u8 }
-    fn to_u32(self) -> u32 { self as u32 }
+    fn from_u32(v: u32) -> Self {
+        v as u8
+    }
+    fn to_u32(self) -> u32 {
+        self as u32
+    }
 }
 impl MemoryData for u16 {
-    fn from_u32(v: u32) -> Self { v as u16 }
-    fn to_u32(self) -> u32 { self as u32 }
+    fn from_u32(v: u32) -> Self {
+        v as u16
+    }
+    fn to_u32(self) -> u32 {
+        self as u32
+    }
 }
 impl MemoryData for u32 {
-    fn from_u32(v: u32) -> Self { v }
-    fn to_u32(self) -> u32 { self as u32 }
+    fn from_u32(v: u32) -> Self {
+        v
+    }
+    fn to_u32(self) -> u32 {
+        self as u32
+    }
 }
 impl MemoryData for u64 {
-    fn from_u32(v: u32) -> Self { v as u64 }
-    fn to_u32(self) -> u32 { self as u32 }
+    fn from_u32(v: u32) -> Self {
+        v as u64
+    }
+    fn to_u32(self) -> u32 {
+        self as u32
+    }
 }
-
 
 pub const MAX_MEMHANDLERS: usize = 256;
 
@@ -110,5 +125,3 @@ pub fn write_mem<T: Copy>(ctx: *mut Sh4Ctx, addr: u32, data: T) -> bool {
         true
     }
 }
-
-

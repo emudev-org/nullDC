@@ -39,7 +39,21 @@ impl AsicState {
     }
 
     fn handles(&self, addr: u32) -> bool {
-        matches!(addr, SB_ISTNRM | SB_ISTEXT | SB_ISTERR | SB_IML2NRM | SB_IML2EXT | SB_IML2ERR | SB_IML4NRM | SB_IML4EXT | SB_IML4ERR | SB_IML6NRM | SB_IML6EXT | SB_IML6ERR)
+        matches!(
+            addr,
+            SB_ISTNRM
+                | SB_ISTEXT
+                | SB_ISTERR
+                | SB_IML2NRM
+                | SB_IML2EXT
+                | SB_IML2ERR
+                | SB_IML4NRM
+                | SB_IML4EXT
+                | SB_IML4ERR
+                | SB_IML6NRM
+                | SB_IML6EXT
+                | SB_IML6ERR
+        )
     }
 
     fn read(&self, addr: u32) -> u32 {

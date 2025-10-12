@@ -1,9 +1,9 @@
 // SingleStepTests integration test
-use sh4_core::{Sh4Ctx, sh4_ipr_dispatcher, MemHandlers};
-use sh4_core::sh4dec::{format_disas, SH4DecoderState};
+use sh4_core::sh4dec::{SH4DecoderState, format_disas};
+use sh4_core::{MemHandlers, Sh4Ctx, sh4_ipr_dispatcher};
 
 mod test_reader;
-use test_reader::{load_test_file, Sh4State};
+use test_reader::{Sh4State, load_test_file};
 
 // Memory operation expectation
 #[derive(Debug, Clone)]
@@ -73,7 +73,12 @@ impl TestMemory {
 
         // Special case for 16-bit reads: check if this matches an expectation
         if size == 16 && idx < self.expectations.len() {
-            if let MemOp::Read { size: exp_size, addr: exp_addr, value } = self.expectations[idx] {
+            if let MemOp::Read {
+                size: exp_size,
+                addr: exp_addr,
+                value,
+            } = self.expectations[idx]
+            {
                 // Match if it's an instruction fetch (size 16) or data read (size 64) at correct address
                 if exp_addr == addr && (exp_size == 16 || exp_size == 64) {
                     self.expectation_index.set(idx + 1);
@@ -86,23 +91,34 @@ impl TestMemory {
 
         // For non-16-bit reads, must match expectations
         if idx >= self.expectations.len() {
-            self.set_error(format!("Unexpected read{} at 0x{:08X}: no more expectations", size, addr));
+            self.set_error(format!(
+                "Unexpected read{} at 0x{:08X}: no more expectations",
+                size, addr
+            ));
             return 0;
         }
 
         match self.expectations[idx] {
-            MemOp::Read { size: _exp_size, addr: exp_addr, value } => {
+            MemOp::Read {
+                size: _exp_size,
+                addr: exp_addr,
+                value,
+            } => {
                 if exp_addr != addr {
-                    self.set_error(format!("Read{} address mismatch: expected 0x{:08X}, got 0x{:08X}",
-                        size, exp_addr, addr));
+                    self.set_error(format!(
+                        "Read{} address mismatch: expected 0x{:08X}, got 0x{:08X}",
+                        size, exp_addr, addr
+                    ));
                     return 0;
                 }
                 self.expectation_index.set(idx + 1);
                 value
             }
             MemOp::Write { addr: exp_addr, .. } => {
-                self.set_error(format!("Expected write at 0x{:08X}, but got read{} at 0x{:08X}",
-                    exp_addr, size, addr));
+                self.set_error(format!(
+                    "Expected write at 0x{:08X}, but got read{} at 0x{:08X}",
+                    exp_addr, size, addr
+                ));
                 0
             }
         }
@@ -116,16 +132,24 @@ impl TestMemory {
         let idx = self.expectation_index.get();
 
         if idx >= self.expectations.len() {
-            self.set_error(format!("Unexpected write{} at 0x{:08X} = 0x{:X}: no more expectations",
-                size, addr, value));
+            self.set_error(format!(
+                "Unexpected write{} at 0x{:08X} = 0x{:X}: no more expectations",
+                size, addr, value
+            ));
             return;
         }
 
         match self.expectations[idx] {
-            MemOp::Write { size: _exp_size, addr: exp_addr, value: exp_value } => {
+            MemOp::Write {
+                size: _exp_size,
+                addr: exp_addr,
+                value: exp_value,
+            } => {
                 if exp_addr != addr {
-                    self.set_error(format!("Write{} address mismatch: expected 0x{:08X}, got 0x{:08X}",
-                        size, exp_addr, addr));
+                    self.set_error(format!(
+                        "Write{} address mismatch: expected 0x{:08X}, got 0x{:08X}",
+                        size, exp_addr, addr
+                    ));
                     return;
                 }
 
@@ -144,16 +168,20 @@ impl TestMemory {
                 let actual = value & mask;
 
                 if actual != expected {
-                    self.set_error(format!("Write{} value mismatch at 0x{:08X}: expected 0x{:X}, got 0x{:X}",
-                        size, addr, expected, actual));
+                    self.set_error(format!(
+                        "Write{} value mismatch at 0x{:08X}: expected 0x{:X}, got 0x{:X}",
+                        size, addr, expected, actual
+                    ));
                     return;
                 }
 
                 self.expectation_index.set(idx + 1);
             }
             MemOp::Read { addr: exp_addr, .. } => {
-                self.set_error(format!("Expected read at 0x{:08X}, but got write{} at 0x{:08X}",
-                    exp_addr, size, addr));
+                self.set_error(format!(
+                    "Expected read at 0x{:08X}, but got write{} at 0x{:08X}",
+                    exp_addr, size, addr
+                ));
             }
         }
     }
@@ -258,10 +286,15 @@ fn load_state_into_ctx(ctx: &mut Sh4Ctx, state: &Sh4State) {
 
         // Now use the special store functions to set the correct values
         // This will trigger bank switches if needed
-        use sh4_core::backend_ipr::{sh4_store_sr_rest, sh4_store_fpscr};
+        use sh4_core::backend_ipr::{sh4_store_fpscr, sh4_store_sr_rest};
         ctx.sr_t = state.sr & 1;
         sh4_store_sr_rest(&mut ctx.sr.0, &state.sr, &mut ctx.r[0], &mut ctx.r_bank[0]);
-        sh4_store_fpscr(&mut ctx.fpscr.0, &state.fpscr, &mut ctx.fr.u32s[0], &mut ctx.xf.u32s[0]);
+        sh4_store_fpscr(
+            &mut ctx.fpscr.0,
+            &state.fpscr,
+            &mut ctx.fr.u32s[0],
+            &mut ctx.xf.u32s[0],
+        );
 
         // NOW load registers - they will go into whichever banks are currently active
         ctx.r.copy_from_slice(&state.r);
@@ -322,10 +355,11 @@ fn compare_floats(mine: f32, theirs: f32) -> bool {
     }
 
     // Special cases from the README
-    if (mydata == 0x7F800000 && theirdata == 0xFF7FFFFF) ||
-       (mydata == 0x36865c49 && theirdata == 0xb1e2c629) ||
-       (mydata == 0x7ff84903 && theirdata == 0x7fc00000) ||
-       (mydata == 0xff800000 && theirdata == 0x7F7FFFFF) {
+    if (mydata == 0x7F800000 && theirdata == 0xFF7FFFFF)
+        || (mydata == 0x36865c49 && theirdata == 0xb1e2c629)
+        || (mydata == 0x7ff84903 && theirdata == 0x7fc00000)
+        || (mydata == 0xff800000 && theirdata == 0x7F7FFFFF)
+    {
         return true;
     }
 
@@ -338,16 +372,20 @@ fn compare_states(ctx: &Sh4Ctx, expected: &Sh4State, initial: &Sh4State) -> Resu
     // Compare general registers R0-R15
     for i in 0..16 {
         if ctx.r[i] != expected.r[i] {
-            errors.push(format!("R{} mismatch: got 0x{:08X}, expected 0x{:08X} (initial: 0x{:08X})",
-                i, ctx.r[i], expected.r[i], initial.r[i]));
+            errors.push(format!(
+                "R{} mismatch: got 0x{:08X}, expected 0x{:08X} (initial: 0x{:08X})",
+                i, ctx.r[i], expected.r[i], initial.r[i]
+            ));
         }
     }
 
     // Compare banked registers R_0-R_7
     for i in 0..8 {
         if ctx.r_bank[i] != expected.r_bank[i] {
-            errors.push(format!("R_{}bank mismatch: got 0x{:08X}, expected 0x{:08X} (initial: 0x{:08X})",
-                i, ctx.r_bank[i], expected.r_bank[i], initial.r_bank[i]));
+            errors.push(format!(
+                "R_{}bank mismatch: got 0x{:08X}, expected 0x{:08X} (initial: 0x{:08X})",
+                i, ctx.r_bank[i], expected.r_bank[i], initial.r_bank[i]
+            ));
         }
     }
 
@@ -357,8 +395,10 @@ fn compare_states(ctx: &Sh4Ctx, expected: &Sh4State, initial: &Sh4State) -> Resu
             let mine = f32::from_bits(ctx.fr.u32s[i]);
             let theirs = f32::from_bits(expected.fp0[i]);
             if !compare_floats(mine, theirs) {
-                errors.push(format!("FP0[{}] mismatch: got 0x{:08X} ({:?}), expected 0x{:08X} ({:?})",
-                    i, ctx.fr.u32s[i], mine, expected.fp0[i], theirs));
+                errors.push(format!(
+                    "FP0[{}] mismatch: got 0x{:08X} ({:?}), expected 0x{:08X} ({:?})",
+                    i, ctx.fr.u32s[i], mine, expected.fp0[i], theirs
+                ));
             }
         }
 
@@ -367,70 +407,111 @@ fn compare_states(ctx: &Sh4Ctx, expected: &Sh4State, initial: &Sh4State) -> Resu
             let mine = f32::from_bits(ctx.xf.u32s[i]);
             let theirs = f32::from_bits(expected.fp1[i]);
             if !compare_floats(mine, theirs) {
-                errors.push(format!("FP1[{}] mismatch: got 0x{:08X} ({:?}), expected 0x{:08X} ({:?})",
-                    i, ctx.xf.u32s[i], mine, expected.fp1[i], theirs));
+                errors.push(format!(
+                    "FP1[{}] mismatch: got 0x{:08X} ({:?}), expected 0x{:08X} ({:?})",
+                    i, ctx.xf.u32s[i], mine, expected.fp1[i], theirs
+                ));
             }
         }
     }
 
     // Compare PC (use pc0 which should have the final PC after execution)
     if ctx.pc0 != expected.pc {
-        errors.push(format!("PC mismatch: got 0x{:08X}, expected 0x{:08X}", ctx.pc0, expected.pc));
+        errors.push(format!(
+            "PC mismatch: got 0x{:08X}, expected 0x{:08X}",
+            ctx.pc0, expected.pc
+        ));
     }
 
     // Compare control registers
     if ctx.gbr != expected.gbr {
-        errors.push(format!("GBR mismatch: got 0x{:08X}, expected 0x{:08X}", ctx.gbr, expected.gbr));
+        errors.push(format!(
+            "GBR mismatch: got 0x{:08X}, expected 0x{:08X}",
+            ctx.gbr, expected.gbr
+        ));
     }
 
     // Compare SR - reconstruct from sr.0 and sr_t
     let ctx_sr = ctx.sr.0 | ctx.sr_t;
     if ctx_sr != expected.sr {
-        errors.push(format!("SR mismatch: got 0x{:08X}, expected 0x{:08X}", ctx_sr, expected.sr));
+        errors.push(format!(
+            "SR mismatch: got 0x{:08X}, expected 0x{:08X}",
+            ctx_sr, expected.sr
+        ));
     }
 
     if ctx.ssr != expected.ssr {
-        errors.push(format!("SSR mismatch: got 0x{:08X}, expected 0x{:08X}", ctx.ssr, expected.ssr));
+        errors.push(format!(
+            "SSR mismatch: got 0x{:08X}, expected 0x{:08X}",
+            ctx.ssr, expected.ssr
+        ));
     }
 
     if ctx.spc != expected.spc {
-        errors.push(format!("SPC mismatch: got 0x{:08X}, expected 0x{:08X}", ctx.spc, expected.spc));
+        errors.push(format!(
+            "SPC mismatch: got 0x{:08X}, expected 0x{:08X}",
+            ctx.spc, expected.spc
+        ));
     }
 
     if ctx.vbr != expected.vbr {
-        errors.push(format!("VBR mismatch: got 0x{:08X}, expected 0x{:08X}", ctx.vbr, expected.vbr));
+        errors.push(format!(
+            "VBR mismatch: got 0x{:08X}, expected 0x{:08X}",
+            ctx.vbr, expected.vbr
+        ));
     }
 
     if ctx.sgr != expected.sgr {
-        errors.push(format!("SGR mismatch: got 0x{:08X}, expected 0x{:08X}", ctx.sgr, expected.sgr));
+        errors.push(format!(
+            "SGR mismatch: got 0x{:08X}, expected 0x{:08X}",
+            ctx.sgr, expected.sgr
+        ));
     }
 
     if ctx.dbr != expected.dbr {
-        errors.push(format!("DBR mismatch: got 0x{:08X}, expected 0x{:08X}", ctx.dbr, expected.dbr));
+        errors.push(format!(
+            "DBR mismatch: got 0x{:08X}, expected 0x{:08X}",
+            ctx.dbr, expected.dbr
+        ));
     }
 
     // Compare MAC registers
     unsafe {
         if ctx.mac.parts.l != expected.macl {
-            errors.push(format!("MACL mismatch: got 0x{:08X}, expected 0x{:08X}", ctx.mac.parts.l, expected.macl));
+            errors.push(format!(
+                "MACL mismatch: got 0x{:08X}, expected 0x{:08X}",
+                ctx.mac.parts.l, expected.macl
+            ));
         }
         if ctx.mac.parts.h != expected.mach {
-            errors.push(format!("MACH mismatch: got 0x{:08X}, expected 0x{:08X}", ctx.mac.parts.h, expected.mach));
+            errors.push(format!(
+                "MACH mismatch: got 0x{:08X}, expected 0x{:08X}",
+                ctx.mac.parts.h, expected.mach
+            ));
         }
     }
 
     if ctx.pr != expected.pr {
-        errors.push(format!("PR mismatch: got 0x{:08X}, expected 0x{:08X}", ctx.pr, expected.pr));
+        errors.push(format!(
+            "PR mismatch: got 0x{:08X}, expected 0x{:08X}",
+            ctx.pr, expected.pr
+        ));
     }
 
     // Compare FPSCR
     if ctx.fpscr.0 != expected.fpscr {
-        errors.push(format!("FPSCR mismatch: got 0x{:08X}, expected 0x{:08X}", ctx.fpscr.0, expected.fpscr));
+        errors.push(format!(
+            "FPSCR mismatch: got 0x{:08X}, expected 0x{:08X}",
+            ctx.fpscr.0, expected.fpscr
+        ));
     }
 
     // Compare FPUL
     if ctx.fpul != expected.fpul {
-        errors.push(format!("FPUL mismatch: got 0x{:08X}, expected 0x{:08X}", ctx.fpul, expected.fpul));
+        errors.push(format!(
+            "FPUL mismatch: got 0x{:08X}, expected 0x{:08X}",
+            ctx.fpul, expected.fpul
+        ));
     }
 
     if errors.is_empty() {
@@ -459,9 +540,7 @@ fn test_load_single_instruction() {
 // Helper to extract opcode pattern from test file path and convert to u16
 // E.g., "0000mmmm00000011_sz0_pr0.json.bin" -> binary pattern with wildcards as 0
 fn parse_opcode_pattern_from_path(test_path: &str) -> Option<(u16, String)> {
-    let file_name = std::path::Path::new(test_path)
-        .file_name()?
-        .to_str()?;
+    let file_name = std::path::Path::new(test_path).file_name()?.to_str()?;
 
     // Extract the pattern part before the first underscore or .json
     let pattern = file_name.split('_').next()?;
@@ -579,7 +658,10 @@ fn run_test_file(test_path: &str) {
                     println!("  Pattern: {} -> {}", pattern, disasm);
                 }
 
-                println!("  PC: 0x{:08X} -> 0x{:08X}", test.initial.pc, test.final_state.pc);
+                println!(
+                    "  PC: 0x{:08X} -> 0x{:08X}",
+                    test.initial.pc, test.final_state.pc
+                );
                 failed += 1;
                 if failed >= 10 {
                     println!("Stopping after 10 failures");
@@ -589,8 +671,12 @@ fn run_test_file(test_path: &str) {
         }
     }
 
-    println!("\nTest results: {} passed, {} failed out of {} total",
-             passed, failed, tests.len());
+    println!(
+        "\nTest results: {} passed, {} failed out of {} total",
+        passed,
+        failed,
+        tests.len()
+    );
 
     if failed > 0 {
         // Generate a helpful error message with disassembly
@@ -601,7 +687,10 @@ fn run_test_file(test_path: &str) {
                 fpscr_SZ: test_path.contains("_sz1"),
             };
             let disasm = format_disas(decoder_state, opcode);
-            format!("{} tests failed - Pattern: {} -> {}", failed, pattern, disasm)
+            format!(
+                "{} tests failed - Pattern: {} -> {}",
+                failed, pattern, disasm
+            )
         } else {
             format!("{} tests failed", failed)
         };

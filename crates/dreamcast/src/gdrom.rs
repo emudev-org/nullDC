@@ -181,7 +181,8 @@ impl Gdrom {
                 self.regs.byte_count = (self.regs.byte_count & 0xFF00) | ((narrowed as u8) as u16);
             }
             REG_BYTE_COUNT_HIGH => {
-                self.regs.byte_count = (self.regs.byte_count & 0x00FF) | (((narrowed as u8) as u16) << 8);
+                self.regs.byte_count =
+                    (self.regs.byte_count & 0x00FF) | (((narrowed as u8) as u16) << 8);
             }
             REG_DRV_SEL => self.regs.drv_sel = narrowed as u8,
             REG_COMMAND => self.write_command(narrowed as u8),
@@ -338,7 +339,11 @@ impl Gdrom {
 
     fn cmd_request_status(&mut self) {
         let mut data = [0u8; 8];
-        data[0] = if self.image.disc_present() { 0x00 } else { 0x02 };
+        data[0] = if self.image.disc_present() {
+            0x00
+        } else {
+            0x02
+        };
         data[1] = self.sense_key;
         data[2] = self.sense_code;
         data[3] = self.sense_qual;
@@ -394,7 +399,11 @@ impl Gdrom {
         let sector_count = ((self.packet[8] as u32) << 16)
             | ((self.packet[9] as u32) << 8)
             | (self.packet[10] as u32);
-        let blocks = if sector_count == 0 { 0x10000 } else { sector_count };
+        let blocks = if sector_count == 0 {
+            0x10000
+        } else {
+            sector_count
+        };
         let bytes = (blocks as usize).saturating_mul(2048);
         let length = bytes.min(MAX_TRANSFER_BYTES).max(2048);
         println!(

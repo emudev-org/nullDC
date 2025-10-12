@@ -1,12 +1,12 @@
+use axum::extract::ws::{Message, WebSocket};
+use futures::SinkExt;
+use futures::stream::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
-use sha2::{Digest, Sha256};
-use axum::extract::ws::{Message, WebSocket};
-use futures::stream::StreamExt;
-use futures::SinkExt;
 
 const JSON_RPC_VERSION: &str = "2.0";
 
@@ -192,16 +192,34 @@ impl ServerState {
         register_values.insert("dc.sh4.vbr".to_string(), "0x8C000000".to_string());
         register_values.insert("dc.sh4.sr".to_string(), "0x40000000".to_string());
         register_values.insert("dc.sh4.fpscr".to_string(), "0x00040001".to_string());
-        register_values.insert("dc.sh4.icache.icache_ctrl".to_string(), "0x00000003".to_string());
-        register_values.insert("dc.sh4.dcache.dcache_ctrl".to_string(), "0x00000003".to_string());
+        register_values.insert(
+            "dc.sh4.icache.icache_ctrl".to_string(),
+            "0x00000003".to_string(),
+        );
+        register_values.insert(
+            "dc.sh4.dcache.dcache_ctrl".to_string(),
+            "0x00000003".to_string(),
+        );
         register_values.insert("dc.holly.holly_id".to_string(), "0x00050000".to_string());
         register_values.insert("dc.holly.dmac_ctrl".to_string(), "0x00000001".to_string());
         register_values.insert("dc.holly.dmac.dmaor".to_string(), "0x8201".to_string());
         register_values.insert("dc.holly.dmac.chcr0".to_string(), "0x00000001".to_string());
-        register_values.insert("dc.holly.ta.ta_list_base".to_string(), "0x0C000000".to_string());
-        register_values.insert("dc.holly.ta.ta_status".to_string(), "0x00000000".to_string());
-        register_values.insert("dc.holly.core.pvr_ctrl".to_string(), "0x00000001".to_string());
-        register_values.insert("dc.holly.core.pvr_status".to_string(), "0x00010000".to_string());
+        register_values.insert(
+            "dc.holly.ta.ta_list_base".to_string(),
+            "0x0C000000".to_string(),
+        );
+        register_values.insert(
+            "dc.holly.ta.ta_status".to_string(),
+            "0x00000000".to_string(),
+        );
+        register_values.insert(
+            "dc.holly.core.pvr_ctrl".to_string(),
+            "0x00000001".to_string(),
+        );
+        register_values.insert(
+            "dc.holly.core.pvr_status".to_string(),
+            "0x00010000".to_string(),
+        );
         register_values.insert("dc.aica.aica_ctrl".to_string(), "0x00000002".to_string());
         register_values.insert("dc.aica.aica_status".to_string(), "0x00000001".to_string());
         register_values.insert("dc.aica.arm7.pc".to_string(), "0x00200010".to_string());
@@ -217,10 +235,13 @@ impl ServerState {
         let default_expressions = vec!["dc.sh4.cpu.pc", "dc.sh4.dmac.dmaor"];
         let mut next_watch_id = 1;
         for expr in default_expressions {
-            watches.insert(next_watch_id, ServerWatch {
-                id: next_watch_id,
-                expression: expr.to_string(),
-            });
+            watches.insert(
+                next_watch_id,
+                ServerWatch {
+                    id: next_watch_id,
+                    expression: expr.to_string(),
+                },
+            );
             next_watch_id += 1;
         }
 
@@ -241,16 +262,14 @@ impl ServerState {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_millis() as u64;
-        let event_log = vec![
-            EventLogEntry {
-                event_id: "1".to_string(),
-                timestamp,
-                subsystem: "sh4".to_string(),
-                severity: "info".to_string(),
-                message: "SH4 initialized".to_string(),
-                metadata: None,
-            },
-        ];
+        let event_log = vec![EventLogEntry {
+            event_id: "1".to_string(),
+            timestamp,
+            subsystem: "sh4".to_string(),
+            severity: "info".to_string(),
+            message: "SH4 initialized".to_string(),
+            metadata: None,
+        }];
 
         Self {
             breakpoints: Arc::new(Mutex::new(HashMap::new())),
@@ -445,7 +464,8 @@ impl ServerState {
                                 for i in 0..16 {
                                     regs.push(RegisterValue {
                                         name: format!("R{}", i),
-                                        value: self.get_register_value("dc.sh4.cpu", &format!("R{}", i)),
+                                        value: self
+                                            .get_register_value("dc.sh4.cpu", &format!("R{}", i)),
                                         width: 32,
                                         flags: None,
                                         metadata: None,
@@ -625,10 +645,22 @@ fn generate_disassembly(target: &str, address: u64, count: usize) -> Vec<Disasse
 
     let arm7_instructions: Vec<(&str, OperandFn, u64)> = vec![
         ("mov", |r1, _, _, val, _| format!("r{}, #{}", r1, val), 4),
-        ("ldr", |r1, r2, _, _, offset| format!("r{}, [r{}, #{}]", r1, r2, offset), 4),
+        (
+            "ldr",
+            |r1, r2, _, _, offset| format!("r{}, [r{}, #{}]", r1, r2, offset),
+            4,
+        ),
         ("str", |r1, r2, _, _, _| format!("r{}, [r{}]", r1, r2), 4),
-        ("add", |r1, r2, r3, _, _| format!("r{}, r{}, r{}", r1, r2, r3), 4),
-        ("sub", |r1, r2, r3, _, _| format!("r{}, r{}, r{}", r1, r2, r3), 4),
+        (
+            "add",
+            |r1, r2, r3, _, _| format!("r{}, r{}, r{}", r1, r2, r3),
+            4,
+        ),
+        (
+            "sub",
+            |r1, r2, r3, _, _| format!("r{}, r{}, r{}", r1, r2, r3),
+            4,
+        ),
         ("bx", |r, _, _, _, _| format!("r{}", r), 4),
         ("bl", |_, _, _, _, offset| format!("0x{:x}", offset), 4),
         ("nop", |_, _, _, _, _| String::new(), 4),
@@ -774,11 +806,14 @@ fn handle_request(
                 let disasm_lines = nulldc::dreamcast::disassemble_sh4(dreamcast, address, count);
 
                 // Convert to JSON-compatible format
-                disasm_lines.into_iter().map(|line| DisassemblyLine {
-                    address: line.address,
-                    bytes: line.bytes,
-                    disassembly: line.disassembly,
-                }).collect::<Vec<_>>()
+                disasm_lines
+                    .into_iter()
+                    .map(|line| DisassemblyLine {
+                        address: line.address,
+                        bytes: line.bytes,
+                        disassembly: line.disassembly,
+                    })
+                    .collect::<Vec<_>>()
             } else {
                 // Fall back to mock data
                 generate_disassembly(target, address, count)
@@ -818,7 +853,13 @@ fn handle_request(
 
             for expr in expressions {
                 let id = *next_id;
-                watches.insert(id, ServerWatch { id, expression: expr });
+                watches.insert(
+                    id,
+                    ServerWatch {
+                        id,
+                        expression: expr,
+                    },
+                );
                 *next_id += 1;
             }
 
@@ -924,7 +965,11 @@ fn handle_request(
                             let offset = pc - base;
                             let new_offset = (offset + 2) % 16;
                             let new_pc = base + new_offset;
-                            state.set_register_value("dc.sh4.cpu", "PC", format!("0x{:08X}", new_pc));
+                            state.set_register_value(
+                                "dc.sh4.cpu",
+                                "PC",
+                                format!("0x{:08X}", new_pc),
+                            );
                         }
                     }
                 }
@@ -1008,10 +1053,8 @@ fn handle_request(
                         state_value["muted"].as_bool(),
                         state_value["soloed"].as_bool(),
                     ) {
-                        category_states.insert(
-                            category.clone(),
-                            BreakpointCategoryState { muted, soloed },
-                        );
+                        category_states
+                            .insert(category.clone(), BreakpointCategoryState { muted, soloed });
                     }
                 }
             }
@@ -1058,14 +1101,16 @@ pub async fn handle_websocket_connection(socket: WebSocket, dreamcast_ptr: usize
                                 let device_tree = state.build_device_tree();
                                 let all_registers = collect_registers_from_tree(&device_tree);
 
-                                let mut registers_by_id: HashMap<String, Vec<RegisterValue>> = HashMap::new();
+                                let mut registers_by_id: HashMap<String, Vec<RegisterValue>> =
+                                    HashMap::new();
                                 for (path, registers) in all_registers {
                                     registers_by_id.insert(path, registers);
                                 }
 
                                 // Override with actual register values from emulator if available
                                 if dreamcast_ptr != 0 {
-                                    let dreamcast = dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
+                                    let dreamcast =
+                                        dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
                                     let sh4_registers = vec![
                                         ("PC", 32),
                                         ("PR", 32),
@@ -1080,7 +1125,9 @@ pub async fn handle_websocket_connection(socket: WebSocket, dreamcast_ptr: usize
 
                                     let mut cpu_regs = Vec::new();
                                     for (name, width) in &sh4_registers {
-                                        if let Some(value) = nulldc::dreamcast::get_sh4_register(dreamcast, name) {
+                                        if let Some(value) =
+                                            nulldc::dreamcast::get_sh4_register(dreamcast, name)
+                                        {
                                             cpu_regs.push(RegisterValue {
                                                 name: name.to_string(),
                                                 value: format!("0x{:08X}", value),
@@ -1094,7 +1141,9 @@ pub async fn handle_websocket_connection(socket: WebSocket, dreamcast_ptr: usize
                                     // Add general purpose registers R0-R15
                                     for i in 0..16 {
                                         let reg_name = format!("R{}", i);
-                                        if let Some(value) = nulldc::dreamcast::get_sh4_register(dreamcast, &reg_name) {
+                                        if let Some(value) = nulldc::dreamcast::get_sh4_register(
+                                            dreamcast, &reg_name,
+                                        ) {
                                             cpu_regs.push(RegisterValue {
                                                 name: reg_name,
                                                 value: format!("0x{:08X}", value),
@@ -1108,7 +1157,8 @@ pub async fn handle_websocket_connection(socket: WebSocket, dreamcast_ptr: usize
                                     registers_by_id.insert("dc.sh4.cpu".to_string(), cpu_regs);
                                 }
 
-                                let mut breakpoints_by_id: HashMap<String, BreakpointDescriptor> = HashMap::new();
+                                let mut breakpoints_by_id: HashMap<String, BreakpointDescriptor> =
+                                    HashMap::new();
                                 for (id, bp) in state.breakpoints.lock().unwrap().iter() {
                                     breakpoints_by_id.insert(id.to_string(), bp.clone());
                                 }
@@ -1121,15 +1171,20 @@ pub async fn handle_websocket_connection(socket: WebSocket, dreamcast_ptr: usize
                                     .map(|w| WatchDescriptor {
                                         id: w.id,
                                         expression: w.expression.clone(),
-                                        value: json!(state.evaluate_watch_expression(dreamcast_ptr, &w.expression)),
+                                        value: json!(state.evaluate_watch_expression(
+                                            dreamcast_ptr,
+                                            &w.expression
+                                        )),
                                     })
                                     .collect();
 
-                                let mut callstacks: HashMap<String, Vec<CallstackFrame>> = HashMap::new();
+                                let mut callstacks: HashMap<String, Vec<CallstackFrame>> =
+                                    HashMap::new();
 
                                 // SH4 callstack
                                 let sh4_pc_value = state.get_register_value("dc.sh4.cpu", "PC");
-                                let sh4_pc = if let Some(stripped) = sh4_pc_value.strip_prefix("0x") {
+                                let sh4_pc = if let Some(stripped) = sh4_pc_value.strip_prefix("0x")
+                                {
                                     u64::from_str_radix(stripped, 16).unwrap_or(0x8c0000a0)
                                 } else {
                                     0x8c0000a0
@@ -1137,7 +1192,11 @@ pub async fn handle_websocket_connection(socket: WebSocket, dreamcast_ptr: usize
                                 let sh4_frames: Vec<CallstackFrame> = (0..16)
                                     .map(|i| CallstackFrame {
                                         index: i,
-                                        pc: if i == 0 { sh4_pc } else { 0x8c000000 + (i - 1) as u64 * 4 },
+                                        pc: if i == 0 {
+                                            sh4_pc
+                                        } else {
+                                            0x8c000000 + (i - 1) as u64 * 4
+                                        },
                                         sp: Some(0x0cfe0000 - i as u64 * 16),
                                         symbol: Some(format!("SH4_func_{}", i)),
                                         location: Some(format!("sh4.c:{}", 100 + i)),
@@ -1147,15 +1206,20 @@ pub async fn handle_websocket_connection(socket: WebSocket, dreamcast_ptr: usize
 
                                 // ARM7 callstack
                                 let arm7_pc_value = state.get_register_value("dc.aica.arm7", "PC");
-                                let arm7_pc = if let Some(stripped) = arm7_pc_value.strip_prefix("0x") {
-                                    u64::from_str_radix(stripped, 16).unwrap_or(0x00200010)
-                                } else {
-                                    0x00200010
-                                };
+                                let arm7_pc =
+                                    if let Some(stripped) = arm7_pc_value.strip_prefix("0x") {
+                                        u64::from_str_radix(stripped, 16).unwrap_or(0x00200010)
+                                    } else {
+                                        0x00200010
+                                    };
                                 let arm7_frames: Vec<CallstackFrame> = (0..16)
                                     .map(|i| CallstackFrame {
                                         index: i,
-                                        pc: if i == 0 { arm7_pc } else { 0x00200000 + (i - 1) as u64 * 4 },
+                                        pc: if i == 0 {
+                                            arm7_pc
+                                        } else {
+                                            0x00200000 + (i - 1) as u64 * 4
+                                        },
                                         sp: Some(0x00280000 - i as u64 * 16),
                                         symbol: Some(format!("ARM7_func_{}", i)),
                                         location: Some(format!("arm7.c:{}", 100 + i)),
@@ -1172,10 +1236,12 @@ pub async fn handle_websocket_connection(socket: WebSocket, dreamcast_ptr: usize
                                 let timestamp = SystemTime::now()
                                     .duration_since(UNIX_EPOCH)
                                     .unwrap()
-                                    .as_millis() as u64;
+                                    .as_millis()
+                                    as u64;
                                 // Get execution state from actual emulator or mock
                                 let is_running = if dreamcast_ptr != 0 {
-                                    let dreamcast = dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
+                                    let dreamcast =
+                                        dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
                                     nulldc::dreamcast::is_dreamcast_running(dreamcast)
                                 } else {
                                     *state.is_running.lock().unwrap()
@@ -1195,7 +1261,11 @@ pub async fn handle_websocket_connection(socket: WebSocket, dreamcast_ptr: usize
                                     registers: registers_by_id,
                                     breakpoints: breakpoints_by_id,
                                     event_log: state.event_log.lock().unwrap().clone(),
-                                    watches: if watches.is_empty() { None } else { Some(watches) },
+                                    watches: if watches.is_empty() {
+                                        None
+                                    } else {
+                                        Some(watches)
+                                    },
                                     callstacks: Some(callstacks),
                                 };
 

@@ -1,13 +1,16 @@
-use backend_fns::{ dec_start, dec_finalize_shrink, sh4_dec_call_decode, sh4_store32, sh4_store32i, sh4_dec_branch_cond, dec_reserve_dispatcher, dec_patch_dispatcher, dec_run_block, dec_free };
+use backend_fns::{
+    dec_finalize_shrink, dec_free, dec_patch_dispatcher, dec_reserve_dispatcher, dec_run_block,
+    dec_start, sh4_dec_branch_cond, sh4_dec_call_decode, sh4_store32, sh4_store32i,
+};
 
-use std::ptr;
-use std::ptr::{ addr_of, addr_of_mut };
 use bitfield::bitfield;
+use std::ptr;
+use std::ptr::{addr_of, addr_of_mut};
 
 use crate::sh4mem::MAX_MEMHANDLERS;
 
 mod sh4p4;
-pub use sh4p4::{intc_raise_interrupt, intc_clear_interrupt, InterruptSourceId};
+pub use sh4p4::{intc_clear_interrupt, intc_raise_interrupt, register_peripheral_hook, InterruptSourceId};
 
 #[repr(C)]
 pub union FRBank {
@@ -84,11 +87,20 @@ bitfield! {
 }
 
 fn dummy_read<T: Copy + std::fmt::LowerHex>(_ctx: *mut u8, offset: u32) -> T {
-    panic!("dummy_read: Attempted read::<u{}> {:x}", std::mem::size_of::<T>(), offset);
+    panic!(
+        "dummy_read: Attempted read::<u{}> {:x}",
+        std::mem::size_of::<T>(),
+        offset
+    );
 }
 
 fn dummy_write<T: Copy + std::fmt::LowerHex>(_ctx: *mut u8, addr: u32, value: T) {
-    panic!("dummy_write: Attempted write::<u{}> {:x} data = {:x}", std::mem::size_of::<T>(), addr, value);
+    panic!(
+        "dummy_write: Attempted write::<u{}> {:x} data = {:x}",
+        std::mem::size_of::<T>(),
+        addr,
+        value
+    );
 }
 
 #[derive(Copy, Clone)]
@@ -134,7 +146,7 @@ pub struct Sh4Ctx {
     pub mac: MacReg,
     pub fpul: u32,
     pub fpscr: FpscrReg,
-    
+
     // Additional control registers
     pub gbr: u32,
     pub ssr: u32,
@@ -167,7 +179,7 @@ pub struct Sh4Ctx {
     pub dec_branch_dslot: u32,
 
     // for fns dispatcher
-    pub ptrs: Vec<*const u8>
+    pub ptrs: Vec<*const u8>,
 }
 
 impl Default for Sh4Ctx {
@@ -229,10 +241,10 @@ pub mod sh4mem;
 use sh4mem::read_mem;
 
 pub mod sh4dec;
-use sh4dec::{SH4_OP_PTR, SH4_OP_DESC};
+use sh4dec::{SH4_OP_DESC, SH4_OP_PTR};
 
-pub mod backend_ipr;
 pub mod backend_fns;
+pub mod backend_ipr;
 
 pub fn sh4_ipr_dispatcher(ctx: *mut Sh4Ctx) {
     unsafe {
@@ -274,7 +286,9 @@ unsafe fn sh4_build_block(ctx: &mut Sh4Ctx, start_pc: u32) -> *const u8 {
     let mut current_pc = start_pc;
 
     // println!("NEW BLOCK {:x} - remaining: {}", current_pc, remaining_line);
-    unsafe { dec_start(1024); }
+    unsafe {
+        dec_start(1024);
+    }
 
     dec_reserve_dispatcher();
 
@@ -305,7 +319,13 @@ unsafe fn sh4_build_block(ctx: &mut Sh4Ctx, start_pc: u32) -> *const u8 {
             match ctx.dec_branch {
                 1 => {
                     // Conditional branch
-                    sh4_dec_branch_cond(addr_of_mut!(ctx.pc0), addr_of!(ctx.virt_jdyn), ctx.dec_branch_cond, ctx.dec_branch_next, ctx.dec_branch_target);
+                    sh4_dec_branch_cond(
+                        addr_of_mut!(ctx.pc0),
+                        addr_of!(ctx.virt_jdyn),
+                        ctx.dec_branch_cond,
+                        ctx.dec_branch_next,
+                        ctx.dec_branch_target,
+                    );
                 }
                 2 => {
                     // Static branch with immediate target
@@ -315,7 +335,7 @@ unsafe fn sh4_build_block(ctx: &mut Sh4Ctx, start_pc: u32) -> *const u8 {
                     // Dynamic branch with pointer to target
                     sh4_store32(addr_of_mut!(ctx.pc0), ctx.dec_branch_target_dynamic);
                 }
-                _ => panic!("invalid dec_branch value")
+                _ => panic!("invalid dec_branch value"),
             }
             break;
         }
@@ -323,7 +343,10 @@ unsafe fn sh4_build_block(ctx: &mut Sh4Ctx, start_pc: u32) -> *const u8 {
         if remaining_line == 1 {
             if ctx.dec_branch != 0 {
                 assert!(ctx.dec_branch_dslot != 0);
-                println!("Warning: branch dslot on different line PC {:08X}", current_pc);
+                println!(
+                    "Warning: branch dslot on different line PC {:08X}",
+                    current_pc
+                );
             } else {
                 sh4_store32i(addr_of_mut!(ctx.pc0), current_pc.wrapping_add(2));
                 break;
@@ -365,7 +388,11 @@ pub fn sh4_fns_dispatcher(ctx: *mut Sh4Ctx) {
 
             let old_pc0 = (*ctx).pc0;
             if sh4p4::intc_try_service(ctx) {
-                println!("Interrupt taken at PC {:08X} -> {:08X}", old_pc0, (*ctx).pc0);
+                println!(
+                    "Interrupt taken at PC {:08X} -> {:08X}",
+                    old_pc0,
+                    (*ctx).pc0
+                );
             }
 
             (*ctx).remaining_cycles = (*ctx).remaining_cycles.wrapping_sub(block_cycles as i32);
@@ -386,24 +413,39 @@ pub fn sh4_init_ctx(ctx: *mut Sh4Ctx) {
 
         default_fns_entrypoint = dec_finalize_shrink().0;
 
-
         (*ctx).fns_entrypoint = default_fns_entrypoint;
         (*ctx).ptrs = vec![default_fns_entrypoint; 8192 * 1024];
     }
 
-    sh4_register_mem_handler(ctx, 0xF000_0000, 0xFFFF_FFFF, 0xFFFF_FFFF, sh4p4::P4_HANDLERS, ctx as *mut _ as *mut u8);
+    sh4_register_mem_handler(
+        ctx,
+        0xF000_0000,
+        0xFFFF_FFFF,
+        0xFFFF_FFFF,
+        sh4p4::P4_HANDLERS,
+        ctx as *mut _ as *mut u8,
+    );
 
     sh4p4::p4_init();
 }
 
 pub fn sh4_term_ctx(ctx: &mut Sh4Ctx) {
     // TODO: Free also ctx.ptrs here
-    unsafe { dec_free(ctx.fns_entrypoint); }
+    unsafe {
+        dec_free(ctx.fns_entrypoint);
+    }
 }
 
-pub fn sh4_register_mem_handler(ctx: *mut Sh4Ctx, base: u32, end: u32, mask: u32, handler: MemHandlers, memctx: *mut u8) {
+pub fn sh4_register_mem_handler(
+    ctx: *mut Sh4Ctx,
+    base: u32,
+    end: u32,
+    mask: u32,
+    handler: MemHandlers,
+    memctx: *mut u8,
+) {
     assert!(base <= end);
-    
+
     unsafe {
         assert!((*ctx).memhandler_idx < (MAX_MEMHANDLERS - 1) as u32);
 
@@ -425,7 +467,7 @@ pub fn sh4_register_mem_handler(ctx: *mut Sh4Ctx, base: u32, end: u32, mask: u32
 
 pub fn sh4_register_mem_buffer(ctx: *mut Sh4Ctx, base: u32, end: u32, mask: u32, buffer: *mut u8) {
     assert!(base <= end);
-    
+
     unsafe {
         let start_index = (base >> 24) as usize;
         let end_index = (end >> 24) as usize;

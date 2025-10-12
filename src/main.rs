@@ -3,7 +3,7 @@ mod debugger_server_main;
 #[cfg(not(target_arch = "wasm32"))]
 mod mock_debug_server;
 
-use nulldc::dreamcast::{init_dreamcast, Dreamcast};
+use nulldc::dreamcast::{Dreamcast, init_dreamcast};
 
 fn main() {
     let dreamcast = Box::into_raw(Box::new(Dreamcast::default()));

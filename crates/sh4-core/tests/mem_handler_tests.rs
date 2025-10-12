@@ -1,4 +1,4 @@
-use sh4_core::{Sh4Ctx, MemHandlers, sh4mem};
+use sh4_core::{MemHandlers, Sh4Ctx, sh4mem};
 use std::ptr;
 
 fn test_read8(_ctx: *mut u8, offset: u32) -> u8 {

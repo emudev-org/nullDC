@@ -5,22 +5,32 @@
 #![allow(dead_code)]
 #![allow(unused_variables)]
 
-use std::sync::Mutex;
-use sh4_core::{Sh4Ctx, sh4_ipr_dispatcher, sh4_init_ctx, sh4mem::read_mem, sh4dec::{format_disas, SH4DecoderState}};
+use sh4_core::{
+    sh4_init_ctx, sh4_ipr_dispatcher,
+    sh4dec::{format_disas, SH4DecoderState},
+    sh4mem::read_mem,
+    Sh4Ctx,
+};
 use std::fs::File;
 use std::io::{self, Read};
-use std::path::{Path};
+use std::path::Path;
+use std::sync::Mutex;
 
 use std::ptr;
 
 mod area0;
 pub use area0::AREA0_HANDLERS;
 
-mod gdrom;
 mod asic;
+mod gdrom;
+mod spg;
+
+fn peripheral_hook(_ctx: *mut sh4_core::Sh4Ctx, cycles: u32) {
+    spg::tick(cycles);
+}
 
 const BIOS_ROM_SIZE: u32 = 2 * 1024 * 1024;
-const BIOS_FLASH_SIZE: u32 = 128 *1024;
+const BIOS_FLASH_SIZE: u32 = 128 * 1024;
 
 const BIOS_ROM_MASK: u32 = BIOS_ROM_SIZE - 1;
 const BIOS_FLASH_MASK: u32 = BIOS_FLASH_SIZE - 1;
@@ -51,7 +61,6 @@ pub struct Dreamcast {
 
 impl Default for Dreamcast {
     fn default() -> Self {
-
         let bios_rom = {
             let v = vec![0u8; BIOS_ROM_SIZE as usize];
             v.into_boxed_slice().try_into().expect("len matches")
@@ -61,7 +70,7 @@ impl Default for Dreamcast {
             let v = vec![0u8; BIOS_FLASH_SIZE as usize];
             v.into_boxed_slice().try_into().expect("len matches")
         };
-        
+
         let sys_ram = {
             let v = vec![0u8; SYSRAM_SIZE as usize];
             v.into_boxed_slice().try_into().expect("len matches")
@@ -116,7 +125,6 @@ fn load_file_into_slice<P: AsRef<Path>>(path: P, buf: &mut [u8]) -> io::Result<(
 pub static ROTO_BIN: &[u8] = include_bytes!("../../../roto.bin");
 
 pub fn init_dreamcast(dc_: *mut Dreamcast) {
-
     let dc: &mut Dreamcast;
     unsafe {
         dc = &mut *dc_;
@@ -139,26 +147,70 @@ pub fn init_dreamcast(dc_: *mut Dreamcast) {
 
     gdrom::reset();
     asic::reset();
+    spg::reset();
+    sh4_core::register_peripheral_hook(Some(peripheral_hook));
 
     // Build opcode tables
     // build_opcode_tables(dc);
 
     // Setup memory map
     // SYSRAM
-    sh4_core::sh4_register_mem_buffer(&mut dc.ctx, 0x0C00_0000, 0x0FFF_FFFF, SYSRAM_MASK, dc.sys_ram.as_mut_ptr());
-    sh4_core::sh4_register_mem_buffer(&mut dc.ctx, 0x8C00_0000, 0x8FFF_FFFF, SYSRAM_MASK, dc.sys_ram.as_mut_ptr());
-    sh4_core::sh4_register_mem_buffer(&mut dc.ctx, 0xAC00_0000, 0xAFFF_FFFF, SYSRAM_MASK, dc.sys_ram.as_mut_ptr());
+    sh4_core::sh4_register_mem_buffer(
+        &mut dc.ctx,
+        0x0C00_0000,
+        0x0FFF_FFFF,
+        SYSRAM_MASK,
+        dc.sys_ram.as_mut_ptr(),
+    );
+    sh4_core::sh4_register_mem_buffer(
+        &mut dc.ctx,
+        0x8C00_0000,
+        0x8FFF_FFFF,
+        SYSRAM_MASK,
+        dc.sys_ram.as_mut_ptr(),
+    );
+    sh4_core::sh4_register_mem_buffer(
+        &mut dc.ctx,
+        0xAC00_0000,
+        0xAFFF_FFFF,
+        SYSRAM_MASK,
+        dc.sys_ram.as_mut_ptr(),
+    );
 
     // VRAM
     // Gotta handle 32/64 bit vram mirroring at some point
-    sh4_core::sh4_register_mem_buffer(&mut dc.ctx, 0x0400_0000, 0x07FF_FFFF, VIDEORAM_MASK, dc.video_ram.as_mut_ptr());
-    sh4_core::sh4_register_mem_buffer(&mut dc.ctx, 0xA400_0000, 0xA5FF_FFFF, VIDEORAM_MASK, dc.video_ram.as_mut_ptr());
+    sh4_core::sh4_register_mem_buffer(
+        &mut dc.ctx,
+        0x0400_0000,
+        0x07FF_FFFF,
+        VIDEORAM_MASK,
+        dc.video_ram.as_mut_ptr(),
+    );
+    sh4_core::sh4_register_mem_buffer(
+        &mut dc.ctx,
+        0xA400_0000,
+        0xA5FF_FFFF,
+        VIDEORAM_MASK,
+        dc.video_ram.as_mut_ptr(),
+    );
 
     // AREA 0 (BIOS, Flash, System Bus)
-    sh4_core::sh4_register_mem_handler(&mut dc.ctx, 0x8000_0000, 0x83FF_FFFF, 0xFFFF_FFFF, AREA0_HANDLERS, dc as *mut _ as *mut u8);
-    sh4_core::sh4_register_mem_handler(&mut dc.ctx, 0xA000_0000, 0xA3FF_FFFF, 0xFFFF_FFFF, AREA0_HANDLERS, dc as *mut _ as *mut u8);
-
-
+    sh4_core::sh4_register_mem_handler(
+        &mut dc.ctx,
+        0x8000_0000,
+        0x83FF_FFFF,
+        0xFFFF_FFFF,
+        AREA0_HANDLERS,
+        dc as *mut _ as *mut u8,
+    );
+    sh4_core::sh4_register_mem_handler(
+        &mut dc.ctx,
+        0xA000_0000,
+        0xA3FF_FFFF,
+        0xFFFF_FFFF,
+        AREA0_HANDLERS,
+        dc as *mut _ as *mut u8,
+    );
 
     // Set initial PC
     dc.ctx.pc0 = 0xA000_0000;
@@ -174,7 +226,7 @@ pub fn init_dreamcast(dc_: *mut Dreamcast) {
     //     // Copy roto.bin from embedded ROTO_BIN
     //     let dst = dc.sys_ram.as_mut_ptr().add(0x10000);
     //     let src = ROTO_BIN.as_ptr();
-    
+
     //     ptr::copy_nonoverlapping(src, dst, ROTO_BIN.len())
     // }
 }
@@ -207,7 +259,11 @@ pub struct DisassemblyLine {
     pub disassembly: String,
 }
 
-pub fn disassemble_sh4(dc: *mut Dreamcast, base_address: u64, count: usize) -> Vec<DisassemblyLine> {
+pub fn disassemble_sh4(
+    dc: *mut Dreamcast,
+    base_address: u64,
+    count: usize,
+) -> Vec<DisassemblyLine> {
     let mut result = Vec::with_capacity(count);
     let mut addr = base_address as u32;
 
@@ -296,7 +352,10 @@ pub fn get_sh4_register(dc: *mut Dreamcast, register_name: &str) -> Option<u32> 
             "FPUL" => Some(ctx.fpul),
             _ => {
                 // Check if it's a general purpose register (R0-R15)
-                if let Some(rest) = register_name.strip_prefix('R').or_else(|| register_name.strip_prefix('r')) {
+                if let Some(rest) = register_name
+                    .strip_prefix('R')
+                    .or_else(|| register_name.strip_prefix('r'))
+                {
                     if let Ok(idx) = rest.parse::<usize>() {
                         if idx < 16 {
                             return Some(ctx.r[idx]);

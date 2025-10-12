@@ -3,7 +3,7 @@ use std::ptr;
 use sh4_core::sh4mem;
 use sh4_core::MemHandlers;
 
-use crate::{asic, gdrom, Dreamcast};
+use crate::{asic, gdrom, spg, Dreamcast};
 
 const AREA0_MASK: u32 = 0x01FF_FFFF;
 const BIOS_START: u32 = 0x0000_0000;
@@ -23,10 +23,12 @@ fn area_0_read<T: sh4mem::MemoryData>(ctx: *mut u8, addr: u32) -> T {
 
     match base {
         0x0000..=0x001F => {
-            return read_from_slice(&dc.bios_rom[..], masked_addr as usize, size).unwrap_or_else(|| {
-                log_unaligned("BIOS", "read", masked_addr, size);
-                T::default()
-            });
+            return read_from_slice(&dc.bios_rom[..], masked_addr as usize, size).unwrap_or_else(
+                || {
+                    log_unaligned("BIOS", "read", masked_addr, size);
+                    T::default()
+                },
+            );
         }
         0x0020..=0x0021 => {
             let relative = (masked_addr - FLASH_START) as usize;
@@ -42,6 +44,10 @@ fn area_0_read<T: sh4mem::MemoryData>(ctx: *mut u8, addr: u32) -> T {
             }
             if asic::handles_address(masked_addr) {
                 let value = asic::read(masked_addr, size);
+                return sh4mem::MemoryData::from_u32(value);
+            }
+            if spg::handles_address(masked_addr) {
+                let value = spg::read(masked_addr, size);
                 return sh4mem::MemoryData::from_u32(value);
             }
             return handle_system_bus_read(masked_addr, size);
@@ -107,6 +113,10 @@ fn area_0_write<T: sh4mem::MemoryData>(ctx: *mut u8, addr: u32, value: T) {
             }
             if asic::handles_address(masked_addr) {
                 asic::write(masked_addr, size, value.to_u32());
+                return;
+            }
+            if spg::handles_address(masked_addr) {
+                spg::write(masked_addr, size, value.to_u32());
                 return;
             }
             handle_system_bus_write(masked_addr, size, value);
@@ -187,9 +197,7 @@ fn log_unhandled_write<T: sh4mem::MemoryData>(addr: u32, size: usize, value: T) 
 }
 
 fn log_unaligned(region: &str, op: &str, addr: u32, size: usize) {
-    println!(
-        "area0 {region} {op} out-of-range: addr=0x{addr:08X} size={size}"
-    );
+    println!("area0 {region} {op} out-of-range: addr=0x{addr:08X} size={size}");
 }
 
 fn log_write_blocked(region: &str, addr: u32, size: usize) {
