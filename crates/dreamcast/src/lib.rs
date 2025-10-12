@@ -16,6 +16,9 @@ use std::ptr;
 mod area0;
 pub use area0::AREA0_HANDLERS;
 
+mod gdrom;
+mod asic;
+
 const BIOS_ROM_SIZE: u32 = 2 * 1024 * 1024;
 const BIOS_FLASH_SIZE: u32 = 128 *1024;
 
@@ -133,6 +136,9 @@ pub fn init_dreamcast(dc_: *mut Dreamcast) {
     load_file_into_slice(&path, &mut dc.bios_flash[..]).unwrap();
 
     sh4_init_ctx(&mut dc.ctx);
+
+    gdrom::reset();
+    asic::reset();
 
     // Build opcode tables
     // build_opcode_tables(dc);

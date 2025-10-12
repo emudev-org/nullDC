@@ -7,6 +7,7 @@ use bitfield::bitfield;
 use crate::sh4mem::MAX_MEMHANDLERS;
 
 mod sh4p4;
+pub use sh4p4::{intc_raise_interrupt, intc_clear_interrupt, InterruptSourceId};
 
 #[repr(C)]
 pub union FRBank {

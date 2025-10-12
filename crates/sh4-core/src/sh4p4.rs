@@ -1587,8 +1587,6 @@ pub fn area7_router(mut addr: u32) -> &'static P4Register {
 }
 
 pub fn p4_read<T: crate::sh4mem::MemoryData>(_ctx: *mut u8, addr: u32) -> T {
-
-    println!("p4_read::<u{}> {:08X}", std::mem::size_of::<T>(), addr);
     // Bits [31:24] select the area within P4 space
     let area = (addr >> 24) & 0xFF;
 
