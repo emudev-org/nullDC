@@ -75,10 +75,12 @@ const BIOS_FLASH_MASK: u32 = BIOS_FLASH_SIZE - 1;
 const SYSRAM_SIZE: u32 = 16 * 1024 * 1024;
 const VIDEORAM_SIZE: u32 = 8 * 1024 * 1024;
 const AUDIORAM_SIZE: u32 = 2 * 1024 * 1024;
+const OCRAM_SIZE: u32 = 8 * 1024;
 
 const SYSRAM_MASK: u32 = SYSRAM_SIZE - 1;
 const VIDEORAM_MASK: u32 = VIDEORAM_SIZE - 1;
 const AUDIORAM_MASK: u32 = AUDIORAM_SIZE - 1;
+const OCRAM_MASK: u32 = OCRAM_SIZE - 1;
 
 pub struct Dreamcast {
     pub ctx: Sh4Ctx,
@@ -91,6 +93,7 @@ pub struct Dreamcast {
     pub sys_ram: Box<[u8; SYSRAM_SIZE as usize]>,
     pub video_ram: Box<[u8; VIDEORAM_SIZE as usize]>,
     pub audio_ram: Box<[u8; AUDIORAM_SIZE as usize]>,
+    pub oc_ram: Box<[u8; OCRAM_SIZE as usize]>,
 
     pub running: bool,
     pub running_mtx: Mutex<()>,
@@ -124,6 +127,11 @@ impl Default for Dreamcast {
             v.into_boxed_slice().try_into().expect("len matches")
         };
 
+        let oc_ram = {
+            let v = vec![0u8; OCRAM_SIZE as usize];
+            v.into_boxed_slice().try_into().expect("len matches")
+        };
+
         Self {
             ctx: Sh4Ctx::default(),
             memmap: [ptr::null_mut(); 256],
@@ -133,6 +141,7 @@ impl Default for Dreamcast {
             sys_ram,
             video_ram,
             audio_ram,
+            oc_ram,
             running: true,
             running_mtx: Mutex::new(()),
             arm_ctx: arm7di::Arm7Context::new(),
@@ -205,8 +214,9 @@ fn load_file_into_slice<P: AsRef<Path>>(path: P, buf: &mut [u8]) -> io::Result<(
 }
 
 // pub static ROTO_BIN: &[u8] = include_bytes!("../../../roto.bin");
-// pub static IP_BIN: &[u8] = include_bytes!("../../../data/IP.BIN");
-// pub static SYS_BIN: &[u8] = include_bytes!("../../../data/syscalls.bin");
+pub static IP_BIN: &[u8] = include_bytes!("../../../data/IP.BIN");
+pub static SYS_BIN: &[u8] = include_bytes!("../../../data/syscalls.bin");
+pub static HELLO_BIN: &[u8] = include_bytes!("../../../data/hello.elf.bin");
 // pub static ARM7W_BIN: &[u8] = include_bytes!("../../../data/arm7wrestler.bin");
 
 pub fn init_dreamcast(dc_: *mut Dreamcast) {
@@ -283,6 +293,14 @@ pub fn init_dreamcast(dc_: *mut Dreamcast) {
         dc.video_ram.as_mut_ptr(),
     );
 
+    sh4_core::sh4_register_mem_buffer(
+        &mut dc.ctx,
+        0x7C00_0000,
+        0x7FFF_FFFF,
+        OCRAM_MASK,
+        dc.oc_ram.as_mut_ptr(),
+    );
+
     // AREA 0 (BIOS, Flash, System Bus)
     sh4_core::sh4_register_mem_handler(
         &mut dc.ctx,
@@ -313,6 +331,11 @@ pub fn init_dreamcast(dc_: *mut Dreamcast) {
     // dc.ctx.pc1 = 0x8C01_0000 + 2;
     // dc.ctx.pc2 = 0x8C01_0000 + 4;
 
+    // IP.BIN boot
+    dc.ctx.pc0 = 0x8C00_8300;
+    dc.ctx.pc1 = 0x8C00_8300 + 2;
+    dc.ctx.pc2 = 0x8C00_8300 + 4;
+
     // unsafe {
     //     // Copy roto.bin from embedded ROTO_BIN
     //     let dst = dc.sys_ram.as_mut_ptr().add(0x10000);
@@ -321,19 +344,26 @@ pub fn init_dreamcast(dc_: *mut Dreamcast) {
     //     ptr::copy_nonoverlapping(src, dst, ROTO_BIN.len())
     // }
 
-    // unsafe {
-    //     let dst = dc.sys_ram.as_mut_ptr().add(0);
-    //     let src = SYS_BIN.as_ptr();
+    unsafe {
+        let dst = dc.sys_ram.as_mut_ptr().add(0);
+        let src = SYS_BIN.as_ptr();
 
-    //     ptr::copy_nonoverlapping(src, dst, SYS_BIN.len())
-    // }
+        ptr::copy_nonoverlapping(src, dst, SYS_BIN.len())
+    }
 
-    // unsafe {
-    //     let dst = dc.sys_ram.as_mut_ptr().add(0x8000);
-    //     let src = IP_BIN.as_ptr();
+    unsafe {
+        let dst = dc.sys_ram.as_mut_ptr().add(0x8000);
+        let src = IP_BIN.as_ptr();
 
-    //     ptr::copy_nonoverlapping(src, dst, IP_BIN.len())
-    // }
+        ptr::copy_nonoverlapping(src, dst, IP_BIN.len())
+    }
+
+    unsafe {
+        let dst = dc.sys_ram.as_mut_ptr().add(0x10000);
+        let src = HELLO_BIN.as_ptr();
+
+        ptr::copy_nonoverlapping(src, dst, HELLO_BIN.len())
+    }
 
     // unsafe {
     //     let dst = dc.sys_ram.as_mut_ptr().add(0x10000);

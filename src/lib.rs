@@ -23,7 +23,7 @@ use winit::window::WindowAttributes;
 use git_version::git_version;
 use wgpu::util::DeviceExt;
 
-pub mod dreamcast;
+pub use dreamcast as dreamcast;
 use dreamcast::{Dreamcast, run_slice_dreamcast};
 
 const GIT_HASH: &str = git_version!();
@@ -636,7 +636,7 @@ impl ApplicationHandler for AppHandle {
                                 let len_u16 = 640 * 480;
                                 let buf: &[u16] = core::slice::from_raw_parts(base_u16, len_u16);
 
-                                image = Some(dreamcast::rgb565_to_color32(buf, 640, 480));
+                                image = Some(rgb565_to_color32(buf, 640, 480));
                             }
                         }
 
