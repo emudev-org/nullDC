@@ -3,7 +3,7 @@ use std::ptr;
 use sh4_core::sh4mem;
 use sh4_core::MemHandlers;
 
-use crate::{asic, gdrom, spg, Dreamcast};
+use crate::{aica, asic, gdrom, spg, Dreamcast};
 
 const AREA0_MASK: u32 = 0x01FF_FFFF;
 const BIOS_START: u32 = 0x0000_0000;
@@ -59,7 +59,12 @@ fn area_0_read<T: sh4mem::MemoryData>(ctx: *mut u8, addr: u32) -> T {
             warn_unimplemented("G2 reserved", "read", masked_addr, size);
         }
         0x0070 => {
-            warn_unimplemented("AICA control", "read", masked_addr, size);
+            if aica::handles_address(masked_addr) {
+                let value = aica::read_from_sh4(&dc.arm_ctx, masked_addr, size);
+                return sh4mem::MemoryData::from_u32(value);
+            } else {
+                warn_unimplemented("AICA control", "read", masked_addr, size);
+            }
         }
         0x0071 => {
             warn_unimplemented("AICA RTC", "read", masked_addr, size);
@@ -131,7 +136,11 @@ fn area_0_write<T: sh4mem::MemoryData>(ctx: *mut u8, addr: u32, value: T) {
             return;
         }
         0x0070 => {
-            warn_unimplemented("AICA control", "write", masked_addr, size);
+            if aica::handles_address(masked_addr) {
+                aica::write_from_sh4(&mut dc.arm_ctx, masked_addr, size, value.to_u32());
+            } else {
+                warn_unimplemented("AICA control", "write", masked_addr, size);
+            }
             return;
         }
         0x0071 => {

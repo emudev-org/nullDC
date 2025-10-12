@@ -646,6 +646,7 @@ sh4op! {
     (disas = "pref @<REG_N>")
     i0000_nnnn_1000_0011(dc, state, opcode) {
         // Prefetch - no-op for interpreter
+        println!("pref @R{}", GetN(opcode));
     }
 
     (disas = "mov.b <REG_M>,@(R0,<REG_N>)")

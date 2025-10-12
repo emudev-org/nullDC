@@ -14,19 +14,55 @@ use sh4_core::{
 use std::fs::File;
 use std::io::{self, Read};
 use std::path::Path;
+use std::ptr::{self, NonNull};
+use std::sync::atomic::{AtomicPtr, Ordering};
 use std::sync::Mutex;
-
-use std::ptr;
 
 mod area0;
 pub use area0::AREA0_HANDLERS;
 
+mod aica;
 mod asic;
 mod gdrom;
 mod spg;
+pub mod arm7di;
+mod sgc;
+
+use arm7di::{ArmPsr, RN_CPSR, RN_PSR_FLAGS, RN_SPSR, R13_IRQ, R13_SVC, R15_ARM_NEXT};
+
+static DREAMCAST_PTR: AtomicPtr<Dreamcast> = AtomicPtr::new(std::ptr::null_mut());
 
 fn peripheral_hook(_ctx: *mut sh4_core::Sh4Ctx, cycles: u32) {
     spg::tick(cycles);
+
+    if cycles == 0 {
+        return;
+    }
+
+    let dc_ptr = DREAMCAST_PTR.load(Ordering::Relaxed);
+    if dc_ptr.is_null() {
+        return;
+    }
+
+    unsafe {
+        let dc = &mut *dc_ptr;
+        if !dc.arm_enabled {
+            return;
+        }
+
+        if !dc.arm_ctx.enabled {
+            return;
+        }
+
+        dc.arm_cycle_accumulator = dc.arm_cycle_accumulator.wrapping_add(cycles);
+
+        while dc.arm_cycle_accumulator >= 20 {
+            dc.arm_cycle_accumulator -= 20;
+            let mut arm = arm7di::Arm7Di::new(&mut dc.arm_ctx);
+            arm.update_interrupts();
+            arm.step();
+        }
+    }
 }
 
 const BIOS_ROM_SIZE: u32 = 2 * 1024 * 1024;
@@ -57,6 +93,9 @@ pub struct Dreamcast {
 
     pub running: bool,
     pub running_mtx: Mutex<()>,
+    pub arm_ctx: arm7di::Arm7Context,
+    pub arm_enabled: bool,
+    pub arm_cycle_accumulator: u32,
 }
 
 impl Default for Dreamcast {
@@ -95,8 +134,50 @@ impl Default for Dreamcast {
             audio_ram,
             running: true,
             running_mtx: Mutex::new(()),
+            arm_ctx: arm7di::Arm7Context::new(),
+            arm_enabled: false,
+            arm_cycle_accumulator: 0,
         }
     }
+}
+
+fn reset_arm7(dc: &mut Dreamcast) {
+    let mut arm_ctx = arm7di::Arm7Context::new();
+    arm_ctx.aica_ram = NonNull::new(dc.audio_ram.as_mut_ptr());
+    arm_ctx.aram_mask = AUDIORAM_MASK;
+
+    arm_ctx.arm_mode = 0x13; // SVC
+    arm_ctx.arm_irq_enable = true;
+    arm_ctx.arm_fiq_enable = false;
+    arm_ctx.enabled = true;
+    arm_ctx.read8 = Some(aica::arm_read8);
+    arm_ctx.read32 = Some(aica::arm_read32);
+    arm_ctx.write8 = Some(aica::arm_write8);
+    arm_ctx.write32 = Some(aica::arm_write32);
+
+    // Initialise general-purpose registers and banked stacks
+    arm_ctx.regs[13].set(0x0300_7F00);
+    arm_ctx.regs[R13_IRQ].set(0x0300_7FA0);
+    arm_ctx.regs[R13_SVC].set(0x0300_7FE0);
+    arm_ctx.regs[R15_ARM_NEXT].set(0);
+
+    let mut cpsr = ArmPsr::new(0);
+    cpsr.set_mode(0x13);
+    cpsr.set_fiq_mask(true);
+    arm_ctx.regs[RN_CPSR].set_psr(cpsr);
+    arm_ctx.regs[RN_SPSR].set_psr(cpsr);
+    arm_ctx.regs[RN_PSR_FLAGS].set_psr(cpsr);
+
+    // ARM pipeline prefetch: PC visible as PC+8
+    arm_ctx.regs[15].set(4);
+
+    dc.arm_ctx = arm_ctx;
+    dc.arm_enabled = true;
+    dc.arm_cycle_accumulator = 0;
+
+    let mut arm = arm7di::Arm7Di::new(&mut dc.arm_ctx);
+    arm.cpu_update_flags();
+    arm.update_interrupts();
 }
 
 fn load_file_into_slice<P: AsRef<Path>>(path: P, buf: &mut [u8]) -> io::Result<()> {
@@ -130,6 +211,8 @@ pub fn init_dreamcast(dc_: *mut Dreamcast) {
         dc = &mut *dc_;
     }
 
+    DREAMCAST_PTR.store(dc as *mut Dreamcast, Ordering::SeqCst);
+
     // Zero entire struct (like memset). In Rust, usually you'd implement Default.
     *dc = Dreamcast::default();
 
@@ -147,6 +230,7 @@ pub fn init_dreamcast(dc_: *mut Dreamcast) {
 
     gdrom::reset();
     asic::reset();
+    aica::reset();
     spg::reset();
     sh4_core::register_peripheral_hook(Some(peripheral_hook));
 
@@ -216,6 +300,8 @@ pub fn init_dreamcast(dc_: *mut Dreamcast) {
     dc.ctx.pc0 = 0xA000_0000;
     dc.ctx.pc1 = 0xA000_0000 + 2;
     dc.ctx.pc2 = 0xA000_0000 + 4;
+
+    reset_arm7(dc);
 
     // ROTO test program at 0x8C010000
     // dc.ctx.pc0 = 0x8C01_0000;
