@@ -5,14 +5,16 @@
 #![allow(dead_code)]
 #![allow(unused_variables)]
 
-use std::ptr;
-
 use std::sync::Mutex;
-use sh4_core::{self, Sh4Ctx, sh4_ipr_dispatcher, sh4_fns_dispatcher, sh4_init_ctx, sh4mem::read_mem, sh4dec::{format_disas, SH4DecoderState}};
-use sh4_core::sh4mem::{self};
+use sh4_core::{Sh4Ctx, sh4_ipr_dispatcher, sh4_init_ctx, sh4mem::read_mem, sh4dec::{format_disas, SH4DecoderState}};
 use std::fs::File;
 use std::io::{self, Read};
 use std::path::{Path};
+
+use std::ptr;
+
+mod area0;
+pub use area0::AREA0_HANDLERS;
 
 const BIOS_ROM_SIZE: u32 = 2 * 1024 * 1024;
 const BIOS_FLASH_SIZE: u32 = 128 *1024;
@@ -100,38 +102,6 @@ fn load_file_into_slice<P: AsRef<Path>>(path: P, buf: &mut [u8]) -> io::Result<(
 }
 
 pub static ROTO_BIN: &[u8] = include_bytes!("../../../roto.bin");
-
-pub unsafe fn buffer_read<T: Copy>(base: *const u8, offset: u32) -> T {
-    let src = base.add(offset as usize) as *const T;
-    ptr::read_unaligned(src)
-}
-
-fn area_0_read<T: sh4mem::MemoryData>(ctx: *mut u8, offset: u32) -> T {
-    let dc = unsafe { &*(ctx as *const Dreamcast) };
-
-    if offset < 0x001F_FFFF {
-        return unsafe { buffer_read::<T>(dc.bios_rom.as_ptr(), offset) };
-    }
-
-    println!("area_0_read::<u{}> {:x}", std::mem::size_of::<T>()*8, offset);
-    T::default()
-}
-
-fn area_0_write<T: sh4mem::MemoryData>(_ctx: *mut u8, addr: u32, value: T) {
-    println!("area_0_write::<u{}> {:x} data = {:x}", std::mem::size_of::<T>()*8, addr, value);
-}
-
-pub const AREA0_HANDLERS: sh4_core::MemHandlers = sh4_core::MemHandlers {
-    read8: area_0_read::<u8>,
-    read16: area_0_read::<u16>,
-    read32: area_0_read::<u32>,
-    read64: area_0_read::<u64>,
-
-    write8: area_0_write::<u8>,
-    write16: area_0_write::<u16>,
-    write32: area_0_write::<u32>,
-    write64: area_0_write::<u64>,
-};
 
 pub fn init_dreamcast(dc_: *mut Dreamcast) {
 
