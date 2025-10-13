@@ -21,6 +21,7 @@ fn test_write8(_ctx: *mut u8, _addr: u32, _value: u8) {}
 fn test_write16(_ctx: *mut u8, _addr: u32, _value: u16) {}
 fn test_write32(_ctx: *mut u8, _addr: u32, _value: u32) {}
 fn test_write64(_ctx: *mut u8, _addr: u32, _value: u64) {}
+fn test_write256(_ctx: *mut u8, _addr: u32, _value: *const u32) {}
 
 #[test]
 fn test_read_mem_sizes() {
@@ -36,6 +37,7 @@ fn test_read_mem_sizes() {
         write16: test_write16,
         write32: test_write32,
         write64: test_write64,
+        write256: test_write256,
     };
 
     for i in 0..256 {

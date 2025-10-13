@@ -187,60 +187,64 @@ impl TestMemory {
     }
 }
 
-extern "C" fn test_mem_read8(ctx: *mut u8, addr: u32) -> u8 {
+fn test_mem_read8(ctx: *mut u8, addr: u32) -> u8 {
     unsafe {
         let mem = &*(ctx as *mut TestMemory);
         (mem.handle_read(8, addr) & 0xFF) as u8
     }
 }
 
-extern "C" fn test_mem_read16(ctx: *mut u8, addr: u32) -> u16 {
+fn test_mem_read16(ctx: *mut u8, addr: u32) -> u16 {
     unsafe {
         let mem = &*(ctx as *mut TestMemory);
         (mem.handle_read(16, addr) & 0xFFFF) as u16
     }
 }
 
-extern "C" fn test_mem_read32(ctx: *mut u8, addr: u32) -> u32 {
+fn test_mem_read32(ctx: *mut u8, addr: u32) -> u32 {
     unsafe {
         let mem = &*(ctx as *mut TestMemory);
         (mem.handle_read(32, addr) & 0xFFFFFFFF) as u32
     }
 }
 
-extern "C" fn test_mem_read64(ctx: *mut u8, addr: u32) -> u64 {
+fn test_mem_read64(ctx: *mut u8, addr: u32) -> u64 {
     unsafe {
         let mem = &*(ctx as *mut TestMemory);
         mem.handle_read(64, addr)
     }
 }
 
-extern "C" fn test_mem_write8(ctx: *mut u8, addr: u32, value: u8) {
+fn test_mem_write8(ctx: *mut u8, addr: u32, value: u8) {
     unsafe {
         let mem = &*(ctx as *mut TestMemory);
         mem.handle_write(8, addr, value as u64);
     }
 }
 
-extern "C" fn test_mem_write16(ctx: *mut u8, addr: u32, value: u16) {
+fn test_mem_write16(ctx: *mut u8, addr: u32, value: u16) {
     unsafe {
         let mem = &*(ctx as *mut TestMemory);
         mem.handle_write(16, addr, value as u64);
     }
 }
 
-extern "C" fn test_mem_write32(ctx: *mut u8, addr: u32, value: u32) {
+fn test_mem_write32(ctx: *mut u8, addr: u32, value: u32) {
     unsafe {
         let mem = &*(ctx as *mut TestMemory);
         mem.handle_write(32, addr, value as u64);
     }
 }
 
-extern "C" fn test_mem_write64(ctx: *mut u8, addr: u32, value: u64) {
+fn test_mem_write64(ctx: *mut u8, addr: u32, value: u64) {
     unsafe {
         let mem = &*(ctx as *mut TestMemory);
         mem.handle_write(64, addr, value);
     }
+}
+
+fn test_mem_write256(_ctx: *mut u8, _addr: u32, _value: *const u32) {
+    // Not used in these tests
 }
 
 // Macro to generate test functions for each test case
@@ -594,6 +598,7 @@ fn run_test_file(test_path: &str) {
             write16: test_mem_write16,
             write32: test_mem_write32,
             write64: test_mem_write64,
+            write256: test_mem_write256,
         };
 
         for i in 0..256 {
