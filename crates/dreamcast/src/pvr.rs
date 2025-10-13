@@ -9,6 +9,7 @@ use crate::{
         SB_SDLAS_ADDR, SB_SDSTAW_ADDR, SB_SDST_ADDR, SB_SDWLT_ADDR,
     },
     ta, Dreamcast,
+    refsw2,
 };
 use sh4_core::{
     dmac_get_chcr, dmac_get_dmaor, dmac_get_sar, dmac_set_chcr, dmac_set_dmatcr, dmac_set_sar,
@@ -108,6 +109,13 @@ pub fn write(addr: u32, size: usize, value: u32) {
             x if x == TA_YUV_TEX_CNT_ADDR as usize => {}
             x if x == STARTRENDER_ADDR as usize => {
                 println!("PVR: STARTRENDER write (value=0x{value:08X})");
+                refsw2::refsw2_render(
+                    dreamcast_mut()
+                        .expect("Dreamcast instance not initialised")
+                        .video_ram
+                        .as_mut_ptr(),
+                    state.regs.as_ptr(),
+                );
                 // TODO: Hook up renderer start when available.
                 asic::raise_normal(RENDER_DONE_INTERRUPT_BIT);
                 asic::raise_normal(RENDER_DONE_ISP_INTERRUPT_BIT);

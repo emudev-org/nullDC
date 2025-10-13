@@ -27,6 +27,7 @@ pub mod arm7di;
 mod asic;
 mod gdrom;
 mod pvr;
+pub mod refsw2;
 mod sgc;
 mod spg;
 mod system_bus;

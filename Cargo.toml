@@ -34,6 +34,10 @@ debug = true
 debug = false
 strip = true
 
+[features]
+default = ["refsw2-native"]
+refsw2-native = ["dreamcast/refsw2-native"]
+
 [dependencies]
 dreamcast = { path = "crates/dreamcast" }
 git-version = "0.3"

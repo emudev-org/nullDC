@@ -3,6 +3,13 @@ name = "dreamcast"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = ["refsw2-native"]
+refsw2-native = []
+
 [dependencies]
 once_cell = "1.19"
 sh4-core = { path = "../sh4-core" }
+
+[build-dependencies]
+cc = "1.1"
