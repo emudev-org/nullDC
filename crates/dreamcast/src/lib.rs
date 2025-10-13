@@ -36,6 +36,8 @@ pub mod ta;
 use arm7_disasm::{format_arm_instruction, Arm7DecoderState};
 use arm7di::{ArmPsr, R13_IRQ, R13_SVC, R15_ARM_NEXT, RN_CPSR, RN_PSR_FLAGS, RN_SPSR};
 
+pub use pvr::present_for_texture;
+
 static DREAMCAST_PTR: AtomicPtr<Dreamcast> = AtomicPtr::new(std::ptr::null_mut());
 
 pub(crate) fn dreamcast_ptr() -> *mut Dreamcast {
@@ -333,7 +335,7 @@ pub fn init_dreamcast(dc_: *mut Dreamcast) {
         VIDEORAM_MASK,
         dc.video_ram.as_mut_ptr(),
     );
-        sh4_core::sh4_register_mem_handler(
+    sh4_core::sh4_register_mem_handler(
         &mut dc.ctx,
         0x0700_0000,
         0x07FF_FFFF,

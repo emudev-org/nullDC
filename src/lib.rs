@@ -23,7 +23,7 @@ use git_version::git_version;
 use wgpu::util::DeviceExt;
 
 pub use dreamcast;
-use dreamcast::{Dreamcast, run_slice_dreamcast};
+use dreamcast::{Dreamcast, present_for_texture, run_slice_dreamcast};
 
 const GIT_HASH: &str = git_version!();
 
@@ -507,25 +507,6 @@ use std::rc::Rc;
 use winit::application::ApplicationHandler;
 use winit::window::WindowId;
 
-pub fn rgb565_to_color32(buf: &[u16], w: usize, h: usize) -> egui::ColorImage {
-    let mut pixels = Vec::with_capacity(w * h);
-    for &px in buf {
-        let r = ((px >> 11) & 0x1F) as u8;
-        let g = ((px >> 5) & 0x3F) as u8;
-        let b = (px & 0x1F) as u8;
-        // Expand to 8-bit
-        let r = (r << 3) | (r >> 2);
-        let g = (g << 2) | (g >> 4);
-        let b = (b << 3) | (b >> 2);
-        pixels.push(egui::Color32::from_rgb(r, g, b));
-    }
-    egui::ColorImage {
-        size: [w, h],
-        pixels,
-        source_size: egui::vec2(w as f32, h as f32),
-    }
-}
-
 struct AppHandle(Rc<RefCell<App>>);
 
 impl AppHandle {
@@ -646,15 +627,23 @@ impl ApplicationHandler for AppHandle {
                             let dreamcast = app.dreamcast;
                             unsafe {
                                 run_slice_dreamcast(dreamcast);
+                            }
+                        }
 
-                                let base_u8: *const u8 =
-                                    (*dreamcast).video_ram.as_ptr().add(0x0000); // add offset if needed
-
-                                let base_u16 = base_u8.cast::<u16>();
-                                let len_u16 = 640 * 480;
-                                let buf: &[u16] = core::slice::from_raw_parts(base_u16, len_u16);
-
-                                image = Some(rgb565_to_color32(buf, 640, 480));
+                        if let Some((rgba, width, height)) = present_for_texture() {
+                            let pixel_count = width.saturating_mul(height);
+                            if pixel_count > 0 && rgba.len() >= pixel_count * 4 {
+                                let mut pixels = Vec::with_capacity(pixel_count);
+                                for chunk in rgba.chunks_exact(4) {
+                                    pixels.push(egui::Color32::from_rgba_unmultiplied(
+                                        chunk[0], chunk[1], chunk[2], chunk[3],
+                                    ));
+                                }
+                                image = Some(egui::ColorImage {
+                                    size: [width, height],
+                                    pixels,
+                                    source_size: egui::vec2(width as f32, height as f32),
+                                });
                             }
                         }
 

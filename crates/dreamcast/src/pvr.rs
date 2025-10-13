@@ -2,23 +2,24 @@ use once_cell::sync::Lazy;
 use std::{ptr, sync::Mutex};
 
 use crate::{
-    asic, dreamcast_ptr,
+    asic, dreamcast_ptr, refsw2, spg,
     system_bus::{
         SystemBus, SB_C2DLEN_ADDR, SB_C2DSTAT_ADDR, SB_C2DST_ADDR, SB_LMMODE0_ADDR, SB_PDDIR_ADDR,
         SB_PDLEN_ADDR, SB_PDSTAP_ADDR, SB_PDSTAR_ADDR, SB_PDST_ADDR, SB_SDBAAW_ADDR, SB_SDDIV_ADDR,
         SB_SDLAS_ADDR, SB_SDSTAW_ADDR, SB_SDST_ADDR, SB_SDWLT_ADDR,
     },
     ta, Dreamcast,
-    refsw2,
 };
 use sh4_core::{
     dmac_get_chcr, dmac_get_dmaor, dmac_get_sar, dmac_set_chcr, dmac_set_dmatcr, dmac_set_sar,
     pvr::{
-        ID_ADDR, PVR_REG_MASK, PVR_REG_SIZE, REVISION_ADDR, SOFTRESET_ADDR, STARTRENDER_ADDR,
-        TA_ALLOC_CTRL_ADDR, TA_GLOB_TILE_CLIP_ADDR, TA_ISP_BASE_ADDR, TA_ISP_CURRENT_ADDR,
-        TA_ISP_LIMIT_ADDR, TA_LIST_CONT_ADDR, TA_LIST_INIT_ADDR, TA_NEXT_OPB_ADDR,
-        TA_NEXT_OPB_INIT_ADDR, TA_OL_BASE_ADDR, TA_OL_LIMIT_ADDR, TA_YUV_TEX_BASE_ADDR,
-        TA_YUV_TEX_CNT_ADDR, TA_YUV_TEX_CTRL_ADDR,
+        FB_R_CTRL, FB_R_CTRL_ADDR, FB_R_SIZE, FB_R_SIZE_ADDR, FB_R_SOF1_ADDR, FB_R_SOF2_ADDR,
+        ID_ADDR, PVR_REG_MASK, PVR_REG_SIZE, REVISION_ADDR, SOFTRESET_ADDR, SPG_CONTROL,
+        SPG_CONTROL_ADDR, SPG_STATUS, SPG_STATUS_ADDR, STARTRENDER_ADDR, TA_ALLOC_CTRL_ADDR,
+        TA_GLOB_TILE_CLIP_ADDR, TA_ISP_BASE_ADDR, TA_ISP_CURRENT_ADDR, TA_ISP_LIMIT_ADDR,
+        TA_LIST_CONT_ADDR, TA_LIST_INIT_ADDR, TA_NEXT_OPB_ADDR, TA_NEXT_OPB_INIT_ADDR,
+        TA_OL_BASE_ADDR, TA_OL_LIMIT_ADDR, TA_YUV_TEX_BASE_ADDR, TA_YUV_TEX_CNT_ADDR,
+        TA_YUV_TEX_CTRL_ADDR,
     },
     sh4mem, Sh4Ctx,
 };
@@ -477,6 +478,208 @@ fn transfer_sort_blocks(sys_ram: &[u8], base_addr: u32, count: u32) {
         ta::write(&block);
         addr = addr.wrapping_add(32);
     }
+}
+
+pub fn present_for_texture() -> Option<(Vec<u8>, usize, usize)> {
+    let (fb_r_ctrl_val, fb_r_size_val, fb_r_sof1, fb_r_sof2) = {
+        let state = PVR_STATE.lock().ok()?;
+        (
+            read_reg(&state, FB_R_CTRL_ADDR as usize),
+            read_reg(&state, FB_R_SIZE_ADDR as usize),
+            read_reg(&state, FB_R_SOF1_ADDR as usize),
+            read_reg(&state, FB_R_SOF2_ADDR as usize),
+        )
+    };
+
+    let fb_ctrl = FB_R_CTRL(fb_r_ctrl_val);
+    if !fb_ctrl.fb_enable() {
+        return None;
+    }
+
+    let fb_size = FB_R_SIZE(fb_r_size_val);
+    let mut width = ((fb_size.fb_x_size() as i32) + 1) << 1;
+    let field_height = (fb_size.fb_y_size() as i32) + 1;
+    if width <= 0 || field_height <= 0 {
+        return None;
+    }
+
+    let mut modulus = ((fb_size.fb_modulus() as i32) - 1) << 1;
+    let depth = fb_ctrl.fb_depth();
+    let mut bytes_per_pixel = match depth {
+        0 | 1 => 2,
+        2 => 3,
+        3 => 4,
+        _ => return None,
+    };
+
+    if depth == 2 {
+        width = (width * 2) / 3;
+        modulus = (modulus * 2) / 3;
+    } else if depth == 3 {
+        width /= 2;
+        modulus /= 2;
+    }
+
+    if width <= 0 {
+        return None;
+    }
+
+    let width_usize = width as usize;
+    let field_height_usize = field_height as usize;
+    if width_usize == 0 || field_height_usize == 0 {
+        return None;
+    }
+
+    let spg_control_val = spg::read(PVR_BASE_ADDR + SPG_CONTROL_ADDR, 4);
+    let spg_status_val = spg::read(PVR_BASE_ADDR + SPG_STATUS_ADDR, 4);
+    let spg_control = SPG_CONTROL(spg_control_val);
+    let spg_status = SPG_STATUS(spg_status_val);
+    let interlace = spg_control.interlace();
+    let fieldnum = spg_status.fieldnum();
+
+    let output_height = if interlace {
+        field_height_usize.saturating_mul(2)
+    } else {
+        field_height_usize
+    };
+    if output_height == 0 {
+        return None;
+    }
+
+    let mut pixels = vec![0u8; width_usize * output_height * 4];
+    let line_stride = width_usize * 4;
+    let mut dst_row_offset = if interlace && fieldnum {
+        line_stride
+    } else {
+        0
+    };
+    let dst_row_step = if interlace {
+        line_stride * 2
+    } else {
+        line_stride
+    };
+
+    let mut addr = if interlace && fieldnum {
+        fb_r_sof2
+    } else {
+        fb_r_sof1
+    };
+
+    let fb_concat = fb_ctrl.fb_concat() as u8;
+    let fb_concat_green = fb_concat >> 1;
+    let row_increment = ((modulus as i64) * (bytes_per_pixel as i64)) as i32;
+
+    let dc = dreamcast_mut()?;
+    let vram = dc.video_ram.as_mut_ptr();
+
+    match depth {
+        0 => {
+            let bpp = bytes_per_pixel as u32;
+            for _ in 0..field_height_usize {
+                if dst_row_offset + line_stride > pixels.len() {
+                    break;
+                }
+                let row = &mut pixels[dst_row_offset..dst_row_offset + line_stride];
+                let mut pixel_addr = addr;
+                for x in 0..width_usize {
+                    let base = x * 4;
+                    let src = pvr_read_area1_16(vram, pixel_addr);
+                    let r = (((src >> 0) & 0x1F) << 3) as u8;
+                    let g = (((src >> 5) & 0x1F) << 3) as u8;
+                    let b = (((src >> 10) & 0x1F) << 3) as u8;
+                    row[base] = r.wrapping_add(fb_concat);
+                    row[base + 1] = g.wrapping_add(fb_concat);
+                    row[base + 2] = b.wrapping_add(fb_concat);
+                    row[base + 3] = 0xFF;
+                    pixel_addr = pixel_addr.wrapping_add(bpp);
+                }
+                addr = pixel_addr.wrapping_add(row_increment as u32);
+                dst_row_offset = dst_row_offset.saturating_add(dst_row_step);
+            }
+        }
+        1 => {
+            let bpp = bytes_per_pixel as u32;
+            for _ in 0..field_height_usize {
+                if dst_row_offset + line_stride > pixels.len() {
+                    break;
+                }
+                let row = &mut pixels[dst_row_offset..dst_row_offset + line_stride];
+                let mut pixel_addr = addr;
+                for x in 0..width_usize {
+                    let base = x * 4;
+                    let src = pvr_read_area1_16(vram, pixel_addr);
+                    let r = (((src >> 0) & 0x1F) << 3) as u8;
+                    let g = (((src >> 5) & 0x3F) << 2) as u8;
+                    let b = (((src >> 11) & 0x1F) << 3) as u8;
+                    row[base] = r.wrapping_add(fb_concat);
+                    row[base + 1] = g.wrapping_add(fb_concat_green);
+                    row[base + 2] = b.wrapping_add(fb_concat);
+                    row[base + 3] = 0xFF;
+                    pixel_addr = pixel_addr.wrapping_add(bpp);
+                }
+                addr = pixel_addr.wrapping_add(row_increment as u32);
+                dst_row_offset = dst_row_offset.saturating_add(dst_row_step);
+            }
+        }
+        2 => {
+            bytes_per_pixel = 3;
+            let bpp = bytes_per_pixel as u32;
+            for _ in 0..field_height_usize {
+                if dst_row_offset + line_stride > pixels.len() {
+                    break;
+                }
+                let row = &mut pixels[dst_row_offset..dst_row_offset + line_stride];
+                let mut pixel_addr = addr;
+                for x in 0..width_usize {
+                    let base = x * 4;
+                    let sample_addr = pixel_addr;
+                    let src = if (sample_addr & 1) != 0 {
+                        pvr_read_area1_32(vram, sample_addr.wrapping_sub(1))
+                    } else {
+                        pvr_read_area1_32(vram, sample_addr)
+                    };
+                    if (sample_addr & 1) != 0 {
+                        row[base] = ((src >> 0) & 0xFF) as u8;
+                        row[base + 1] = ((src >> 8) & 0xFF) as u8;
+                        row[base + 2] = ((src >> 16) & 0xFF) as u8;
+                    } else {
+                        row[base] = ((src >> 8) & 0xFF) as u8;
+                        row[base + 1] = ((src >> 16) & 0xFF) as u8;
+                        row[base + 2] = ((src >> 24) & 0xFF) as u8;
+                    }
+                    row[base + 3] = 0xFF;
+                    pixel_addr = pixel_addr.wrapping_add(bpp);
+                }
+                addr = pixel_addr.wrapping_add(row_increment as u32);
+                dst_row_offset = dst_row_offset.saturating_add(dst_row_step);
+            }
+        }
+        3 => {
+            bytes_per_pixel = 4;
+            let bpp = bytes_per_pixel as u32;
+            for _ in 0..field_height_usize {
+                if dst_row_offset + line_stride > pixels.len() {
+                    break;
+                }
+                let row = &mut pixels[dst_row_offset..dst_row_offset + line_stride];
+                let mut pixel_addr = addr;
+                for x in 0..width_usize {
+                    let base = x * 4;
+                    let src = pvr_read_area1_32(vram, pixel_addr);
+                    row[base] = ((src >> 0) & 0xFF) as u8;
+                    row[base + 1] = ((src >> 8) & 0xFF) as u8;
+                    row[base + 2] = ((src >> 16) & 0xFF) as u8;
+                    row[base + 3] = 0xFF;
+                    pixel_addr = pixel_addr.wrapping_add(bpp);
+                }
+                addr = pixel_addr.wrapping_add(row_increment as u32);
+                dst_row_offset = dst_row_offset.saturating_add(dst_row_step);
+            }
+        }
+        _ => return None,
+    }
+
+    Some((pixels, width_usize, output_height))
 }
 
 fn dreamcast_mut() -> Option<&'static mut Dreamcast> {
