@@ -251,6 +251,7 @@ pub fn init_dreamcast(dc_: *mut Dreamcast) {
 
     sh4_init_ctx(&mut dc.ctx);
 
+    refsw2::refsw2_init();
     gdrom::reset();
     asic::reset();
     aica::reset();
