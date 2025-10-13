@@ -1,7 +1,7 @@
 use once_cell::sync::Lazy;
 use std::sync::Mutex;
 
-use sh4_core::{InterruptSourceId, intc_clear_interrupt, intc_raise_interrupt};
+use sh4_core::{intc_clear_interrupt, intc_raise_interrupt, InterruptSourceId};
 
 const SB_ISTNRM: u32 = 0x005F_6900;
 const SB_ISTEXT: u32 = 0x005F_6904;

@@ -184,7 +184,11 @@ impl SpgState {
 
     fn hblank_interrupt_line(&self) -> Option<u32> {
         let line = (self.regs.hblank_int >> 16) & 0x3FF;
-        if line != 0 { Some(line) } else { None }
+        if line != 0 {
+            Some(line)
+        } else {
+            None
+        }
     }
 
     fn vblank_in_line(&self) -> Option<u32> {

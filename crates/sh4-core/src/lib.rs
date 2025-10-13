@@ -9,10 +9,11 @@ use std::ptr::{addr_of, addr_of_mut};
 
 use crate::sh4mem::MAX_MEMHANDLERS;
 
+pub mod pvr;
 mod sh4p4;
 pub use sh4p4::{
-    dmac_get_chcr, dmac_get_dmaor, dmac_get_sar, dmac_set_chcr, dmac_set_dmatcr, dmac_set_sar,
-    intc_clear_interrupt, intc_raise_interrupt, register_peripheral_hook, InterruptSourceId,
+    InterruptSourceId, dmac_get_chcr, dmac_get_dmaor, dmac_get_sar, dmac_set_chcr, dmac_set_dmatcr,
+    dmac_set_sar, intc_clear_interrupt, intc_raise_interrupt, register_peripheral_hook,
 };
 
 #[repr(C)]

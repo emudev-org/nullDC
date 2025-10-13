@@ -1210,7 +1210,9 @@ fn build_memory_slice(
     let bytes: Vec<u8> = if dreamcast_ptr != 0 {
         let dreamcast = dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
         match target {
-            "arm7" => nulldc::dreamcast::read_arm_memory_slice(dreamcast, base_address, effective_length),
+            "arm7" => {
+                nulldc::dreamcast::read_arm_memory_slice(dreamcast, base_address, effective_length)
+            }
             _ => nulldc::dreamcast::read_memory_slice(dreamcast, base_address, effective_length),
         }
     } else {

@@ -1,9 +1,9 @@
 use std::ptr;
 
-use sh4_core::MemHandlers;
 use sh4_core::sh4mem;
+use sh4_core::MemHandlers;
 
-use crate::{Dreamcast, aica, asic, gdrom, spg, system_bus};
+use crate::{aica, asic, gdrom, pvr, spg, system_bus, Dreamcast};
 
 const AREA0_MASK: u32 = 0x01FF_FFFF;
 const BIOS_START: u32 = 0x0000_0000;
@@ -48,6 +48,10 @@ fn area_0_read<T: sh4mem::MemoryData>(ctx: *mut u8, addr: u32) -> T {
             }
             if spg::handles_address(masked_addr) {
                 let value = spg::read(masked_addr, size);
+                return sh4mem::MemoryData::from_u32(value);
+            }
+            if pvr::handles_address(masked_addr) {
+                let value = pvr::read(masked_addr, size);
                 return sh4mem::MemoryData::from_u32(value);
             }
             return handle_system_bus_read(dc, masked_addr, size);
@@ -124,6 +128,10 @@ fn area_0_write<T: sh4mem::MemoryData>(ctx: *mut u8, addr: u32, value: T) {
             }
             if spg::handles_address(masked_addr) {
                 spg::write(masked_addr, size, value.to_u32());
+                return;
+            }
+            if pvr::handles_address(masked_addr) {
+                pvr::write(masked_addr, size, value.to_u32());
                 return;
             }
             handle_system_bus_write(dc, masked_addr, size, value);
@@ -219,28 +227,11 @@ fn warn_unimplemented(region: &str, op: &str, addr: u32, size: usize) {
     println!("area0 {region} {op} not implemented: addr=0x{addr:08X} size={size}");
 }
 
-fn handle_system_bus_read<T: sh4mem::MemoryData>(dc: &Dreamcast, addr: u32, size: usize) -> T {
+fn handle_system_bus_read<T: sh4mem::MemoryData>(_dc: &Dreamcast, addr: u32, size: usize) -> T {
     match addr {
-        // System Bus
+        // System Bus window
         0x005F_6800..=0x005F_7CFF => unsafe { T::from_u32(SYSTEM_BUS.read(addr, size as u32)) },
-        // GD-ROM
-        0x005F_7000..=0x005F_70FF => unsafe { T::from_u32(SYSTEM_BUS.read(addr, size as u32)) },
-        // G1 i/f
-        0x005F_7400..=0x005F_74FF => unsafe { T::from_u32(SYSTEM_BUS.read(addr, size as u32)) },
-        // G2 i/f
-        0x005F_7800..=0x005F_78FF => unsafe { T::from_u32(SYSTEM_BUS.read(addr, size as u32)) },
-        // PVR i/f
-        0x005F_7C00..=0x005F_7CFF => unsafe { T::from_u32(SYSTEM_BUS.read(addr, size as u32)) },
-        0x005F_8000..=0x005F_9FFF => {
-            if addr == 0x005F_8000 {
-                return T::from_u32(0x17FD11DB);
-            }
-            if addr == 0x005F_8004 {
-                return T::from_u32(0x00000011);
-            }
-            warn_unimplemented("TA/PVR core", "read", addr, size);
-            T::default()
-        }
+        0x005F_8000..=0x005F_9FFF => T::from_u32(pvr::read(addr, size)),
         _ => {
             warn_unimplemented("Area 0 unassigned", "read", addr, size);
             T::default()
@@ -249,35 +240,17 @@ fn handle_system_bus_read<T: sh4mem::MemoryData>(dc: &Dreamcast, addr: u32, size
 }
 
 fn handle_system_bus_write<T: sh4mem::MemoryData>(
-    dc: &mut Dreamcast,
+    _dc: &mut Dreamcast,
     addr: u32,
     size: usize,
     value: T,
 ) {
     match addr {
-        // System Bus
+        // System Bus window
         0x005F_6800..=0x005F_7CFF => unsafe {
             SYSTEM_BUS.write(addr, value.to_u32(), size as u32);
         },
-        // GD-ROM
-        0x005F_7000..=0x005F_70FF => unsafe {
-            SYSTEM_BUS.write(addr, value.to_u32(), size as u32);
-        },
-        // G1 i/f
-        0x005F_7400..=0x005F_74FF => unsafe {
-            SYSTEM_BUS.write(addr, value.to_u32(), size as u32);
-        },
-        // G2 i/f
-        0x005F_7800..=0x005F_78FF => unsafe {
-            SYSTEM_BUS.write(addr, value.to_u32(), size as u32);
-        },
-        // PVR i/f
-        0x005F_7C00..=0x005F_7CFF => unsafe {
-            SYSTEM_BUS.write(addr, value.to_u32(), size as u32);
-        },
-        0x005F_8000..=0x005F_9FFF => {
-            warn_unimplemented("TA/PVR core", "write", addr, size);
-        }
+        0x005F_8000..=0x005F_9FFF => pvr::write(addr, size, value.to_u32()),
         _ => {
             warn_unimplemented("Area 0 unassigned", "write", addr, size);
         }

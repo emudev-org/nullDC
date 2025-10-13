@@ -1,7 +1,4 @@
-use std::ptr;
-
-use crate::{asic, dreamcast_ptr, ta, Dreamcast};
-use sh4_core::{sh4mem, Sh4Ctx};
+use crate::pvr;
 
 // Function pointer types
 pub type RegReadAddrFP = fn(ctx: *mut u32, addr: u32) -> u32;
@@ -55,92 +52,6 @@ pub struct SystemBus {
 }
 
 pub const SB_BASE: u32 = 0x005F6800;
-
-const DMAOR_EXPECTED: u32 = 0x8201;
-const DMAOR_MASK: u32 = 0xFFFF_8201;
-const CH2_DMA_INTERRUPT_BIT: u8 = 19;
-const VRAM_SIZE_BYTES: usize = 8 * 1024 * 1024;
-const VRAM_MASK: u32 = (VRAM_SIZE_BYTES as u32) - 1;
-const VRAM_BANK_BIT: u32 = 0x0040_0000;
-
-fn pvr_map32(offset32: u32) -> u32 {
-    let static_bits = (VRAM_MASK - (VRAM_BANK_BIT * 2 - 1)) | 3;
-    let offset_bits = (VRAM_BANK_BIT - 1) & !3;
-
-    let bank = (offset32 & VRAM_BANK_BIT) / VRAM_BANK_BIT;
-    let mut rv = offset32 & static_bits;
-    rv |= (offset32 & offset_bits) * 2;
-    rv |= bank * 4;
-    rv
-}
-
-fn read_dmac_dmaor() -> u32 {
-    sh4_core::dmac_get_dmaor()
-}
-
-fn read_dmac_sar2() -> u32 {
-    sh4_core::dmac_get_sar(2)
-}
-
-fn write_dmac_sar2(value: u32) {
-    sh4_core::dmac_set_sar(2, value);
-}
-
-fn read_dmac_chcr2() -> u32 {
-    sh4_core::dmac_get_chcr(2)
-}
-
-fn write_dmac_chcr2(value: u32) {
-    sh4_core::dmac_set_chcr(2, value);
-}
-
-fn write_dmac_dmatcr2(value: u32) {
-    sh4_core::dmac_set_dmatcr(2, value);
-}
-
-fn read_u32(ctx: *mut Sh4Ctx, addr: u32) -> u32 {
-    let mut value = 0u32;
-    sh4mem::read_mem(ctx, addr, &mut value);
-    value
-}
-
-fn read_block(ctx: *mut Sh4Ctx, mut addr: u32, buf: &mut [u8]) {
-    debug_assert_eq!(buf.len() % 4, 0);
-    for chunk in buf.chunks_exact_mut(4) {
-        let value = read_u32(ctx, addr);
-        chunk.copy_from_slice(&value.to_le_bytes());
-        addr = addr.wrapping_add(4);
-    }
-}
-
-fn write_vram_linear(dc: &mut Dreamcast, addr: u32, data: &[u8]) {
-    let vram = dc.video_ram.as_mut_ptr();
-    let vram_len = dc.video_ram.len();
-    let base = (addr & VRAM_MASK) as usize;
-    let first_len = vram_len.saturating_sub(base).min(data.len());
-    if first_len > 0 {
-        unsafe {
-            ptr::copy_nonoverlapping(data.as_ptr(), vram.add(base), first_len);
-        }
-    }
-    if first_len < data.len() {
-        let remaining = data.len() - first_len;
-        unsafe {
-            ptr::copy_nonoverlapping(data.as_ptr().add(first_len), vram, remaining);
-        }
-    }
-}
-
-fn write_vram_area1_32(dc: &mut Dreamcast, addr: u32, value: u32) {
-    let mapped = pvr_map32(addr & VRAM_MASK) as usize;
-    if mapped + 4 > dc.video_ram.len() {
-        return;
-    }
-    unsafe {
-        let ptr = dc.video_ram.as_mut_ptr().add(mapped) as *mut u32;
-        ptr.write_unaligned(value);
-    }
-}
 
 //0x005F6800    SB_C2DSTAT  RW  ch2-DMA destination address
 pub const SB_C2DSTAT_ADDR: u32 = 0x005F6800;
@@ -436,16 +347,16 @@ pub const SB_PDLEND_ADDR: u32 = 0x005F7CF8;
 unsafe impl Sync for SystemBus {}
 
 impl SystemBus {
-    fn reg_index(addr: u32) -> usize {
+    pub(crate) fn reg_index(addr: u32) -> usize {
         ((addr - SB_BASE) >> 2) as usize
     }
 
-    fn load_reg(&self, addr: u32) -> u32 {
+    pub(crate) fn load_reg(&self, addr: u32) -> u32 {
         let idx = Self::reg_index(addr);
         self.sb_regs[idx].data32
     }
 
-    fn store_reg(&mut self, addr: u32, value: u32) {
+    pub(crate) fn store_reg(&mut self, addr: u32, value: u32) {
         let idx = Self::reg_index(addr);
         self.sb_regs[idx].data32 = value;
     }
@@ -512,132 +423,6 @@ impl SystemBus {
         }
     }
 
-    fn perform_ch2_dma(&mut self) -> Result<(), String> {
-        let dc_ptr = dreamcast_ptr();
-        if dc_ptr.is_null() {
-            return Err("Dreamcast instance not initialised".into());
-        }
-
-        let dc = unsafe { &mut *dc_ptr };
-        let sh4ctx: *mut Sh4Ctx = &mut dc.ctx;
-
-        let dmaor = read_dmac_dmaor();
-        if (dmaor & DMAOR_MASK) != DMAOR_EXPECTED {
-            return Err(format!("DMAOR has invalid settings ({dmaor:08X})"));
-        }
-
-        let mut src = read_dmac_sar2();
-        let dst = self.load_reg(SB_C2DSTAT_ADDR);
-        let len = self.load_reg(SB_C2DLEN_ADDR);
-
-        if len == 0 {
-            self.store_reg(SB_C2DST_ADDR, 0);
-            return Ok(());
-        }
-
-        if (len & 0x1F) != 0 {
-            return Err(format!("SB_C2DLEN has invalid size ({len:08X})"));
-        }
-
-        const TA_CMD_BEGIN: u32 = 0x1000_0000;
-        const TA_CMD_END: u32 = 0x10FF_FFFF;
-        const TEX_BEGIN: u32 = 0x1100_0000;
-        const TEX_END: u32 = 0x11FF_FFE0;
-        const LNMODE1_BEGIN: u32 = 0x1300_0000;
-        const LNMODE1_END: u32 = 0x13FF_FFE0;
-
-        if (dst >= TA_CMD_BEGIN) && (dst <= TA_CMD_END) {
-            self.ch2_dma_copy_to_ta(sh4ctx, src, len)?;
-            src = src.wrapping_add(len);
-        } else if (dst >= TEX_BEGIN) && (dst <= TEX_END) {
-            let lmmode0 = self.load_reg(SB_LMMODE0_ADDR);
-            self.store_reg(SB_C2DSTAT_ADDR, dst.wrapping_add(len));
-            self.ch2_dma_copy_texture(dc, sh4ctx, src, dst, len, lmmode0)?;
-            src = src.wrapping_add(len);
-        } else if (dst >= LNMODE1_BEGIN) && (dst <= LNMODE1_END) {
-            return Err(format!(
-                "SB_C2DSTAT address {:08X} (LNMODE1) is not implemented",
-                dst
-            ));
-        } else {
-            return Err(format!("SB_C2DSTAT has invalid address ({dst:08X})"));
-        }
-
-        write_dmac_sar2(src);
-        let mut chcr2 = read_dmac_chcr2();
-        chcr2 &= !1;
-        write_dmac_chcr2(chcr2);
-        write_dmac_dmatcr2(0);
-
-        self.store_reg(SB_C2DST_ADDR, 0);
-        self.store_reg(SB_C2DLEN_ADDR, 0);
-        asic::raise_normal(CH2_DMA_INTERRUPT_BIT);
-
-        Ok(())
-    }
-
-    fn ch2_dma_copy_to_ta(
-        &self,
-        ctx: *mut Sh4Ctx,
-        mut src: u32,
-        mut len: u32,
-    ) -> Result<(), String> {
-        let mut block = [0u8; 32];
-        while len > 0 {
-            read_block(ctx, src, &mut block);
-            ta::write(&block);
-            src = src.wrapping_add(32);
-            len -= 32;
-        }
-        Ok(())
-    }
-
-    fn ch2_dma_copy_texture(
-        &mut self,
-        dc: &mut Dreamcast,
-        ctx: *mut Sh4Ctx,
-        mut src: u32,
-        dst: u32,
-        mut len: u32,
-        lmmode0: u32,
-    ) -> Result<(), String> {
-        let mut dst_offset = dst & 0x00FF_FFFF;
-        if lmmode0 == 0 {
-            let mut block = [0u8; 32];
-            while len > 0 {
-                read_block(ctx, src, &mut block);
-                write_vram_linear(dc, dst_offset, &block);
-                src = src.wrapping_add(32);
-                dst_offset = dst_offset.wrapping_add(32);
-                len -= 32;
-            }
-        } else {
-            let mut vram_addr = (dst & 0x00FF_FFFF) | 0xA500_0000;
-            while len > 0 {
-                let value = read_u32(ctx, src);
-                write_vram_area1_32(dc, vram_addr, value);
-                src = src.wrapping_add(4);
-                vram_addr = vram_addr.wrapping_add(4);
-                len -= 4;
-            }
-        }
-        Ok(())
-    }
-
-    fn sbio_ch2dma(ctx: *mut u32, _addr: u32, data: u32) {
-        let sb = unsafe { &mut *(ctx as *mut SystemBus) };
-        if (data & 1) == 0 {
-            sb.store_reg(SB_C2DST_ADDR, data & 1);
-            return;
-        }
-
-        sb.store_reg(SB_C2DST_ADDR, 1);
-        if let Err(err) = sb.perform_ch2_dma() {
-            println!("SB: Channel 2 DMA start failed: {err}");
-            sb.store_reg(SB_C2DST_ADDR, 0);
-        }
-    }
-
     pub const fn default() -> Self {
         Self {
             sb_regs: Vec::new(),
@@ -684,13 +469,19 @@ impl SystemBus {
             SB_C2DST_ADDR,
             RIO_WF,
             None,
-            Some(Self::sbio_ch2dma as _),
+            Some(pvr::sb_c2dst_write as _),
         );
         rio!(SB_SDSTAW_ADDR, RIO_DATA);
         rio!(SB_SDBAAW_ADDR, RIO_DATA);
         rio!(SB_SDWLT_ADDR, RIO_DATA);
         rio!(SB_SDLAS_ADDR, RIO_DATA);
-        rio!(SB_SDST_ADDR, RIO_DATA);
+        self.register_rio(
+            sb_ptr,
+            SB_SDST_ADDR,
+            RIO_WF,
+            None,
+            Some(pvr::sb_sdst_write as _),
+        );
         rio!(SB_SDDIV_ADDR, RIO_RO);
         rio!(SB_DBREQM_ADDR, RIO_DATA);
         rio!(SB_BAVLWC_ADDR, RIO_DATA);
@@ -908,7 +699,13 @@ impl SystemBus {
         rio!(SB_PDDIR_ADDR, RIO_DATA);
         rio!(SB_PDTSEL_ADDR, RIO_DATA);
         rio!(SB_PDEN_ADDR, RIO_DATA);
-        rio!(SB_PDST_ADDR, RIO_DATA);
+        self.register_rio(
+            sb_ptr,
+            SB_PDST_ADDR,
+            RIO_WF,
+            None,
+            Some(pvr::sb_pdst_write as _),
+        );
         let reg_ptr = self.regn32(SB_PDAPRO_ADDR);
         self.register_rio(
             reg_ptr,

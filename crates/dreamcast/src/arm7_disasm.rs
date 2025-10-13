@@ -81,8 +81,8 @@ fn reg_name(index: u32) -> &'static str {
 }
 
 const REG_NAMES: [&str; 16] = [
-    "r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7",
-    "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15",
+    "r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12", "r13", "r14",
+    "r15",
 ];
 
 fn decode_branch_exchange(cond: &str, opcode: u32) -> Option<String> {
@@ -300,7 +300,11 @@ fn decode_single_data_transfer(cond: &str, opcode: u32) -> String {
     let rd = (opcode >> 12) & 0xF;
 
     let mnemonic = if l { "ldr" } else { "str" };
-    let mnemonic = if b { format!("{mnemonic}b") } else { mnemonic.to_string() };
+    let mnemonic = if b {
+        format!("{mnemonic}b")
+    } else {
+        mnemonic.to_string()
+    };
 
     let offset = if i {
         format_register_offset(u, opcode, true)
@@ -337,11 +341,7 @@ fn decode_block_transfer(cond: &str, opcode: u32) -> String {
 
     let regs = format_register_list(reg_list);
     if w {
-        format!(
-            "{mnemonic} {}, {}",
-            format!("{}!", reg_name(rn)),
-            regs
-        )
+        format!("{mnemonic} {}, {}", format!("{}!", reg_name(rn)), regs)
     } else {
         format!("{mnemonic} {}, {}", reg_name(rn), regs)
     }
@@ -467,7 +467,12 @@ fn format_register_offset(add: bool, opcode: u32, include_shift: bool) -> Option
     }
 }
 
-fn build_address(base: &str, offset: Option<String>, pre_indexed: bool, write_back: bool) -> String {
+fn build_address(
+    base: &str,
+    offset: Option<String>,
+    pre_indexed: bool,
+    write_back: bool,
+) -> String {
     if pre_indexed {
         let mut text = match offset {
             Some(ref off) => format!("[{}, {}]", base, off),

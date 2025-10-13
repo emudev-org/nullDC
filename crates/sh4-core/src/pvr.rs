@@ -1,5 +1,4 @@
 #![allow(non_snake_case, non_camel_case_types, non_upper_case_globals)]
-use crate::types::*;
 use bitfield::bitfield;
 
 // =============================================================================
@@ -10,86 +9,86 @@ pub const PVR_REG_SIZE: usize = 0x8000;
 pub const PVR_REG_MASK: usize = PVR_REG_SIZE - 1;
 
 // PVR base register definitions
-pub const ID_ADDR: u32                 = 0x00000000; // R   Device ID
-pub const REVISION_ADDR: u32           = 0x00000004; // R   Revision number
-pub const SOFTRESET_ADDR: u32          = 0x00000008; // RW  CORE & TA software reset
+pub const ID_ADDR: u32 = 0x00000000; // R   Device ID
+pub const REVISION_ADDR: u32 = 0x00000004; // R   Revision number
+pub const SOFTRESET_ADDR: u32 = 0x00000008; // RW  CORE & TA software reset
 
-pub const STARTRENDER_ADDR: u32        = 0x00000014; // RW  Drawing start
-pub const TEST_SELECT_ADDR: u32        = 0x00000018; // RW  Test (writing this register is prohibited)
+pub const STARTRENDER_ADDR: u32 = 0x00000014; // RW  Drawing start
+pub const TEST_SELECT_ADDR: u32 = 0x00000018; // RW  Test (writing this register is prohibited)
 
-pub const PARAM_BASE_ADDR: u32         = 0x00000020; // RW  Base address for ISP parameters
-pub const REGION_BASE_ADDR: u32        = 0x0000002C; // RW  Base address for Region Array
-pub const SPAN_SORT_CFG_ADDR: u32      = 0x00000030; // RW  Span Sorter control
+pub const PARAM_BASE_ADDR: u32 = 0x00000020; // RW  Base address for ISP parameters
+pub const REGION_BASE_ADDR: u32 = 0x0000002C; // RW  Base address for Region Array
+pub const SPAN_SORT_CFG_ADDR: u32 = 0x00000030; // RW  Span Sorter control
 
-pub const VO_BORDER_COL_ADDR: u32      = 0x00000040; // RW  Border area color
-pub const FB_R_CTRL_ADDR: u32          = 0x00000044; // RW  Frame buffer read control
-pub const FB_W_CTRL_ADDR: u32          = 0x00000048; // RW  Frame buffer write control
-pub const FB_W_LINESTRIDE_ADDR: u32    = 0x0000004C; // RW  Frame buffer line stride
-pub const FB_R_SOF1_ADDR: u32          = 0x00000050; // RW  Read start address for field - 1/strip - 1
-pub const FB_R_SOF2_ADDR: u32          = 0x00000054; // RW  Read start address for field - 2/strip - 2
-pub const FB_R_SIZE_ADDR: u32          = 0x0000005C; // RW  Frame buffer XY size
-pub const FB_W_SOF1_ADDR: u32          = 0x00000060; // RW  Write start address for field - 1/strip - 1
-pub const FB_W_SOF2_ADDR: u32          = 0x00000064; // RW  Write start address for field - 2/strip - 2
-pub const FB_X_CLIP_ADDR: u32          = 0x00000068; // RW  Pixel clip X coordinate
-pub const FB_Y_CLIP_ADDR: u32          = 0x0000006C; // RW  Pixel clip Y coordinate
+pub const VO_BORDER_COL_ADDR: u32 = 0x00000040; // RW  Border area color
+pub const FB_R_CTRL_ADDR: u32 = 0x00000044; // RW  Frame buffer read control
+pub const FB_W_CTRL_ADDR: u32 = 0x00000048; // RW  Frame buffer write control
+pub const FB_W_LINESTRIDE_ADDR: u32 = 0x0000004C; // RW  Frame buffer line stride
+pub const FB_R_SOF1_ADDR: u32 = 0x00000050; // RW  Read start address for field - 1/strip - 1
+pub const FB_R_SOF2_ADDR: u32 = 0x00000054; // RW  Read start address for field - 2/strip - 2
+pub const FB_R_SIZE_ADDR: u32 = 0x0000005C; // RW  Frame buffer XY size
+pub const FB_W_SOF1_ADDR: u32 = 0x00000060; // RW  Write start address for field - 1/strip - 1
+pub const FB_W_SOF2_ADDR: u32 = 0x00000064; // RW  Write start address for field - 2/strip - 2
+pub const FB_X_CLIP_ADDR: u32 = 0x00000068; // RW  Pixel clip X coordinate
+pub const FB_Y_CLIP_ADDR: u32 = 0x0000006C; // RW  Pixel clip Y coordinate
 
-pub const FPU_SHAD_SCALE_ADDR: u32     = 0x00000074; // RW  Intensity Volume mode
-pub const FPU_CULL_VAL_ADDR: u32       = 0x00000078; // RW  Comparison value for culling
-pub const FPU_PARAM_CFG_ADDR: u32      = 0x0000007C; // RW  Parameter read control
-pub const HALF_OFFSET_ADDR: u32        = 0x00000080; // RW  Pixel sampling control
-pub const FPU_PERP_VAL_ADDR: u32       = 0x00000084; // RW  Comparison value for perpendicular polygons
-pub const ISP_BACKGND_D_ADDR: u32      = 0x00000088; // RW  Background surface depth
-pub const ISP_BACKGND_T_ADDR: u32      = 0x0000008C; // RW  Background surface tag
-pub const ISP_FEED_CFG_ADDR: u32       = 0x00000098; // RW  Translucent polygon sort mode
-pub const SDRAM_REFRESH_ADDR: u32      = 0x000000A0; // RW  Texture memory refresh counter
-pub const SDRAM_ARB_CFG_ADDR: u32      = 0x000000A4; // RW  Texture memory arbiter control
-pub const SDRAM_CFG_ADDR: u32          = 0x000000A8; // RW  Texture memory control
-pub const FOG_COL_RAM_ADDR: u32        = 0x000000B0; // RW  Color for Look Up table Fog
-pub const FOG_COL_VERT_ADDR: u32       = 0x000000B4; // RW  Color for vertex Fog
-pub const FOG_DENSITY_ADDR: u32        = 0x000000B8; // RW  Fog scale value
-pub const FOG_CLAMP_MAX_ADDR: u32      = 0x000000BC; // RW  Color clamping maximum value
-pub const FOG_CLAMP_MIN_ADDR: u32      = 0x000000C0; // RW  Color clamping minimum value
-pub const SPG_TRIGGER_POS_ADDR: u32    = 0x000000C4; // RW  External trigger signal HV counter value
-pub const SPG_HBLANK_INT_ADDR: u32     = 0x000000C8; // RW  H-blank interrupt control
-pub const SPG_VBLANK_INT_ADDR: u32     = 0x000000CC; // RW  V-blank interrupt control
-pub const SPG_CONTROL_ADDR: u32        = 0x000000D0; // RW  Sync pulse generator control
-pub const SPG_HBLANK_ADDR: u32         = 0x000000D4; // RW  H-blank control
-pub const SPG_LOAD_ADDR: u32           = 0x000000D8; // RW  HV counter load value
-pub const SPG_VBLANK_ADDR: u32         = 0x000000DC; // RW  V-blank control
-pub const SPG_WIDTH_ADDR: u32          = 0x000000E0; // RW  Sync width control
-pub const TEXT_CONTROL_ADDR: u32       = 0x000000E4; // RW  Texturing control
-pub const VO_CONTROL_ADDR: u32         = 0x000000E8; // RW  Video output control
-pub const VO_STARTX_ADDR: u32          = 0x000000EC; // RW  Video output start X position
-pub const VO_STARTY_ADDR: u32          = 0x000000F0; // RW  Video output start Y position
-pub const SCALER_CTL_ADDR: u32         = 0x000000F4; // RW  X & Y scaler control
-pub const PAL_RAM_CTRL_ADDR: u32       = 0x00000108; // RW  Palette RAM control
-pub const SPG_STATUS_ADDR: u32         = 0x0000010C; // R   Sync pulse generator status
-pub const FB_BURSTCTRL_ADDR: u32       = 0x00000110; // RW  Frame buffer burst control
-pub const FB_C_SOF_ADDR: u32           = 0x00000114; // R   Current frame buffer start address
-pub const Y_COEFF_ADDR: u32            = 0x00000118; // RW  Y scaling coefficient
-pub const PT_ALPHA_REF_ADDR: u32       = 0x0000011C; // RW  Alpha value for Punch Through polygon comparison
+pub const FPU_SHAD_SCALE_ADDR: u32 = 0x00000074; // RW  Intensity Volume mode
+pub const FPU_CULL_VAL_ADDR: u32 = 0x00000078; // RW  Comparison value for culling
+pub const FPU_PARAM_CFG_ADDR: u32 = 0x0000007C; // RW  Parameter read control
+pub const HALF_OFFSET_ADDR: u32 = 0x00000080; // RW  Pixel sampling control
+pub const FPU_PERP_VAL_ADDR: u32 = 0x00000084; // RW  Comparison value for perpendicular polygons
+pub const ISP_BACKGND_D_ADDR: u32 = 0x00000088; // RW  Background surface depth
+pub const ISP_BACKGND_T_ADDR: u32 = 0x0000008C; // RW  Background surface tag
+pub const ISP_FEED_CFG_ADDR: u32 = 0x00000098; // RW  Translucent polygon sort mode
+pub const SDRAM_REFRESH_ADDR: u32 = 0x000000A0; // RW  Texture memory refresh counter
+pub const SDRAM_ARB_CFG_ADDR: u32 = 0x000000A4; // RW  Texture memory arbiter control
+pub const SDRAM_CFG_ADDR: u32 = 0x000000A8; // RW  Texture memory control
+pub const FOG_COL_RAM_ADDR: u32 = 0x000000B0; // RW  Color for Look Up table Fog
+pub const FOG_COL_VERT_ADDR: u32 = 0x000000B4; // RW  Color for vertex Fog
+pub const FOG_DENSITY_ADDR: u32 = 0x000000B8; // RW  Fog scale value
+pub const FOG_CLAMP_MAX_ADDR: u32 = 0x000000BC; // RW  Color clamping maximum value
+pub const FOG_CLAMP_MIN_ADDR: u32 = 0x000000C0; // RW  Color clamping minimum value
+pub const SPG_TRIGGER_POS_ADDR: u32 = 0x000000C4; // RW  External trigger signal HV counter value
+pub const SPG_HBLANK_INT_ADDR: u32 = 0x000000C8; // RW  H-blank interrupt control
+pub const SPG_VBLANK_INT_ADDR: u32 = 0x000000CC; // RW  V-blank interrupt control
+pub const SPG_CONTROL_ADDR: u32 = 0x000000D0; // RW  Sync pulse generator control
+pub const SPG_HBLANK_ADDR: u32 = 0x000000D4; // RW  H-blank control
+pub const SPG_LOAD_ADDR: u32 = 0x000000D8; // RW  HV counter load value
+pub const SPG_VBLANK_ADDR: u32 = 0x000000DC; // RW  V-blank control
+pub const SPG_WIDTH_ADDR: u32 = 0x000000E0; // RW  Sync width control
+pub const TEXT_CONTROL_ADDR: u32 = 0x000000E4; // RW  Texturing control
+pub const VO_CONTROL_ADDR: u32 = 0x000000E8; // RW  Video output control
+pub const VO_STARTX_ADDR: u32 = 0x000000EC; // RW  Video output start X position
+pub const VO_STARTY_ADDR: u32 = 0x000000F0; // RW  Video output start Y position
+pub const SCALER_CTL_ADDR: u32 = 0x000000F4; // RW  X & Y scaler control
+pub const PAL_RAM_CTRL_ADDR: u32 = 0x00000108; // RW  Palette RAM control
+pub const SPG_STATUS_ADDR: u32 = 0x0000010C; // R   Sync pulse generator status
+pub const FB_BURSTCTRL_ADDR: u32 = 0x00000110; // RW  Frame buffer burst control
+pub const FB_C_SOF_ADDR: u32 = 0x00000114; // R   Current frame buffer start address
+pub const Y_COEFF_ADDR: u32 = 0x00000118; // RW  Y scaling coefficient
+pub const PT_ALPHA_REF_ADDR: u32 = 0x0000011C; // RW  Alpha value for Punch Through polygon comparison
 
 // TA REGS
-pub const TA_OL_BASE_ADDR: u32         = 0x00000124; // RW  Object list write start address
-pub const TA_ISP_BASE_ADDR: u32        = 0x00000128; // RW  ISP/TSP Parameter write start address
-pub const TA_OL_LIMIT_ADDR: u32        = 0x0000012C; // RW  Start address of next Object Pointer Block
-pub const TA_ISP_LIMIT_ADDR: u32       = 0x00000130; // RW  Current ISP/TSP Parameter write address
-pub const TA_NEXT_OPB_ADDR: u32        = 0x00000134; // R   Global Tile clip control
-pub const TA_ISP_CURRENT_ADDR: u32     = 0x00000138; // R   Current ISP/TSP Parameter write address
-pub const TA_GLOB_TILE_CLIP_ADDR: u32  = 0x0000013C; // RW  Global Tile clip control
-pub const TA_ALLOC_CTRL_ADDR: u32      = 0x00000140; // RW  Object list control
-pub const TA_LIST_INIT_ADDR: u32       = 0x00000144; // RW  TA initialization
-pub const TA_YUV_TEX_BASE_ADDR: u32    = 0x00000148; // RW  YUV422 texture write start address
-pub const TA_YUV_TEX_CTRL_ADDR: u32    = 0x0000014C; // RW  YUV converter control
-pub const TA_YUV_TEX_CNT_ADDR: u32     = 0x00000150; // R   YUV converter macro block counter value
-pub const TA_LIST_CONT_ADDR: u32       = 0x00000160; // RW  TA continuation processing
-pub const TA_NEXT_OPB_INIT_ADDR: u32   = 0x00000164; // RW  Additional OPB starting address
-pub const FOG_TABLE_START_ADDR: u32    = 0x00000200; // RW  Look-up table Fog data
-pub const FOG_TABLE_END_ADDR: u32      = 0x000003FC;
+pub const TA_OL_BASE_ADDR: u32 = 0x00000124; // RW  Object list write start address
+pub const TA_ISP_BASE_ADDR: u32 = 0x00000128; // RW  ISP/TSP Parameter write start address
+pub const TA_OL_LIMIT_ADDR: u32 = 0x0000012C; // RW  Start address of next Object Pointer Block
+pub const TA_ISP_LIMIT_ADDR: u32 = 0x00000130; // RW  Current ISP/TSP Parameter write address
+pub const TA_NEXT_OPB_ADDR: u32 = 0x00000134; // R   Global Tile clip control
+pub const TA_ISP_CURRENT_ADDR: u32 = 0x00000138; // R   Current ISP/TSP Parameter write address
+pub const TA_GLOB_TILE_CLIP_ADDR: u32 = 0x0000013C; // RW  Global Tile clip control
+pub const TA_ALLOC_CTRL_ADDR: u32 = 0x00000140; // RW  Object list control
+pub const TA_LIST_INIT_ADDR: u32 = 0x00000144; // RW  TA initialization
+pub const TA_YUV_TEX_BASE_ADDR: u32 = 0x00000148; // RW  YUV422 texture write start address
+pub const TA_YUV_TEX_CTRL_ADDR: u32 = 0x0000014C; // RW  YUV converter control
+pub const TA_YUV_TEX_CNT_ADDR: u32 = 0x00000150; // R   YUV converter macro block counter value
+pub const TA_LIST_CONT_ADDR: u32 = 0x00000160; // RW  TA continuation processing
+pub const TA_NEXT_OPB_INIT_ADDR: u32 = 0x00000164; // RW  Additional OPB starting address
+pub const FOG_TABLE_START_ADDR: u32 = 0x00000200; // RW  Look-up table Fog data
+pub const FOG_TABLE_END_ADDR: u32 = 0x000003FC;
 pub const TA_OL_POINTERS_START_ADDR: u32 = 0x00000600; // R   TA object List Pointer data
-pub const TA_OL_POINTERS_END_ADDR: u32   = 0x00000F5C;
-pub const PALETTE_RAM_START_ADDR: u32    = 0x00001000; // RW  Palette RAM
-pub const PALETTE_RAM_END_ADDR: u32      = 0x00001FFC;
+pub const TA_OL_POINTERS_END_ADDR: u32 = 0x00000F5C;
+pub const PALETTE_RAM_START_ADDR: u32 = 0x00001000; // RW  Palette RAM
+pub const PALETTE_RAM_END_ADDR: u32 = 0x00001FFC;
 
 // =============================================================================
 // Bitfield Definitions
@@ -111,8 +110,8 @@ bitfield! {
 
 pub enum FBDepth {
     FBDE_0555 = 0,
-    FBDE_565  = 1,
-    FBDE_888  = 2,
+    FBDE_565 = 1,
+    FBDE_888 = 2,
     FBDE_C888 = 3,
 }
 
@@ -253,7 +252,7 @@ bitfield! {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Default, Debug)]
+#[derive(Copy, Clone)]
 pub union ISP_BACKGND_D {
     pub i: u32,
     pub f: f32,

@@ -6,25 +6,27 @@
 #![allow(unused_variables)]
 
 use sh4_core::{
-    Sh4Ctx, sh4_init_ctx, sh4_ipr_dispatcher,
-    sh4dec::{SH4DecoderState, format_disas},
+    sh4_init_ctx, sh4_ipr_dispatcher,
+    sh4dec::{format_disas, SH4DecoderState},
     sh4mem::read_mem,
+    Sh4Ctx,
 };
 use std::fs::File;
 use std::io::{self, Read};
 use std::path::Path;
 use std::ptr::{self, NonNull};
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicPtr, Ordering};
+use std::sync::Mutex;
 
 mod area0;
 pub use area0::AREA0_HANDLERS;
 
 mod aica;
-pub mod arm7di;
 mod arm7_disasm;
+pub mod arm7di;
 mod asic;
 mod gdrom;
+mod pvr;
 mod sgc;
 mod spg;
 mod system_bus;
