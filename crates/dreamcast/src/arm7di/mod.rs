@@ -592,7 +592,7 @@ impl<'a> Arm7Di<'a> {
         } else {
             self.ctx.regs[rn].get()
         };
-        let mut cycles = 1u32;
+        let cycles = 1u32;
 
         match op {
             0x0 => {
@@ -979,8 +979,8 @@ impl<'a> Arm7Di<'a> {
 
         let address = if p { offset } else { base };
 
-        let mut data = 0u32;
         if l {
+            let data;
             if b {
                 data = self.ctx.read8(address) as u32;
             } else {

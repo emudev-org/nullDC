@@ -1927,8 +1927,7 @@ fn write_data_32(ctx: *mut u8, _addr: u32, data: u32) {
 }
 
 fn area7_read_only(_ctx: *mut u8, addr: u32, _data: u32) {
-    #[cfg(debug_assertions)]
-    eprintln!("Ignoring write to read-only area7 register {:08X}", addr);
+    eprintln!("area7_read_only: Ignoring write to read-only area7 register {:08X}", addr);
 }
 
 fn write_intc_ipr(ctx: *mut u8, _addr: u32, data: u32) {

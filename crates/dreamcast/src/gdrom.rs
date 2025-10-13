@@ -6,15 +6,9 @@
 #![allow(clippy::upper_case_acronyms)]
 
 use once_cell::sync::Lazy;
-use std::collections::VecDeque;
 use std::sync::Mutex;
 
 use crate::asic;
-
-
-use std::cmp::{max, min};
-use std::mem::{size_of};
-use std::ptr;
 
 const GD_BASE: u32 = 0x005F_7000;
 const GD_END: u32 = 0x005F_70FF;
@@ -84,9 +78,6 @@ macro_rules! println_spicmd {
 macro_rules! println_rm {
     ($($arg:tt)*) => { if ENABLE_LOG_RM { println!($($arg)*); } };
 }
-macro_rules! println_subcode {
-    ($($arg:tt)*) => { if ENABLE_LOG_SUBCODE { println!($($arg)*); } };
-}
 
 macro_rules! verify {
     ($cond:expr) => {
@@ -94,7 +85,7 @@ macro_rules! verify {
     };
 }
 macro_rules! die {
-    ($($arg:tt)*) => { panic!("Fatal: {}", format!($($arg)*)); };
+    ($($arg:tt)*) => { panic!("Fatal: {}", format!($($arg)*)) };
 }
 
 // ===================================================
@@ -305,19 +296,19 @@ pub const SPI_CD_READ2: u8 = 0x31;
 pub const SPI_GET_SCD: u8 = 0x40;
 
 // Dummy GD-ROM I/O addresses
-pub const GD_STATUS_Read: u32 = 0x005F709C;
-pub const GD_ALTSTAT_Read: u32 = 0x005F7018;
+pub const GD_STATUS_READ: u32 = 0x005F709C;
+pub const GD_ALTSTAT_READ: u32 = 0x005F7018;
 pub const GD_BYCTLLO: u32 = 0x005F7090;
 pub const GD_BYCTLHI: u32 = 0x005F7094;
 pub const GD_DATA: u32 = 0x005F7080;
 pub const GD_DRVSEL: u32 = 0x005F7098;
-pub const GD_ERROR_Read: u32 = 0x005F7084;
-pub const GD_IREASON_Read: u32 = 0x005F7088;
+pub const GD_ERROR_READ: u32 = 0x005F7084;
+pub const GD_IREASON_READ: u32 = 0x005F7088;
 pub const GD_SECTNUM: u32 = 0x005F708C;
-pub const GD_DEVCTRL_Write: u32 = 0x005F7018;
-pub const GD_FEATURES_Write: u32 = 0x005F7084;
-pub const GD_SECTCNT_Write: u32 = 0x005F7088;
-pub const GD_COMMAND_Write: u32 = 0x005F709C;
+pub const GD_DEVCTRL_WRITE: u32 = 0x005F7018;
+pub const GD_FEATURES_WRITE: u32 = 0x005F7084;
+pub const GD_SECTCNT_WRITE: u32 = 0x005F7088;
+pub const GD_COMMAND_WRITE: u32 = 0x005F709C;
 
 // ===================================================
 // External stubs
@@ -330,7 +321,7 @@ impl GDRDisc {
     pub fn GetSessionInfo(&self, _dst: *mut u8, _sel: u8) { println!("GetSessionInfo stub"); }
     pub fn ReadSubChannel(&self, _dst: *mut u8, _off: u32, _len: u32) { println!("ReadSubChannel stub"); }
 }
-static mut g_GDRDisc: Option<GDRDisc> = None;
+static mut G_GDRDISC: Option<GDRDisc> = None;
 // static mut g_GDRDisc: Option<GDRDisc> = Some(GDRDisc);
 
 // ===================================================
@@ -391,17 +382,15 @@ impl GDRomV3Impl {
     pub fn FillReadBuffer(&mut self) {
         self.read_buff.cache_index = 0;
         let mut count = self.read_params.remaining_sectors;
-        let mut hint = 0;
 
         if count > 32 {
-            hint = max(count - 32, 32);
             count = 32;
         }
 
         self.read_buff.cache_size = count * self.read_params.sector_type;
 
         unsafe {
-            if let Some(ref disc) = g_GDRDisc {
+            if let Some(ref disc) = G_GDRDISC {
                 disc.ReadSector(
                     self.read_buff.cache.as_mut_ptr(),
                     self.read_params.start_sector,
@@ -452,7 +441,7 @@ impl GDRomV3Impl {
             }
 
             gd_states::gds_pio_send_data | gd_states::gds_pio_get_data => {
-                unsafe { self.ByteCount.full = (self.pio_buff.size << 1) as u16 };
+                self.ByteCount.full = (self.pio_buff.size << 1) as u16;
                 self.IntReason.set_IO(true);
                 self.IntReason.set_CoD(false);
                 self.GDStatus.set_DRQ(true);
@@ -472,7 +461,7 @@ impl GDRomV3Impl {
                 }
 
                 unsafe {
-                    if let Some(ref disc) = g_GDRDisc {
+                    if let Some(ref disc) = G_GDRDISC {
                         disc.ReadSector(
                             self.pio_buff.data.as_mut_ptr() as *mut u8,
                             self.read_params.start_sector,
@@ -518,10 +507,6 @@ impl GDRomV3Impl {
                 }
                 self.gd_set_state(gd_states::gds_pio_end);
             }
-
-            _ => {
-                die!("Unhandled GDROM state {:?}", state);
-            }
         }
     }
 
@@ -533,7 +518,7 @@ impl GDRomV3Impl {
         let mut newd = DiscType::NoDisk;
 
         unsafe {
-            if let Some(ref disc) = g_GDRDisc {
+            if let Some(ref disc) = G_GDRDISC {
                 newd = match disc.GetDiscType() {
                     1 => DiscType::Open,
                     2 => DiscType::Busy,
@@ -702,13 +687,13 @@ impl GDRomV3Impl {
             ATA_IDENTIFY => {
                 println_ata!("ATA_IDENTIFY");
                 self.DriveSel &= 0xf0;
-                unsafe {
-                    self.SecCount.0 = 1;
-                    self.SecNumber.0 = 1;
-                    self.ByteCount.parts.low = 0x14;
-                    self.ByteCount.parts.hi = 0xeb;
-                    self.Error.0 = 0x4;
-                }
+               
+                self.SecCount.0 = 1;
+                self.SecNumber.0 = 1;
+                self.ByteCount.parts.low = 0x14;
+                self.ByteCount.parts.hi = 0xeb;
+                self.Error.0 = 0x4;
+
                 self.GDStatus.0 = 0;
                 self.GDStatus.set_DRDY(true);
                 self.GDStatus.set_CHECK(true);
@@ -829,7 +814,7 @@ impl GDRomV3Impl {
                 self.gd_spi_pio_end(Some(&bytes), bytes.len() as u32, gd_states::gds_pio_end);
 
                 unsafe {
-                    if let Some(ref disc) = g_GDRDisc {
+                    if let Some(ref disc) = G_GDRDISC {
                         match disc.GetDiscType() {
                             3 | 4 => self.SecNumber.set_Status(GD_PAUSE),
                             _ => self.SecNumber.set_Status(GD_STANDBY),
@@ -989,12 +974,12 @@ impl GDRomV3Impl {
     // ===================================================
     pub fn Read(&mut self, Addr: u32, sz: u32) -> u32 {
         match Addr {
-            GD_STATUS_Read => {
+            GD_STATUS_READ => {
                 asic::cancel_external(GDROM_IRQ_EXT_BIT);
                 println_rm!("GDROM: STATUS [cancel int](v={:X})", self.GDStatus.0);
                 (self.GDStatus.0 as u32) | (1 << 4)
             }
-            GD_ALTSTAT_Read => {
+            GD_ALTSTAT_READ => {
                 println_rm!("GDROM: Read From AltStatus (v={:X})", self.GDStatus.0);
                 (self.GDStatus.0 as u32) | (1 << 4)
             }
@@ -1029,12 +1014,12 @@ impl GDRomV3Impl {
                 println_rm!("GDROM: Read From DriveSel");
                 self.DriveSel
             }
-            GD_ERROR_Read => {
+            GD_ERROR_READ => {
                 println_rm!("GDROM: Read from ERROR Register");
                 self.Error.set_Sense(self.sns_key as u8);
                 self.Error.0 as u32
             }
-            GD_IREASON_Read => {
+            GD_IREASON_READ => {
                 println_rm!("GDROM: Read from INTREASON Register");
                 self.IntReason.0 as u32
             }
@@ -1062,15 +1047,11 @@ impl GDRomV3Impl {
         match Addr {
             GD_BYCTLLO => {
                 println_rm!("GDROM: Write to GD_BYCTLLO = {:X}, Size:{:X}", data, sz);
-                unsafe {
-                    self.ByteCount.parts.low = data as u8;
-                }
+                self.ByteCount.parts.low = data as u8;
             }
             GD_BYCTLHI => {
                 println_rm!("GDROM: Write to GD_BYCTLHI = {:X}, Size:{:X}", data, sz);
-                unsafe {
-                    self.ByteCount.parts.hi = data as u8;
-                }
+                self.ByteCount.parts.hi = data as u8;
             }
             GD_DATA => {
                 if sz != 2 {
@@ -1099,7 +1080,7 @@ impl GDRomV3Impl {
                     _ => println!("GDROM: Illegal Write to DATA"),
                 }
             }
-            GD_DEVCTRL_Write => {
+            GD_DEVCTRL_WRITE => {
                 println!("GDROM: Write GD_DEVCTRL (Not implemented on Dreamcast)");
             }
             GD_DRVSEL => {
@@ -1108,18 +1089,18 @@ impl GDRomV3Impl {
                 }
                 self.DriveSel = data;
             }
-            GD_FEATURES_Write => {
+            GD_FEATURES_WRITE => {
                 println_rm!("GDROM: Write to GD_FEATURES");
                 self.Features.0 = data as u8;
             }
-            GD_SECTCNT_Write => {
+            GD_SECTCNT_WRITE => {
                 println!("GDROM: Write to SecCount = {:X}", data);
                 self.SecCount.0 = data as u8;
             }
             GD_SECTNUM => {
                 println!("GDROM: Write to SecNum; not possible = {:X}", data);
             }
-            GD_COMMAND_Write => {
+            GD_COMMAND_WRITE => {
                 verify!(sz == 1);
                 if (data != ATA_NOP as u32) && (data != ATA_SOFT_RESET as u32) {
                     verify!(self.gd_state == gd_states::gds_waitcmd);

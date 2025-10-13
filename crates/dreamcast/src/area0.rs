@@ -1,3 +1,5 @@
+#![allow(static_mut_refs)]
+
 use std::ptr;
 
 use sh4_core::sh4mem;
