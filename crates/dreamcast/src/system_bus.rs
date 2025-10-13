@@ -420,15 +420,11 @@ impl SystemBus {
         }
     }
 
-    pub fn new() -> Self {
-        let mut sb = Self {
-            sb_regs: vec![RegisterStruct::default(); 0x540],
-            sb_ffst_rc: 0,
-            sb_ffst: 0,
-        };
-
-        for i in 0..sb.sb_regs.len() {
-            sb.register_rio(
+    pub fn setup(&mut self) {
+        self.sb_regs = vec![RegisterStruct::default(); 0x540];
+        
+        for i in 0..self.sb_regs.len() {
+            self.register_rio(
                 std::ptr::null_mut(),
                 SB_BASE + (i as u32 * 4),
                 RIO_NO_ACCESS,
@@ -441,13 +437,13 @@ impl SystemBus {
 
         macro_rules! rio {
             ($addr:ident, $mode:ident) => {
-                sb.register_rio(std::ptr::null_mut(), $addr, $mode, None, None);
+                self.register_rio(std::ptr::null_mut(), $addr, $mode, None, None);
             };
             ($addr:ident, $mode:ident, $rf:expr) => {
-                sb.register_rio(std::ptr::null_mut(), $addr, $mode, Some($rf), None);
+                self.register_rio(std::ptr::null_mut(), $addr, $mode, Some($rf), None);
             };
             ($addr:ident, $mode:ident, $rf:expr, $wf:expr) => {
-                sb.register_rio(std::ptr::null_mut(), $addr, $mode, Some($rf), Some($wf));
+                self.register_rio(std::ptr::null_mut(), $addr, $mode, Some($rf), Some($wf));
             };
         }
 
@@ -468,15 +464,15 @@ impl SystemBus {
         rio!(SB_TFREM_ADDR, RIO_RO);
         rio!(SB_LMMODE0_ADDR, RIO_DATA);
         rio!(SB_LMMODE1_ADDR, RIO_DATA);
-        let sb_ptr = &mut sb as *mut _ as *mut u32;
-        sb.register_rio(
+        let sb_ptr = self as *mut _ as *mut u32;
+        self.register_rio(
             sb_ptr,
             SB_FFST_ADDR,
             RIO_RO_FUNC,
             Some(Self::sb_ffst_read as _),
             None,
         );
-        sb.register_rio(
+        self.register_rio(
             sb_ptr,
             SB_SFRES_ADDR,
             RIO_WO_FUNC,
@@ -507,16 +503,16 @@ impl SystemBus {
         rio!(SB_MDST_ADDR, RIO_DATA);
         rio!(SB_MSYS_ADDR, RIO_DATA);
         rio!(SB_MST_ADDR, RIO_RO);
-        let reg_ptr = sb.regn32(SB_MSHTCL_ADDR);
-        sb.register_rio(
+        let reg_ptr = self.regn32(SB_MSHTCL_ADDR);
+        self.register_rio(
             reg_ptr,
             SB_MSHTCL_ADDR,
             RIO_WO_FUNC,
             None,
             Some(Self::sbio_writeonly as _),
         );
-        let reg_ptr = sb.regn32(SB_MDAPRO_ADDR);
-        sb.register_rio(
+        let reg_ptr = self.regn32(SB_MDAPRO_ADDR);
+        self.register_rio(
             reg_ptr,
             SB_MDAPRO_ADDR,
             RIO_WO_FUNC,
@@ -532,81 +528,81 @@ impl SystemBus {
         rio!(SB_GDDIR_ADDR, RIO_DATA);
         rio!(SB_GDEN_ADDR, RIO_DATA);
         rio!(SB_GDST_ADDR, RIO_DATA);
-        let reg_ptr = sb.regn32(SB_MSHTCL_ADDR);
-        sb.register_rio(
+        let reg_ptr = self.regn32(SB_MSHTCL_ADDR);
+        self.register_rio(
             reg_ptr,
             SB_G1RRC_ADDR,
             RIO_WO_FUNC,
             None,
             Some(Self::sbio_writeonly as _),
         );
-        let reg_ptr = sb.regn32(SB_G1RWC_ADDR);
-        sb.register_rio(
+        let reg_ptr = self.regn32(SB_G1RWC_ADDR);
+        self.register_rio(
             reg_ptr,
             SB_G1RWC_ADDR,
             RIO_WO_FUNC,
             None,
             Some(Self::sbio_writeonly as _),
         );
-        let reg_ptr = sb.regn32(SB_G1FRC_ADDR);
-        sb.register_rio(
+        let reg_ptr = self.regn32(SB_G1FRC_ADDR);
+        self.register_rio(
             reg_ptr,
             SB_G1FRC_ADDR,
             RIO_WO_FUNC,
             None,
             Some(Self::sbio_writeonly as _),
         );
-        let reg_ptr = sb.regn32(SB_G1FWC_ADDR);
-        sb.register_rio(
+        let reg_ptr = self.regn32(SB_G1FWC_ADDR);
+        self.register_rio(
             reg_ptr,
             SB_G1FWC_ADDR,
             RIO_WO_FUNC,
             None,
             Some(Self::sbio_writeonly as _),
         );
-        let reg_ptr = sb.regn32(SB_G1CRC_ADDR);
-        sb.register_rio(
+        let reg_ptr = self.regn32(SB_G1CRC_ADDR);
+        self.register_rio(
             reg_ptr,
             SB_G1CRC_ADDR,
             RIO_WO_FUNC,
             None,
             Some(Self::sbio_writeonly as _),
         );
-        let reg_ptr = sb.regn32(SB_G1CWC_ADDR);
-        sb.register_rio(
+        let reg_ptr = self.regn32(SB_G1CWC_ADDR);
+        self.register_rio(
             reg_ptr,
             SB_G1CWC_ADDR,
             RIO_WO_FUNC,
             None,
             Some(Self::sbio_writeonly as _),
         );
-        let reg_ptr = sb.regn32(SB_G1GDRC_ADDR);
-        sb.register_rio(
+        let reg_ptr = self.regn32(SB_G1GDRC_ADDR);
+        self.register_rio(
             reg_ptr,
             SB_G1GDRC_ADDR,
             RIO_WO_FUNC,
             None,
             Some(Self::sbio_writeonly as _),
         );
-        let reg_ptr = sb.regn32(SB_G1GDWC_ADDR);
-        sb.register_rio(
+        let reg_ptr = self.regn32(SB_G1GDWC_ADDR);
+        self.register_rio(
             reg_ptr,
             SB_G1GDWC_ADDR,
             RIO_WO_FUNC,
             None,
             Some(Self::sbio_writeonly as _),
         );
-        let reg_ptr = sb.regn32(SB_G1SYSM_ADDR);
+        let reg_ptr = self.regn32(SB_G1SYSM_ADDR);
         rio!(SB_G1SYSM_ADDR, RIO_RO);
-        sb.register_rio(
+        self.register_rio(
             reg_ptr,
             SB_G1CRDYC_ADDR,
             RIO_WO_FUNC,
             None,
             Some(Self::sbio_writeonly as _),
         );
-        let reg_ptr = sb.regn32(SB_GDAPRO_ADDR);
-        sb.register_rio(
+        let reg_ptr = self.regn32(SB_GDAPRO_ADDR);
+        self.register_rio(
             reg_ptr,
             SB_GDAPRO_ADDR,
             RIO_WO_FUNC,
@@ -652,8 +648,8 @@ impl SystemBus {
         rio!(SB_G2TRTO_ADDR, RIO_DATA);
         rio!(SB_G2MDMTO_ADDR, RIO_DATA);
         rio!(SB_G2MDMW_ADDR, RIO_DATA);
-        let reg_ptr = sb.regn32(SB_G2APRO_ADDR);
-        sb.register_rio(
+        let reg_ptr = self.regn32(SB_G2APRO_ADDR);
+        self.register_rio(
             reg_ptr,
             SB_G2APRO_ADDR,
             RIO_WO_FUNC,
@@ -679,8 +675,8 @@ impl SystemBus {
         rio!(SB_PDTSEL_ADDR, RIO_DATA);
         rio!(SB_PDEN_ADDR, RIO_DATA);
         rio!(SB_PDST_ADDR, RIO_DATA);
-        let reg_ptr = sb.regn32(SB_PDAPRO_ADDR);
-        sb.register_rio(
+        let reg_ptr = self.regn32(SB_PDAPRO_ADDR);
+        self.register_rio(
             reg_ptr,
             SB_PDAPRO_ADDR,
             RIO_WO_FUNC,
@@ -692,8 +688,8 @@ impl SystemBus {
         rio!(SB_PDLEND_ADDR, RIO_RO);
 
         // Special cases
-        let reg_ptr = sb.regn32(SB_PDAPRO_ADDR);
-        sb.register_rio(
+        let reg_ptr = self.regn32(SB_PDAPRO_ADDR);
+        self.register_rio(
             reg_ptr,
             0x005f74e4,
             RIO_WO_FUNC,
@@ -705,8 +701,8 @@ impl SystemBus {
             0x005f68a4, 0x005f68ac, 0x005f78a0, 0x005f78a4, 0x005f78a8, 0x005f78ac, 0x005f78b0,
             0x005f78b4, 0x005f78b8,
         ] {
-            let reg_ptr = sb.regn32(a);
-            sb.register_rio(
+            let reg_ptr = self.regn32(a);
+            self.register_rio(
                 reg_ptr,
                 a,
                 RIO_WO_FUNC,
@@ -714,8 +710,6 @@ impl SystemBus {
                 Some(Self::sbio_write_zero),
             );
         }
-
-        sb
     }
 
     pub fn register_rio(

@@ -213,7 +213,7 @@ fn load_file_into_slice<P: AsRef<Path>>(path: P, buf: &mut [u8]) -> io::Result<(
     Ok(())
 }
 
-// pub static ROTO_BIN: &[u8] = include_bytes!("../../../roto.bin");
+pub static ROTO_BIN: &[u8] = include_bytes!("../../../roto.bin");
 pub static IP_BIN: &[u8] = include_bytes!("../../../data/IP.BIN");
 pub static SYS_BIN: &[u8] = include_bytes!("../../../data/syscalls.bin");
 pub static HELLO_BIN: &[u8] = include_bytes!("../../../data/hello.elf.bin");
@@ -326,23 +326,32 @@ pub fn init_dreamcast(dc_: *mut Dreamcast) {
 
     reset_arm7(dc);
 
+    dc.ctx.r[15] = 0x8d000000;
+
+	dc.ctx.gbr = 0x8c000000;
+	dc.ctx.ssr = 0x40000001;
+	dc.ctx.spc = 0x8c000776;
+	dc.ctx.sgr = 0x8d000000;
+	dc.ctx.dbr = 0x8c000010;
+	dc.ctx.vbr = 0x8c000000;
+	dc.ctx.pr = 0xac00043c;
+	dc.ctx.fpul = 0x00000000;
+	
+	dc.ctx.sr.0 = 0x400000f0;
+	dc.ctx.sr_t = 1;
+
+
+	dc.ctx.fpscr.0 = 0x00040001;
+
     // ROTO test program at 0x8C010000
     // dc.ctx.pc0 = 0x8C01_0000;
     // dc.ctx.pc1 = 0x8C01_0000 + 2;
     // dc.ctx.pc2 = 0x8C01_0000 + 4;
 
     // IP.BIN boot
-    dc.ctx.pc0 = 0x8C00_8300;
-    dc.ctx.pc1 = 0x8C00_8300 + 2;
-    dc.ctx.pc2 = 0x8C00_8300 + 4;
-
-    // unsafe {
-    //     // Copy roto.bin from embedded ROTO_BIN
-    //     let dst = dc.sys_ram.as_mut_ptr().add(0x10000);
-    //     let src = ROTO_BIN.as_ptr();
-
-    //     ptr::copy_nonoverlapping(src, dst, ROTO_BIN.len())
-    // }
+    // dc.ctx.pc0 = 0x8C00_8300;
+    // dc.ctx.pc1 = 0x8C00_8300 + 2;
+    // dc.ctx.pc2 = 0x8C00_8300 + 4;
 
     unsafe {
         let dst = dc.sys_ram.as_mut_ptr().add(0);
@@ -359,11 +368,19 @@ pub fn init_dreamcast(dc_: *mut Dreamcast) {
     }
 
     unsafe {
+        // Copy roto.bin from embedded ROTO_BIN
         let dst = dc.sys_ram.as_mut_ptr().add(0x10000);
-        let src = HELLO_BIN.as_ptr();
+        let src = ROTO_BIN.as_ptr();
 
-        ptr::copy_nonoverlapping(src, dst, HELLO_BIN.len())
+        ptr::copy_nonoverlapping(src, dst, ROTO_BIN.len())
     }
+
+    // unsafe {
+    //     let dst = dc.sys_ram.as_mut_ptr().add(0x10000);
+    //     let src = HELLO_BIN.as_ptr();
+
+    //     ptr::copy_nonoverlapping(src, dst, HELLO_BIN.len())
+    // }
 
     // unsafe {
     //     let dst = dc.sys_ram.as_mut_ptr().add(0x10000);

@@ -715,6 +715,8 @@ bitfield! {
     pub area, set_area: 4, 2;
 }
 
+unsafe impl Sync for CCN_QACR {}
+
 //
 // ==== INTC ===
 //
@@ -1791,6 +1793,43 @@ pub const P4_HANDLERS: crate::MemHandlers = crate::MemHandlers {
     write64: p4_write::<u64>,
 };
 
+fn sq_read_invalid<T: crate::sh4mem::MemoryData>(_ctx: *mut u8, addr: u32) -> T {
+    println!("sq_read: 0x{:08X}, reads are not supported", addr);
+    T::default()
+}
+fn sq_write_invalid<T: crate::sh4mem::MemoryData>(_ctx: *mut u8, addr: u32, data: T) {
+    println!(
+        "sq_write: 0x{:08X}, writes are not supported for this size, data = 0x{:X}",
+        addr,
+        data.to_u32()
+    );
+}
+
+
+fn sq_write32(ctx: *mut u8, addr: u32, data: u32) {
+    unsafe {
+        *(ctx as *mut u32) = data;
+    }
+}
+
+fn sq_write64(ctx: *mut u8, addr: u32, data: u64) {
+    unsafe {
+        *(ctx as *mut u64) = data;
+    }
+}
+
+pub const SQ_HANDLERS: crate::MemHandlers = crate::MemHandlers {
+    read8: sq_read_invalid::<u8>,
+    read16: sq_read_invalid::<u16>,
+    read32: sq_read_invalid::<u32>,
+    read64: sq_read_invalid::<u64>,
+
+    write8: sq_write_invalid::<u8>,
+    write16: sq_write_invalid::<u16>,
+    write32: sq_write32,
+    write64: sq_write64,
+};
+
 fn read_data_8(ctx: *mut u8, _addr: u32) -> u32 {
     unsafe { *(ctx as *mut u8) as u32 }
 }
@@ -1971,13 +2010,33 @@ fn write_ccn_ccr(ctx: *mut u8, _addr: u32, data: u32) {
     }
 }
 
-fn read_ccn_cpu_version(_ctx: *mut u8, _addr: u32) -> u32 {
-    unsafe { ptr::read(addr_of!(CCN_CPU_VERSION_DATA)).full() }
+
+fn read_ccn_qacr<const IDX: usize>(_ctx: *mut u8, _addr: u32) -> u32 {
+    unsafe {
+        match IDX {
+            0 => CCN_QACR0_DATA.0,
+            1 => CCN_QACR1_DATA.0,
+            _ => unreachable!("Invalid CCN QACR index: {}", IDX),
+        }
+    }
 }
 
-fn write_ccn_qacr(ctx: *mut u8, _addr: u32, data: u32) {
+fn write_ccn_qacr<const IDX: usize>(ctx: *mut u8, _addr: u32, data: u32) {
     unsafe {
-        *(ctx as *mut u32) = data;
+        let sh4ctx = ctx as *mut crate::Sh4Ctx;
+        let qacr = CCN_QACR(data);
+
+        match IDX {
+            0 => {
+                (*sh4ctx).qacr0_base = qacr.area() << 26;
+                CCN_QACR0_DATA = qacr;
+            }
+            1 => {
+                (*sh4ctx).qacr1_base = qacr.area() << 26;
+                CCN_QACR1_DATA = qacr;
+            }
+            _ => unreachable!("Invalid CCN QACR index: {}", IDX),
+        }
     }
 }
 
@@ -2067,22 +2126,35 @@ fn initialize_default_register_values() {
 macro_rules! rio {
     ($mod:ident, $reg:ident, $read:expr, $write:expr, $size:expr) => {
         paste::paste! {
+            rio!(
+                $mod,
+                $reg,
+                $read,
+                $write,
+                $size,
+                std::ptr::addr_of_mut!([<$mod _ $reg _DATA>].0)
+            );
+        }
+    };
+    ($mod:ident, $reg:ident, $read:expr, $write:expr, $size:expr, $ctx:expr) => {
+        paste::paste! {
             {
                 let idx = (([<$mod _ $reg _ADDR>] as usize & 0xFF) / 4);
                 [<RIO_ $mod>][idx] = P4Register {
                     read: $read,
                     write: $write,
                     size: $size / 8,
-                    ctx: std::ptr::addr_of_mut!([<$mod _ $reg _DATA>].0) as *mut _ as *mut u8,
+                    ctx: ($ctx) as *mut u8,
                 };
             }
         }
     };
 }
 
-pub fn p4_init() {
+pub fn p4_init(sh4ctx: &mut crate::Sh4Ctx) {
     unsafe {
         initialize_default_register_values();
+        let sh4_ctx_ptr = sh4ctx as *mut crate::Sh4Ctx;
 
         /* INTC */
         rio!(INTC, ICR, read_data_16, write_data_16, 16);
@@ -2202,10 +2274,10 @@ pub fn p4_init() {
         rio!(CCN, TRA, read_data_32, write_data_32, 32);
         rio!(CCN, EXPEVT, read_data_32, write_data_32, 32);
         rio!(CCN, INTEVT, read_data_32, write_data_32, 32);
-        rio!(CCN, CPU_VERSION, read_ccn_cpu_version, area7_read_only, 32);
+        rio!(CCN, CPU_VERSION, read_data_32, area7_read_only, 32);
         rio!(CCN, PTEA, read_data_32, write_data_32, 32);
-        rio!(CCN, QACR0, read_data_32, write_ccn_qacr, 32);
-        rio!(CCN, QACR1, read_data_32, write_ccn_qacr, 32);
+        rio!(CCN, QACR0, read_ccn_qacr::<0>, write_ccn_qacr::<0>, 32, sh4_ctx_ptr);
+        rio!(CCN, QACR1, read_ccn_qacr::<1>, write_ccn_qacr::<1>, 32, sh4_ctx_ptr);
         rio!(CCN, PRR, read_ccn_prr, area7_read_only, 32);
     }
 }

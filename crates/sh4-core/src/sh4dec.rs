@@ -645,8 +645,8 @@ sh4op! {
 
     (disas = "pref @<REG_N>")
     i0000_nnnn_1000_0011(dc, state, opcode) {
-        // Prefetch - no-op for interpreter
-        println!("pref @R{}", GetN(opcode));
+        let n = GetN(opcode);
+        backend::sh4_pref(dc, addr_of!((*dc).r[n]), addr_of!((*dc).sq_both[0]), addr_of!((*dc).qacr0_base), addr_of!((*dc).qacr1_base));
     }
 
     (disas = "mov.b <REG_M>,@(R0,<REG_N>)")

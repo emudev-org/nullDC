@@ -1,5 +1,5 @@
 use super::Sh4Ctx;
-use super::sh4mem::{read_mem, write_mem};
+use super::sh4mem::{read_mem, write_mem, write_mem_sq};
 
 // Helper functions for double precision register access
 // SH4 stores double precision values in a mixed-endian format:
@@ -447,6 +447,22 @@ pub fn sh4_read_mems16_i(ctx: *mut Sh4Ctx, addr: u32, data: *mut u32) {
         let mut temp: u16 = 0;
         let _ = read_mem::<u16>(ctx, addr, &mut temp);
         *data = temp as i16 as i32 as u32;
+    }
+}
+
+#[inline(always)]
+pub fn sh4_pref(ctx: *mut Sh4Ctx, address: *const u32, sq_both: *const u32, qacr0_base: *const u32, qacr1_base: *const u32) {
+    unsafe {
+        let area = *address >> 26;
+        if area == 0xE0/4 {
+            if *address & 0x20 == 0 {
+                let write_address = (*address & 0x03FF_FFC0) | *qacr0_base;
+                write_mem_sq(ctx, write_address, sq_both);
+            } else {
+                let write_address = (*address & 0x03FF_FFC0) | *qacr1_base;
+                write_mem_sq(ctx, write_address, sq_both.wrapping_add(8));
+            }
+        }
     }
 }
 

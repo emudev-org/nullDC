@@ -262,6 +262,7 @@ define_op!(sh4_read_mems16 (ctx: *mut Sh4Ctx, addr: *const u32, data: *mut u32))
 define_op!(sh4_read_mem32 (ctx: *mut Sh4Ctx, addr: *const u32, data: *mut u32));
 define_op!(sh4_read_mem64 (ctx: *mut Sh4Ctx, addr: *const u32, data: *mut u64));
 define_op!(sh4_read_mem32i (ctx: *mut Sh4Ctx, addr: u32,          data: *mut u32));
+define_op!(sh4_pref (ctx: *mut Sh4Ctx, address: *const u32, sq: *const u32, qacr0_base: *const u32, qacr1_base: *const u32));
 
 define_op!(sh4_fadd (dst: *mut f32, src_n: *const f32, src_m: *const f32));
 define_op!(sh4_fmul (dst: *mut f32, src_n: *const f32, src_m: *const f32));

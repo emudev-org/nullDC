@@ -242,6 +242,14 @@ fn handle_system_bus_read<T: sh4mem::MemoryData>(dc: &Dreamcast, addr: u32, size
             unsafe { T::from_u32(SYSTEM_BUS.read(addr, size as u32)) }
         }
         0x005F_8000..=0x005F_9FFF => {
+            if addr == 0x005F_8000 {
+                
+                return T::from_u32(0x17FD11DB);
+            }
+            if addr == 0x005F_8004 {
+                
+                return T::from_u32(0x00000011);
+            }
             warn_unimplemented("TA/PVR core", "read", addr, size);
             T::default()
         }
@@ -290,6 +298,6 @@ fn handle_system_bus_write<T: sh4mem::MemoryData>(
 
 pub fn reset() {
     unsafe {
-        SYSTEM_BUS = system_bus::SystemBus::new();
+        SYSTEM_BUS.setup();
     }
 }

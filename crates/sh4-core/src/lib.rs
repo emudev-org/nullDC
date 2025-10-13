@@ -162,6 +162,11 @@ pub struct Sh4Ctx {
 
     pub temp: [u32; 8],
 
+    pub sq_both: [u32; 16],
+
+    pub qacr0_base: u32,
+    pub qacr1_base: u32,
+
     pub fns_entrypoint: *const u8,
 
     // Memory map (moved from Dreamcast)
@@ -217,6 +222,10 @@ impl Default for Sh4Ctx {
             virt_jdyn: 0,
 
             temp: [0; 8],
+
+            sq_both:[0; 16],
+            qacr0_base: 0,
+            qacr1_base: 0,
 
             fns_entrypoint: ptr::null(),
 
@@ -428,7 +437,16 @@ pub fn sh4_init_ctx(ctx: *mut Sh4Ctx) {
         ctx as *mut _ as *mut u8,
     );
 
-    sh4p4::p4_init();
+    sh4_register_mem_handler(
+        ctx,
+        0xE000_0000,
+        0xE3FF_FFFF,
+        63,
+        sh4p4::SQ_HANDLERS,
+        unsafe { (*ctx).sq_both.as_mut_ptr() as *mut u8 }
+    );
+
+    sh4p4::p4_init(unsafe { &mut (*ctx) });
 }
 
 pub fn sh4_term_ctx(ctx: &mut Sh4Ctx) {
