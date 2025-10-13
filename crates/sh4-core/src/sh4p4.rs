@@ -1877,13 +1877,13 @@ fn sq_write_invalid<T: crate::sh4mem::MemoryData>(_ctx: *mut u8, addr: u32, data
 
 fn sq_write32(ctx: *mut u8, addr: u32, data: u32) {
     unsafe {
-        *(ctx as *mut u32) = data;
+        *(ctx.add(addr as usize) as *mut u32) = data;
     }
 }
 
 fn sq_write64(ctx: *mut u8, addr: u32, data: u64) {
     unsafe {
-        *(ctx as *mut u64) = data;
+        *(ctx.add(addr as usize) as *mut u64) = data;
     }
 }
 

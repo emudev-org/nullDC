@@ -1,4 +1,5 @@
 use crate::pvr;
+use crate::asic;
 
 // Function pointer types
 pub type RegReadAddrFP = fn(ctx: *mut u32, addr: u32) -> u32;
@@ -407,6 +408,26 @@ impl SystemBus {
         }
     }
 
+    #[inline(always)]
+    fn sb_dma_start_write(ctx: *mut u32, addr: u32, data: u32) {
+        unsafe {
+            *(ctx) = 0;
+        }
+        let name = match addr {
+            SB_MDST_ADDR => { 
+                asic::raise_normal(12); // maple dma
+                "SB_MDST"   
+            }
+            SB_GDST_ADDR => "SB_GDST",
+            SB_ADST_ADDR => "SB_ADST",
+            SB_E1ST_ADDR => "SB_E1ST",
+            SB_E2ST_ADDR => "SB_E2ST",
+            SB_DDST_ADDR => "SB_DDST",
+            _ => "SB_DMA_START",
+        };
+        println!("SB DMA start write: {} = {:#010x}", name, data);
+    }
+
     fn sb_ffst_read(ctx: *mut u32, _addr: u32) -> u32 {
         let sb = unsafe { &mut *(ctx as *mut SystemBus) };
         sb.sb_ffst_rc = sb.sb_ffst_rc.wrapping_add(1);
@@ -525,7 +546,14 @@ impl SystemBus {
         rio!(SB_MDSTAR_ADDR, RIO_DATA);
         rio!(SB_MDTSEL_ADDR, RIO_DATA);
         rio!(SB_MDEN_ADDR, RIO_DATA);
-        rio!(SB_MDST_ADDR, RIO_DATA);
+        let reg_ptr = self.regn32(SB_MDST_ADDR);
+        self.register_rio(
+            reg_ptr,
+            SB_MDST_ADDR,
+            RIO_WF,
+            None,
+            Some(Self::sb_dma_start_write as _),
+        );
         rio!(SB_MSYS_ADDR, RIO_DATA);
         rio!(SB_MST_ADDR, RIO_RO);
         let reg_ptr = self.regn32(SB_MSHTCL_ADDR);
@@ -552,7 +580,14 @@ impl SystemBus {
         rio!(SB_GDLEN_ADDR, RIO_DATA);
         rio!(SB_GDDIR_ADDR, RIO_DATA);
         rio!(SB_GDEN_ADDR, RIO_DATA);
-        rio!(SB_GDST_ADDR, RIO_DATA);
+        let reg_ptr = self.regn32(SB_GDST_ADDR);
+        self.register_rio(
+            reg_ptr,
+            SB_GDST_ADDR,
+            RIO_WF,
+            None,
+            Some(Self::sb_dma_start_write as _),
+        );
         let reg_ptr = self.regn32(SB_MSHTCL_ADDR);
         self.register_rio(
             reg_ptr,
@@ -642,7 +677,14 @@ impl SystemBus {
         rio!(SB_ADDIR_ADDR, RIO_DATA);
         rio!(SB_ADTSEL_ADDR, RIO_DATA);
         rio!(SB_ADEN_ADDR, RIO_DATA);
-        rio!(SB_ADST_ADDR, RIO_DATA);
+        let reg_ptr = self.regn32(SB_ADST_ADDR);
+        self.register_rio(
+            reg_ptr,
+            SB_ADST_ADDR,
+            RIO_WF,
+            None,
+            Some(Self::sb_dma_start_write as _),
+        );
         rio!(SB_ADSUSP_ADDR, RIO_DATA);
         rio!(SB_E1STAG_ADDR, RIO_DATA);
         rio!(SB_E1STAR_ADDR, RIO_DATA);
@@ -650,7 +692,14 @@ impl SystemBus {
         rio!(SB_E1DIR_ADDR, RIO_DATA);
         rio!(SB_E1TSEL_ADDR, RIO_DATA);
         rio!(SB_E1EN_ADDR, RIO_DATA);
-        rio!(SB_E1ST_ADDR, RIO_DATA);
+        let reg_ptr = self.regn32(SB_E1ST_ADDR);
+        self.register_rio(
+            reg_ptr,
+            SB_E1ST_ADDR,
+            RIO_WF,
+            None,
+            Some(Self::sb_dma_start_write as _),
+        );
         rio!(SB_E1SUSP_ADDR, RIO_DATA);
         rio!(SB_E2STAG_ADDR, RIO_DATA);
         rio!(SB_E2STAR_ADDR, RIO_DATA);
@@ -658,7 +707,14 @@ impl SystemBus {
         rio!(SB_E2DIR_ADDR, RIO_DATA);
         rio!(SB_E2TSEL_ADDR, RIO_DATA);
         rio!(SB_E2EN_ADDR, RIO_DATA);
-        rio!(SB_E2ST_ADDR, RIO_DATA);
+        let reg_ptr = self.regn32(SB_E2ST_ADDR);
+        self.register_rio(
+            reg_ptr,
+            SB_E2ST_ADDR,
+            RIO_WF,
+            None,
+            Some(Self::sb_dma_start_write as _),
+        );
         rio!(SB_E2SUSP_ADDR, RIO_DATA);
         rio!(SB_DDSTAG_ADDR, RIO_DATA);
         rio!(SB_DDSTAR_ADDR, RIO_DATA);
@@ -666,7 +722,14 @@ impl SystemBus {
         rio!(SB_DDDIR_ADDR, RIO_DATA);
         rio!(SB_DDTSEL_ADDR, RIO_DATA);
         rio!(SB_DDEN_ADDR, RIO_DATA);
-        rio!(SB_DDST_ADDR, RIO_DATA);
+        let reg_ptr = self.regn32(SB_DDST_ADDR);
+        self.register_rio(
+            reg_ptr,
+            SB_DDST_ADDR,
+            RIO_WF,
+            None,
+            Some(Self::sb_dma_start_write as _),
+        );
         rio!(SB_DDSUSP_ADDR, RIO_DATA);
         rio!(SB_G2ID_ADDR, RIO_CONST);
         rio!(SB_G2DSTO_ADDR, RIO_DATA);

@@ -462,10 +462,10 @@ pub fn sh4_pref(
         let area = *address >> 26;
         if area == 0xE0 / 4 {
             if *address & 0x20 == 0 {
-                let write_address = (*address & 0x03FF_FFC0) | *qacr0_base;
+                let write_address = (*address & 0x03FF_FFE0) | *qacr0_base;
                 write_mem_sq(ctx, write_address, sq_both);
             } else {
-                let write_address = (*address & 0x03FF_FFC0) | *qacr1_base;
+                let write_address = (*address & 0x03FF_FFE0) | *qacr1_base;
                 write_mem_sq(ctx, write_address, sq_both.wrapping_add(8));
             }
         }
