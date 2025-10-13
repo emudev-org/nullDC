@@ -22,8 +22,8 @@ const App = () => {
         
         <Route path="/tool/sh4-sim" element={<Sh4SimPage />} />
         <Route path="/tool/dsp-playground" element={<DspPlaygroundPage />} />
-        <Route path="/tool/clx2-ta-log-analyzer" element={<Clx2TaLogAnalyzerPage />} />
-        <Route path="/tool/clx2-core-log-analyzer" element={<Clx2CoreLogAnalyzerPage />} />
+        <Route path="/tool/holly-ta-log-analyzer" element={<Clx2TaLogAnalyzerPage />} />
+        <Route path="/tool/holly-core-log-analyzer" element={<Clx2CoreLogAnalyzerPage />} />
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

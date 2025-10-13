@@ -44,12 +44,12 @@ export const HomePage = () => {
       {
         title: "TA Log Analyzer",
         description: "Review tile accelerator primitives and generated CORE lists to diagnose frame submission issues.",
-        action: () => navigate("/tool/clx2-ta-log-analyzer"),
+        action: () => navigate("/tool/holly-ta-log-analyzer"),
       },
       {
         title: "CORE Log Analyzer",
         description: "Inspect PowerVR CORE primitives, buffers and state changes in a frame to diagnose frame rendering artifacts.",
-        action: () => navigate("/tool/clx2-core-log-analyzer"),
+        action: () => navigate("/tool/holly-core-log-analyzer"),
       },
       {
         title: "DSP Playground",

@@ -37,8 +37,8 @@ mod panel_ids {
     pub const ARM7_DISASSEMBLY: &str = "arm7-disassembly";
     pub const ARM7_MEMORY: &str = "arm7-memory";
     pub const ARM7_BREAKPOINTS: &str = "arm7-breakpoints";
-    pub const CLX2_TA: &str = "clx2-ta";
-    pub const CLX2_CORE: &str = "clx2-core";
+    pub const CLX2_TA: &str = "holly-ta";
+    pub const CLX2_CORE: &str = "holly-core";
     pub const SGC: &str = "sgc";
     pub const DSP_DISASSEMBLY: &str = "dsp-disassembly";
     pub const DSP_BREAKPOINTS: &str = "dsp-breakpoints";
