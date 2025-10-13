@@ -27,6 +27,7 @@ mod gdrom;
 mod sgc;
 mod spg;
 mod system_bus;
+pub mod ta;
 
 use arm7di::{ArmPsr, R13_IRQ, R13_SVC, R15_ARM_NEXT, RN_CPSR, RN_PSR_FLAGS, RN_SPSR};
 
@@ -246,6 +247,7 @@ pub fn init_dreamcast(dc_: *mut Dreamcast) {
     aica::reset();
     area0::reset();
     spg::reset();
+    ta::reset();
     sh4_core::register_peripheral_hook(Some(peripheral_hook));
 
     // Build opcode tables
@@ -291,6 +293,7 @@ pub fn init_dreamcast(dc_: *mut Dreamcast) {
         VIDEORAM_MASK,
         dc.video_ram.as_mut_ptr(),
     );
+    ta::init(dc.video_ram.as_mut_ptr());
 
     sh4_core::sh4_register_mem_buffer(
         &mut dc.ctx,
