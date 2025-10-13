@@ -5,3 +5,4 @@ edition = "2024"
 
 [dependencies]
 dreamcast = { path = "../../crates/dreamcast" }
+minifb = "0.27"
