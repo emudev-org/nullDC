@@ -625,9 +625,7 @@ impl ApplicationHandler for AppHandle {
 
                         if !app.dreamcast.is_null() {
                             let dreamcast = app.dreamcast;
-                            unsafe {
-                                run_slice_dreamcast(dreamcast);
-                            }
+                            run_slice_dreamcast(dreamcast);
                         }
 
                         if let Some((rgba, width, height)) = present_for_texture() {
