@@ -3,6 +3,11 @@ name = "nulldc-minimal"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = ["refsw2-rust"]
+refsw2-rust = ["dreamcast/refsw2-rust"]
+refsw2-cpp = ["dreamcast/refsw2-cpp"]
+
 [dependencies]
-dreamcast = { path = "../../crates/dreamcast" }
+dreamcast = { path = "../../crates/dreamcast", default-features = false }
 minifb = "0.27"
