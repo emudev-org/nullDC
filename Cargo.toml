@@ -2,7 +2,9 @@
 members = [
     "crates/sh4-core",
     "crates/dreamcast",
-    "crates/nulldc-minimal"
+    "crates/nulldc-minimal",
+    "crates/refsw2r",
+    "crates/refsw2"
 ]
 
 default-members = ["."]
@@ -35,11 +37,15 @@ debug = false
 strip = true
 
 [features]
-default = ["refsw2-native"]
-refsw2-native = ["dreamcast/refsw2-native"]
+default = ["refsw2-rust"]
+refsw2-rust = ["dreamcast/refsw2-rust"]
+refsw2-cpp = ["dreamcast/refsw2-cpp"]
+# Legacy compatibility
+refsw2-native = ["refsw2-cpp"]
 
 [dependencies]
-dreamcast = { path = "crates/dreamcast" }
+# Always disable default features to prevent multiple backends
+dreamcast = { path = "crates/dreamcast", default-features = false }
 git-version = "0.3"
 wgpu = "26.0.1"
 winit = "0.30.12"

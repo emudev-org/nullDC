@@ -672,6 +672,8 @@ dependencies = [
  "bitfield",
  "cc",
  "once_cell",
+ "refsw2",
+ "refsw2r",
  "sh4-core",
 ]
 
@@ -2405,6 +2407,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5407465600fb0548f1442edf71dd20683c6ed326200ace4b1ef0763521bb3b77"
 dependencies = [
  "bitflags 2.9.4",
+]
+
+[[package]]
+name = "refsw2"
+version = "0.1.0"
+dependencies = [
+ "cc",
+]
+
+[[package]]
+name = "refsw2r"
+version = "0.1.0"
+dependencies = [
+ "bitfield",
 ]
 
 [[package]]
