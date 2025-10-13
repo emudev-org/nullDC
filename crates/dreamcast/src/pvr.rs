@@ -847,4 +847,5 @@ pub const PVR_32BIT_HANDLERS: sh4_core::MemHandlers = sh4_core::MemHandlers {
     write16: pvr_write_area1_16,
     write32: pvr_write_area1_32,
     write64: pvr_write_area1_64,
+    write256: sh4_core::dummy_write256,
 };

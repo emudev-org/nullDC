@@ -184,6 +184,7 @@ pub const AREA0_HANDLERS: MemHandlers = MemHandlers {
     write16: area_0_write::<u16>,
     write32: area_0_write::<u32>,
     write64: area_0_write::<u64>,
+    write256: sh4_core::dummy_write256,
 };
 
 fn read_from_slice<T: Copy>(slice: &[u8], offset: usize, size: usize) -> Option<T> {

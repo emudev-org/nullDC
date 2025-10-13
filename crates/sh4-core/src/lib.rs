@@ -107,6 +107,13 @@ fn dummy_write<T: Copy + std::fmt::LowerHex>(_ctx: *mut u8, addr: u32, value: T)
     );
 }
 
+pub fn dummy_write256(_ctx: *mut u8, addr: u32, _value: *const u32) {
+    panic!(
+        "dummy_write: Attempted write256 {:x}",
+        addr
+    );
+}
+
 #[derive(Copy, Clone)]
 pub struct MemHandlers {
     pub read8: fn(ctx: *mut u8, addr: u32) -> u8,
@@ -117,6 +124,7 @@ pub struct MemHandlers {
     pub write16: fn(ctx: *mut u8, addr: u32, value: u16),
     pub write32: fn(ctx: *mut u8, addr: u32, value: u32),
     pub write64: fn(ctx: *mut u8, addr: u32, value: u64),
+    pub write256: fn(ctx: *mut u8, addr: u32, value: *const u32),
 }
 
 pub const DEFAULT_HANDLERS: MemHandlers = MemHandlers {
@@ -129,6 +137,7 @@ pub const DEFAULT_HANDLERS: MemHandlers = MemHandlers {
     write16: dummy_write::<u16>,
     write32: dummy_write::<u32>,
     write64: dummy_write::<u64>,
+    write256: crate::dummy_write256,
 };
 
 #[repr(C)]

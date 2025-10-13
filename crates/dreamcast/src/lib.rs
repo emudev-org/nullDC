@@ -380,6 +380,16 @@ pub fn init_dreamcast(dc_: *mut Dreamcast) {
         dc as *mut _ as *mut u8,
     );
 
+    // TA
+    sh4_core::sh4_register_mem_handler(
+        &mut dc.ctx,
+        0x1000_0000,
+        0x13FF_FFFF,
+        0xFFFF_FFFF,
+        ta::TA_HANDLERS,
+        dc as *mut _ as *mut u8,
+    );
+
     // Set initial PC
     dc.ctx.pc0 = 0xA000_0000;
     dc.ctx.pc1 = 0xA000_0000 + 2;

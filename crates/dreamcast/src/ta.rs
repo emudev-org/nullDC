@@ -1504,3 +1504,44 @@ pub fn read_reg(offset: u32) -> u32 {
         0
     }
 }
+
+
+fn ta_read<T: Copy + std::fmt::LowerHex>(_ctx: *mut u8, offset: u32) -> T {
+    panic!(
+        "ta_read: Attempted read::<u{}> {:x}",
+        std::mem::size_of::<T>() * 4,
+        offset
+    );
+}
+
+fn ta_write<T: Copy + std::fmt::LowerHex>(_ctx: *mut u8, addr: u32, value: T) {
+    panic!(
+        "ta_write: Attempted write::<u{}> {:x} data = {:x}",
+        std::mem::size_of::<T>() * 4,
+        addr,
+        value
+    );
+}
+
+fn ta_write256(_ctx: *mut u8, _addr: u32, value: *const u32) {
+    let block: &[u8] = unsafe {
+        std::slice::from_raw_parts(
+            value as *const u8,
+            8 * std::mem::size_of::<u32>(),
+        )
+    };
+    write(&block);
+}
+
+pub const TA_HANDLERS: sh4_core::MemHandlers = sh4_core::MemHandlers {
+    read8: ta_read::<u8>,
+    read16: ta_read::<u16>,
+    read32: ta_read::<u32>,
+    read64: ta_read::<u64>,
+
+    write8: ta_write::<u8>,
+    write16: ta_write::<u16>,
+    write32: ta_write::<u32>,
+    write64: ta_write::<u64>,
+    write256: ta_write256,
+};

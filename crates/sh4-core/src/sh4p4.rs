@@ -1861,6 +1861,7 @@ pub const P4_HANDLERS: crate::MemHandlers = crate::MemHandlers {
     write16: p4_write::<u16>,
     write32: p4_write::<u32>,
     write64: p4_write::<u64>,
+    write256: crate::dummy_write256,
 };
 
 fn sq_read_invalid<T: crate::sh4mem::MemoryData>(_ctx: *mut u8, addr: u32) -> T {
@@ -1897,6 +1898,7 @@ pub const SQ_HANDLERS: crate::MemHandlers = crate::MemHandlers {
     write16: sq_write_invalid::<u16>,
     write32: sq_write32,
     write64: sq_write64,
+    write256: crate::dummy_write256,
 };
 
 fn read_data_8(ctx: *mut u8, _addr: u32) -> u32 {
