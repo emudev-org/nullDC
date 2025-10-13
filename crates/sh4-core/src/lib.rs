@@ -223,7 +223,7 @@ impl Default for Sh4Ctx {
 
             temp: [0; 8],
 
-            sq_both:[0; 16],
+            sq_both: [0; 16],
             qacr0_base: 0,
             qacr1_base: 0,
 
@@ -443,7 +443,7 @@ pub fn sh4_init_ctx(ctx: *mut Sh4Ctx) {
         0xE3FF_FFFF,
         63,
         sh4p4::SQ_HANDLERS,
-        unsafe { (*ctx).sq_both.as_mut_ptr() as *mut u8 }
+        unsafe { (*ctx).sq_both.as_mut_ptr() as *mut u8 },
     );
 
     sh4p4::p4_init(unsafe { &mut (*ctx) });

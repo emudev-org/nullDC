@@ -69,7 +69,15 @@ fn frame_event_core(counter: u64) -> (&'static str, &'static str, String) {
         1 => "QUEUE_SUBMISSION",
         _ => "END_RENDER",
     };
-    ("core", if phase == "QUEUE_SUBMISSION" { "trace" } else { "info" }, format!("CORE/{}", phase))
+    (
+        "core",
+        if phase == "QUEUE_SUBMISSION" {
+            "trace"
+        } else {
+            "info"
+        },
+        format!("CORE/{}", phase),
+    )
 }
 
 fn frame_event_dsp(counter: u64) -> (&'static str, &'static str, String) {
@@ -114,8 +122,7 @@ const FRAME_EVENT_GENERATORS: &[FrameEventGenerator] = &[
 ];
 
 fn create_frame_event_with_id(event_id: u64) -> EventLogEntry {
-    let generator =
-        FRAME_EVENT_GENERATORS[(event_id as usize) % FRAME_EVENT_GENERATORS.len()];
+    let generator = FRAME_EVENT_GENERATORS[(event_id as usize) % FRAME_EVENT_GENERATORS.len()];
     let (subsystem, severity, message) = generator(event_id);
     EventLogEntry {
         event_id: event_id.to_string(),
@@ -337,10 +344,7 @@ impl ServerState {
             "dc.sh4.dcache.dcache_ctrl".to_string(),
             "0x00000003".to_string(),
         );
-        register_values.insert(
-            "dc.sh4.dmac.dmaor".to_string(),
-            "0x8201".to_string(),
-        );
+        register_values.insert("dc.sh4.dmac.dmaor".to_string(), "0x8201".to_string());
         register_values.insert("dc.holly.holly_id".to_string(), "0x00050000".to_string());
         register_values.insert("dc.holly.dmac_ctrl".to_string(), "0x00000001".to_string());
         register_values.insert("dc.holly.dmac.dmaor".to_string(), "0x8201".to_string());
@@ -449,10 +453,16 @@ impl ServerState {
         };
 
         // Try to get value from actual emulator if available
-        if dreamcast_ptr != 0 && path == "dc.sh4.cpu" {
+        if dreamcast_ptr != 0 {
             let dreamcast = dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
-            if let Some(value) = nulldc::dreamcast::get_sh4_register(dreamcast, &name) {
-                return format!("0x{:08X}", value);
+            if path == "dc.sh4.cpu" {
+                if let Some(value) = nulldc::dreamcast::get_sh4_register(dreamcast, &name) {
+                    return format!("0x{:08X}", value);
+                }
+            } else if path == "dc.aica.arm7" {
+                if let Some(value) = nulldc::dreamcast::get_arm_register(dreamcast, &name) {
+                    return format!("0x{:08X}", value);
+                }
             }
         }
 
@@ -824,7 +834,7 @@ impl ServerState {
                     actions: None,
                     children: Some(aica_children),
                 },
-            ]), 
+            ]),
         }]
     }
 
@@ -844,11 +854,7 @@ impl ServerState {
                     let base = 0x8C0000A0;
                     let offset = pc.wrapping_sub(base);
                     let new_pc = base + ((offset + 2) % (8 * 2));
-                    self.set_register_value(
-                        "dc.sh4.cpu",
-                        "PC",
-                        format!("0x{:08X}", new_pc),
-                    );
+                    self.set_register_value("dc.sh4.cpu", "PC", format!("0x{:08X}", new_pc));
                 }
             }
         } else if target_lower.contains("arm7") {
@@ -860,11 +866,7 @@ impl ServerState {
                     let base = 0x0020_0010;
                     let offset = pc.wrapping_sub(base);
                     let new_pc = base + ((offset + 4) % (8 * 4));
-                    self.set_register_value(
-                        "dc.aica.arm7",
-                        "PC",
-                        format!("0x{:08X}", new_pc),
-                    );
+                    self.set_register_value("dc.aica.arm7", "PC", format!("0x{:08X}", new_pc));
                 }
             }
         } else if target_lower.contains("dsp") {
@@ -874,11 +876,7 @@ impl ServerState {
             {
                 if let Ok(step) = u32::from_str_radix(stripped, 16) {
                     let new_step = (step + 1) % 8;
-                    self.set_register_value(
-                        "dc.aica.dsp",
-                        "STEP",
-                        format!("0x{:03X}", new_step),
-                    );
+                    self.set_register_value("dc.aica.dsp", "STEP", format!("0x{:03X}", new_step));
                 }
             }
         }
@@ -906,11 +904,7 @@ impl ServerState {
         }
     }
 
-    fn build_tick(
-        &self,
-        dreamcast_ptr: usize,
-        hit_breakpoint_id: Option<u32>,
-    ) -> DebuggerTick {
+    fn build_tick(&self, dreamcast_ptr: usize, hit_breakpoint_id: Option<u32>) -> DebuggerTick {
         let device_tree = self.build_device_tree();
         let all_registers = collect_registers_from_tree(&device_tree);
 
@@ -921,6 +915,7 @@ impl ServerState {
 
         if dreamcast_ptr != 0 {
             let dreamcast = dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
+
             let sh4_registers = [
                 ("PC", 32),
                 ("PR", 32),
@@ -932,10 +927,10 @@ impl ServerState {
                 ("FPSCR", 32),
                 ("FPUL", 32),
             ];
-            let mut cpu_regs = Vec::new();
+            let mut sh4_cpu_regs = Vec::new();
             for (name, width) in sh4_registers {
                 if let Some(value) = nulldc::dreamcast::get_sh4_register(dreamcast, name) {
-                    cpu_regs.push(RegisterValue {
+                    sh4_cpu_regs.push(RegisterValue {
                         name: name.to_string(),
                         value: format!("0x{:08X}", value),
                         width,
@@ -946,10 +941,8 @@ impl ServerState {
             }
             for idx in 0..16 {
                 let reg_name = format!("R{}", idx);
-                if let Some(value) =
-                    nulldc::dreamcast::get_sh4_register(dreamcast, &reg_name)
-                {
-                    cpu_regs.push(RegisterValue {
+                if let Some(value) = nulldc::dreamcast::get_sh4_register(dreamcast, &reg_name) {
+                    sh4_cpu_regs.push(RegisterValue {
                         name: reg_name,
                         value: format!("0x{:08X}", value),
                         width: 32,
@@ -958,7 +951,35 @@ impl ServerState {
                     });
                 }
             }
-            registers_by_id.insert("dc.sh4.cpu".to_string(), cpu_regs);
+            if !sh4_cpu_regs.is_empty() {
+                registers_by_id.insert("dc.sh4.cpu".to_string(), sh4_cpu_regs);
+            }
+
+            let mut arm_regs = Vec::new();
+            if let Some(value) = nulldc::dreamcast::get_arm_register(dreamcast, "PC") {
+                arm_regs.push(RegisterValue {
+                    name: "PC".to_string(),
+                    value: format!("0x{:08X}", value),
+                    width: 32,
+                    flags: None,
+                    metadata: None,
+                });
+            }
+            for idx in 0..16 {
+                let reg_name = format!("R{}", idx);
+                if let Some(value) = nulldc::dreamcast::get_arm_register(dreamcast, &reg_name) {
+                    arm_regs.push(RegisterValue {
+                        name: reg_name,
+                        value: format!("0x{:08X}", value),
+                        width: 32,
+                        flags: None,
+                        metadata: None,
+                    });
+                }
+            }
+            if !arm_regs.is_empty() {
+                registers_by_id.insert("dc.aica.arm7".to_string(), arm_regs);
+            }
         }
 
         let breakpoints_by_id = self
@@ -980,8 +1001,7 @@ impl ServerState {
                         .map(|watch| WatchDescriptor {
                             id: watch.id,
                             expression: watch.expression.clone(),
-                            value: self
-                                .evaluate_watch_expression(dreamcast_ptr, &watch.expression),
+                            value: self.evaluate_watch_expression(dreamcast_ptr, &watch.expression),
                         })
                         .collect::<Vec<_>>(),
                 )
@@ -990,11 +1010,17 @@ impl ServerState {
 
         let mut callstacks = HashMap::new();
 
-        let sh4_pc = self
-            .get_register_value("dc.sh4.cpu", "PC")
-            .strip_prefix("0x")
-            .and_then(|value| u64::from_str_radix(value, 16).ok())
-            .unwrap_or(0x8C00_00A0);
+        let sh4_pc = if dreamcast_ptr != 0 {
+            let dreamcast = dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
+            nulldc::dreamcast::get_sh4_register(dreamcast, "PC")
+                .map(|value| value as u64)
+                .unwrap_or(0x8C00_00A0)
+        } else {
+            self.get_register_value("dc.sh4.cpu", "PC")
+                .strip_prefix("0x")
+                .and_then(|value| u64::from_str_radix(value, 16).ok())
+                .unwrap_or(0x8C00_00A0)
+        };
         let sh4_frames = (0..16)
             .map(|index| CallstackFrame {
                 index,
@@ -1010,11 +1036,17 @@ impl ServerState {
             .collect::<Vec<_>>();
         callstacks.insert("sh4".to_string(), sh4_frames);
 
-        let arm7_pc = self
-            .get_register_value("dc.aica.arm7", "PC")
-            .strip_prefix("0x")
-            .and_then(|value| u64::from_str_radix(value, 16).ok())
-            .unwrap_or(0x0020_0010);
+        let arm7_pc = if dreamcast_ptr != 0 {
+            let dreamcast = dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
+            nulldc::dreamcast::get_arm_register(dreamcast, "PC")
+                .map(|value| value as u64)
+                .unwrap_or(0x0020_0010)
+        } else {
+            self.get_register_value("dc.aica.arm7", "PC")
+                .strip_prefix("0x")
+                .and_then(|value| u64::from_str_radix(value, 16).ok())
+                .unwrap_or(0x0020_0010)
+        };
         let arm7_frames = (0..16)
             .map(|index| CallstackFrame {
                 index,
@@ -1588,10 +1620,8 @@ fn handle_request(
                         state_value.get("muted").and_then(|value| value.as_bool()),
                         state_value.get("soloed").and_then(|value| value.as_bool()),
                     ) {
-                        category_states.insert(
-                            category.clone(),
-                            BreakpointCategoryState { muted, soloed },
-                        );
+                        category_states
+                            .insert(category.clone(), BreakpointCategoryState { muted, soloed });
                     }
                 }
             }
@@ -1605,7 +1635,6 @@ fn handle_request(
         }),
     }
 }
-
 
 pub async fn handle_websocket_connection(socket: WebSocket, dreamcast_ptr: usize) {
     use std::sync::OnceLock;

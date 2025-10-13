@@ -127,7 +127,7 @@ pub fn write_mem<T: Copy>(ctx: *mut Sh4Ctx, addr: u32, data: T) -> bool {
 }
 
 pub fn write_mem_sq(ctx: *mut Sh4Ctx, addr: u32, data: *const u32) {
-    unsafe { 
+    unsafe {
         let region = (addr >> 24) as usize;
         let offset = (addr & (*ctx).memmask[region]) as usize;
 
@@ -135,7 +135,7 @@ pub fn write_mem_sq(ctx: *mut Sh4Ctx, addr: u32, data: *const u32) {
 
         if (base as usize) >= MAX_MEMHANDLERS {
             let ptr = base.add(offset) as *mut u32;
-            ptr::copy_nonoverlapping(data, ptr, 32); 
+            ptr::copy_nonoverlapping(data, ptr, 32);
         } else {
             println!("SQ flush to {:08x}", addr);
         }

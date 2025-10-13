@@ -745,11 +745,7 @@ impl Sgc {
         } else {
             update_rate <<= oct & 0x7;
         }
-        if update_rate == 0 {
-            1
-        } else {
-            update_rate
-        }
+        if update_rate == 0 { 1 } else { update_rate }
     }
 
     unsafe fn read_ram_byte(aica_ram: NonNull<u8>, mask: u32, addr: u32) -> u8 {

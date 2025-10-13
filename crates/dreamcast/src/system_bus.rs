@@ -1,4 +1,3 @@
-
 // Function pointer types
 pub type RegReadAddrFP = fn(ctx: *mut u32, addr: u32) -> u32;
 pub type RegWriteAddrFP = fn(ctx: *mut u32, addr: u32, data: u32);
@@ -386,11 +385,7 @@ impl SystemBus {
     }
 
     #[inline(always)]
-    fn sbio_writeonly_gdrom_protection(
-        ctx: *mut u32,
-        _addr: u32,
-        data: u32,
-    ) {
+    fn sbio_writeonly_gdrom_protection(ctx: *mut u32, _addr: u32, data: u32) {
         unsafe {
             *(ctx) = data;
         }
@@ -716,13 +711,7 @@ impl SystemBus {
             0x005f78b4, 0x005f78b8,
         ] {
             let reg_ptr = self.regn32(a);
-            self.register_rio(
-                reg_ptr,
-                a,
-                RIO_WO_FUNC,
-                None,
-                Some(Self::sbio_write_zero),
-            );
+            self.register_rio(reg_ptr, a, RIO_WO_FUNC, None, Some(Self::sbio_write_zero));
         }
     }
 

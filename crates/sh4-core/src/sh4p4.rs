@@ -1805,7 +1805,6 @@ fn sq_write_invalid<T: crate::sh4mem::MemoryData>(_ctx: *mut u8, addr: u32, data
     );
 }
 
-
 fn sq_write32(ctx: *mut u8, addr: u32, data: u32) {
     unsafe {
         *(ctx as *mut u32) = data;
@@ -2009,7 +2008,6 @@ fn write_ccn_ccr(ctx: *mut u8, _addr: u32, data: u32) {
         *(ctx as *mut u32) = data & !0x300;
     }
 }
-
 
 fn read_ccn_qacr<const IDX: usize>(_ctx: *mut u8, _addr: u32) -> u32 {
     unsafe {
@@ -2276,8 +2274,22 @@ pub fn p4_init(sh4ctx: &mut crate::Sh4Ctx) {
         rio!(CCN, INTEVT, read_data_32, write_data_32, 32);
         rio!(CCN, CPU_VERSION, read_data_32, area7_read_only, 32);
         rio!(CCN, PTEA, read_data_32, write_data_32, 32);
-        rio!(CCN, QACR0, read_ccn_qacr::<0>, write_ccn_qacr::<0>, 32, sh4_ctx_ptr);
-        rio!(CCN, QACR1, read_ccn_qacr::<1>, write_ccn_qacr::<1>, 32, sh4_ctx_ptr);
+        rio!(
+            CCN,
+            QACR0,
+            read_ccn_qacr::<0>,
+            write_ccn_qacr::<0>,
+            32,
+            sh4_ctx_ptr
+        );
+        rio!(
+            CCN,
+            QACR1,
+            read_ccn_qacr::<1>,
+            write_ccn_qacr::<1>,
+            32,
+            sh4_ctx_ptr
+        );
         rio!(CCN, PRR, read_ccn_prr, area7_read_only, 32);
     }
 }

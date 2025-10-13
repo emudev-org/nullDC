@@ -6,17 +6,16 @@
 #![allow(unused_variables)]
 
 use sh4_core::{
-    sh4_init_ctx, sh4_ipr_dispatcher,
-    sh4dec::{format_disas, SH4DecoderState},
+    Sh4Ctx, sh4_init_ctx, sh4_ipr_dispatcher,
+    sh4dec::{SH4DecoderState, format_disas},
     sh4mem::read_mem,
-    Sh4Ctx,
 };
 use std::fs::File;
 use std::io::{self, Read};
 use std::path::Path;
 use std::ptr::{self, NonNull};
-use std::sync::atomic::{AtomicPtr, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicPtr, Ordering};
 
 mod area0;
 pub use area0::AREA0_HANDLERS;
@@ -328,20 +327,19 @@ pub fn init_dreamcast(dc_: *mut Dreamcast) {
 
     dc.ctx.r[15] = 0x8d000000;
 
-	dc.ctx.gbr = 0x8c000000;
-	dc.ctx.ssr = 0x40000001;
-	dc.ctx.spc = 0x8c000776;
-	dc.ctx.sgr = 0x8d000000;
-	dc.ctx.dbr = 0x8c000010;
-	dc.ctx.vbr = 0x8c000000;
-	dc.ctx.pr = 0xac00043c;
-	dc.ctx.fpul = 0x00000000;
-	
-	dc.ctx.sr.0 = 0x400000f0;
-	dc.ctx.sr_t = 1;
+    dc.ctx.gbr = 0x8c000000;
+    dc.ctx.ssr = 0x40000001;
+    dc.ctx.spc = 0x8c000776;
+    dc.ctx.sgr = 0x8d000000;
+    dc.ctx.dbr = 0x8c000010;
+    dc.ctx.vbr = 0x8c000000;
+    dc.ctx.pr = 0xac00043c;
+    dc.ctx.fpul = 0x00000000;
 
+    dc.ctx.sr.0 = 0x400000f0;
+    dc.ctx.sr_t = 1;
 
-	dc.ctx.fpscr.0 = 0x00040001;
+    dc.ctx.fpscr.0 = 0x00040001;
 
     // ROTO test program at 0x8C010000
     // dc.ctx.pc0 = 0x8C01_0000;
@@ -518,6 +516,29 @@ pub fn get_sh4_register(dc: *mut Dreamcast, register_name: &str) -> Option<u32> 
                     if let Ok(idx) = rest.parse::<usize>() {
                         if idx < 16 {
                             return Some(ctx.r[idx]);
+                        }
+                    }
+                }
+                None
+            }
+        }
+    }
+}
+
+pub fn get_arm_register(dc: *mut Dreamcast, register_name: &str) -> Option<u32> {
+    unsafe {
+        let ctx = &(*dc).arm_ctx;
+        match register_name.to_uppercase().as_str() {
+            "PC" => Some(ctx.regs[R15_ARM_NEXT].get()),
+            _ => {
+                // Check if it's a general purpose register (R0-R15)
+                if let Some(rest) = register_name
+                    .strip_prefix('R')
+                    .or_else(|| register_name.strip_prefix('r'))
+                {
+                    if let Ok(idx) = rest.parse::<usize>() {
+                        if idx < 16 {
+                            return Some(ctx.regs[idx].get());
                         }
                     }
                 }

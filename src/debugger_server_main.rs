@@ -28,7 +28,9 @@ pub fn start_debugger_server(dreamcast: *mut Dreamcast) {
                 )
                 .fallback(static_file_handler);
 
-            let listener = tokio::net::TcpListener::bind("127.0.0.1:55543").await.unwrap();
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:55543")
+                .await
+                .unwrap();
 
             println!(
                 "Debugger UI server started at http://{}",
