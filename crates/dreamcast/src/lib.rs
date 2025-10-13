@@ -35,6 +35,10 @@ use arm7di::{ArmPsr, R13_IRQ, R13_SVC, R15_ARM_NEXT, RN_CPSR, RN_PSR_FLAGS, RN_S
 
 static DREAMCAST_PTR: AtomicPtr<Dreamcast> = AtomicPtr::new(std::ptr::null_mut());
 
+pub(crate) fn dreamcast_ptr() -> *mut Dreamcast {
+    DREAMCAST_PTR.load(Ordering::SeqCst)
+}
+
 fn peripheral_hook(_ctx: *mut sh4_core::Sh4Ctx, cycles: u32) {
     spg::tick(cycles);
 

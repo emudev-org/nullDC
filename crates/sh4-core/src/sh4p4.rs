@@ -1510,6 +1510,76 @@ static mut DMAC_DMATCR3_DATA: Reg32 = Reg32(0);
 static mut DMAC_CHCR3_DATA: DMAC_CHCR = DMAC_CHCR(0);
 static mut DMAC_DMAOR_DATA: Reg32 = Reg32(0);
 
+#[inline]
+pub fn dmac_get_dmaor() -> u32 {
+    unsafe { DMAC_DMAOR_DATA.0 }
+}
+
+#[inline]
+pub fn dmac_get_sar(channel: usize) -> u32 {
+    unsafe {
+        match channel {
+            0 => DMAC_SAR0_DATA.0,
+            1 => DMAC_SAR1_DATA.0,
+            2 => DMAC_SAR2_DATA.0,
+            3 => DMAC_SAR3_DATA.0,
+            _ => panic!("Invalid DMAC channel {}", channel),
+        }
+    }
+}
+
+#[inline]
+pub fn dmac_set_sar(channel: usize, value: u32) {
+    unsafe {
+        match channel {
+            0 => DMAC_SAR0_DATA = Reg32(value),
+            1 => DMAC_SAR1_DATA = Reg32(value),
+            2 => DMAC_SAR2_DATA = Reg32(value),
+            3 => DMAC_SAR3_DATA = Reg32(value),
+            _ => panic!("Invalid DMAC channel {}", channel),
+        }
+    }
+}
+
+#[inline]
+pub fn dmac_get_chcr(channel: usize) -> u32 {
+    unsafe {
+        match channel {
+            0 => DMAC_CHCR0_DATA.0,
+            1 => DMAC_CHCR1_DATA.0,
+            2 => DMAC_CHCR2_DATA.0,
+            3 => DMAC_CHCR3_DATA.0,
+            _ => panic!("Invalid DMAC channel {}", channel),
+        }
+    }
+}
+
+#[inline]
+pub fn dmac_set_chcr(channel: usize, value: u32) {
+    unsafe {
+        match channel {
+            0 => DMAC_CHCR0_DATA = DMAC_CHCR(value),
+            1 => DMAC_CHCR1_DATA = DMAC_CHCR(value),
+            2 => DMAC_CHCR2_DATA = DMAC_CHCR(value),
+            3 => DMAC_CHCR3_DATA = DMAC_CHCR(value),
+            _ => panic!("Invalid DMAC channel {}", channel),
+        }
+    }
+}
+
+#[inline]
+pub fn dmac_set_dmatcr(channel: usize, value: u32) {
+    unsafe {
+        match channel {
+            0 => DMAC_DMATCR0_DATA = Reg32(value),
+            1 => DMAC_DMATCR1_DATA = Reg32(value),
+            2 => DMAC_DMATCR2_DATA = Reg32(value),
+            3 => DMAC_DMATCR3_DATA = Reg32(value),
+            _ => panic!("Invalid DMAC channel {}", channel),
+        }
+    }
+}
+
 // CPG
 static mut CPG_FRQCR_DATA: Reg32 = Reg32(0);
 static mut CPG_STBCR_DATA: Reg8 = Reg8(0);

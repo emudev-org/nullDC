@@ -11,7 +11,8 @@ use crate::sh4mem::MAX_MEMHANDLERS;
 
 mod sh4p4;
 pub use sh4p4::{
-    InterruptSourceId, intc_clear_interrupt, intc_raise_interrupt, register_peripheral_hook,
+    dmac_get_chcr, dmac_get_dmaor, dmac_get_sar, dmac_set_chcr, dmac_set_dmatcr, dmac_set_sar,
+    intc_clear_interrupt, intc_raise_interrupt, register_peripheral_hook, InterruptSourceId,
 };
 
 #[repr(C)]
