@@ -14,14 +14,22 @@ fn main() {
     println!("cargo:rerun-if-changed=ffi/refsw2/refsw_tile.h");
 
     if std::env::var("CARGO_FEATURE_REFSW2_NATIVE").is_ok() {
-        cc::Build::new()
+        let mut build = cc::Build::new();
+
+        build
             .cpp(true)
             .file("ffi/refsw2/refsw2_stub.cc")
             .file("ffi/refsw2/refsw_lists.cc")
             .file("ffi/refsw2/refsw_tile.cc")
             .file("ffi/refsw2/TexUtils.cc")
-            .include("ffi/refsw2")
-            .flag_if_supported("-std=c++17")
-            .compile("refsw2");
+            .include("ffi/refsw2");
+
+        if cfg!(target_env = "msvc") {
+            build.flag("/std:c++20");
+        } else {
+            build.cpp_set_stdlib("c++20");
+        }
+
+        build.compile("refsw2");
     }
 }

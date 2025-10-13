@@ -63,6 +63,12 @@ float  mask_w(float w) {
     return w;
 }
 
+#if defined(__CLANG__) || defined(__GNUC__)
+#define always_inline always_inline
+#else
+#define always_inline __forceinline
+#endif
+
 void ClearBuffers(uint32_t paramValue, float depthValue, uint32_t stencilValue)
 {
     auto zb = depthBuffer[depthBufferA];
@@ -349,7 +355,7 @@ void ClearFpuCache() {
 }
 
 // this is disabled for now, as it breaks game scenes
-inline __attribute__((always_inline)) bool IsTopLeft(float x, float y) {
+inline always_inline bool IsTopLeft(float x, float y) {
     bool IsTop = y == 0 && x > 0;
     bool IsLeft = y < 0;
 
@@ -359,7 +365,7 @@ inline __attribute__((always_inline)) bool IsTopLeft(float x, float y) {
 
 // Depth processing for a pixel -- render_mode 0: OPAQ, 1: PT, 2: TRANS
 template<RenderMode render_mode>
-inline __attribute__((always_inline)) void PixelFlush_isp(uint32_t depth_mode, uint32_t ZWriteDis, float x, float y, float invW, uint32_t index, parameter_tag_t tag)
+inline always_inline void PixelFlush_isp(uint32_t depth_mode, uint32_t ZWriteDis, float x, float y, float invW, uint32_t index, parameter_tag_t tag)
 {
     auto pb = tagBuffer[tagBufferA] + index;
     auto ts = tagStatus + index;
@@ -686,7 +692,7 @@ uint8_t* GetColorOutputBuffer() {
 
 // Clamp and flip a texture coordinate
 template<bool pp_Clamp, bool pp_Flip>
-inline __attribute__((always_inline)) int ClampFlip(int coord, int size) {
+inline always_inline int ClampFlip(int coord, int size) {
     if (pp_Clamp) { // clamp
         if (coord < 0) {
             coord = 0;
@@ -780,7 +786,7 @@ static Color TextureFetchOld(TSP tsp, TCW tcw, int u, int v) {
 #endif
 
 template<bool ScanOrder /* TODO: Expansion Patterns */>
-inline __attribute__((always_inline)) uint32_t ExpandToARGB8888(uint32_t color, uint32_t mode) {
+inline always_inline uint32_t ExpandToARGB8888(uint32_t color, uint32_t mode) {
 	switch(mode)
 	{
         case 0: return ARGB1555_32(color);
@@ -792,7 +798,7 @@ inline __attribute__((always_inline)) uint32_t ExpandToARGB8888(uint32_t color, 
 }
 
 template<bool VQ_Comp>
-inline __attribute__((always_inline)) uint32_t TexAddressGen(TCW tcw) {
+inline always_inline uint32_t TexAddressGen(TCW tcw) {
     uint32_t base_address = tcw.TexAddr << 3;
 
     if (VQ_Comp) {
@@ -803,7 +809,7 @@ inline __attribute__((always_inline)) uint32_t TexAddressGen(TCW tcw) {
 }
 
 template<bool VQ_Comp, bool MipMapped, bool ScanOrder>
-inline __attribute__((always_inline)) uint32_t TexOffsetGen(TSP tsp, int u, int v, uint32_t stride, uint32_t MipLevel) {
+inline always_inline uint32_t TexOffsetGen(TSP tsp, int u, int v, uint32_t stride, uint32_t MipLevel) {
     uint32_t mip_offset;
     
     if (MipMapped) {
@@ -853,7 +859,7 @@ uint64_t VQLookup(uint32_t start_address, uint64_t memtel, uint32_t offset) {
 }
 
 template<uint32_t StrideSel, uint32_t ScanOrder>
-inline __attribute__((always_inline)) uint32_t TexStride(uint32_t TexU, uint32_t MipLevel) {
+inline always_inline uint32_t TexStride(uint32_t TexU, uint32_t MipLevel) {
     if (StrideSel && ScanOrder)
 		return (TEXT_CONTROL&31)*32;
     else
@@ -861,7 +867,7 @@ inline __attribute__((always_inline)) uint32_t TexStride(uint32_t TexU, uint32_t
 }
 
 template<uint32_t PixelFmt>
-inline __attribute__((always_inline)) uint32_t DecodeTextel(uint32_t PalSelect, uint64_t memtel, uint32_t offset) {
+inline always_inline uint32_t DecodeTextel(uint32_t PalSelect, uint64_t memtel, uint32_t offset) {
     auto memtel_32 = (uint32_t*)&memtel;
     auto memtel_16 = (uint16_t*)&memtel;
     auto memtel_8 = (uint8_t*)&memtel;
@@ -898,7 +904,7 @@ inline __attribute__((always_inline)) uint32_t DecodeTextel(uint32_t PalSelect, 
 }
 
 template<uint32_t PixelFmt>
-inline __attribute__((always_inline)) uint32_t GetExpandFormat() {
+inline always_inline uint32_t GetExpandFormat() {
     if (PixelFmt == PixelPal4 || PixelFmt == PixelPal8) {
         return PAL_RAM_CTRL&3;
     } else if (PixelFmt == PixelBumpMap || PixelFmt == PixelYUV) {
@@ -1137,7 +1143,7 @@ static Color BumpMapper(Color textel, Color offset) {
 
 // Interpolate the base color, also cheap shadows modifier
 template<bool pp_UseAlpha, bool pp_CheapShadows>
-inline __attribute__((always_inline)) Color InterpolateBase(const PlaneStepper3* Col, float x, float y, float W, bool InVolume) {
+inline always_inline Color InterpolateBase(const PlaneStepper3* Col, float x, float y, float W, bool InVolume) {
     Color rv;
     uint32_t mult = 256;
 
@@ -1163,7 +1169,7 @@ inline __attribute__((always_inline)) Color InterpolateBase(const PlaneStepper3*
 
 // Interpolate the offset color, also cheap shadows modifier
 template<bool pp_CheapShadows>
-inline __attribute__((always_inline)) Color InterpolateOffs(const PlaneStepper3* Ofs, float x, float y, float W, bool InVolume) {
+inline always_inline Color InterpolateOffs(const PlaneStepper3* Ofs, float x, float y, float W, bool InVolume) {
     Color rv;
     uint32_t mult = 256;
 
@@ -1184,7 +1190,7 @@ inline __attribute__((always_inline)) Color InterpolateOffs(const PlaneStepper3*
 
 // select/calculate blend coefficient for the blend unit
 template<uint32_t pp_AlphaInst, bool srcOther>
-inline __attribute__((always_inline)) Color BlendCoefs(Color src, Color dst) {
+inline always_inline Color BlendCoefs(Color src, Color dst) {
     Color rv;
 
     switch(pp_AlphaInst>>1) {
@@ -1241,7 +1247,7 @@ static bool BlendingUnit(uint32_t index, Color col)
     return at;
 }
 
-inline __attribute__((always_inline)) uint8_t LookupFogTable(float invW) {
+inline always_inline uint8_t LookupFogTable(float invW) {
     uint8_t* fog_density=(uint8_t*)&FOG_DENSITY;
     float fog_den_mant=fog_density[1]/128.0f;  //bit 7 -> x. bit, so [6:0] -> fraction -> /128
     int32_t fog_den_exp=(int8_t)fog_density[0];
@@ -1278,7 +1284,7 @@ inline __attribute__((always_inline)) uint8_t LookupFogTable(float invW) {
 
 // Color Clamp and Fog a pixel
 template<bool pp_Offset, bool pp_ColorClamp, uint32_t pp_FogCtrl>
-inline __attribute__((always_inline)) Color FogUnit(Color col, float invW, uint8_t offs_a) {
+inline always_inline Color FogUnit(Color col, float invW, uint8_t offs_a) {
     if (pp_ColorClamp) {
         Color clamp_max = { FOG_CLAMP_MAX };
         Color clamp_min = { FOG_CLAMP_MIN };
