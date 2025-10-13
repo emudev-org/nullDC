@@ -672,8 +672,8 @@ dependencies = [
  "bitfield",
  "cc",
  "once_cell",
- "refsw2",
- "refsw2r",
+ "refsw2-cpp",
+ "refsw2-rust",
  "sh4-core",
 ]
 
@@ -2485,14 +2485,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "refsw2"
+name = "refsw2-cpp"
 version = "0.1.0"
 dependencies = [
  "cc",
 ]
 
 [[package]]
-name = "refsw2r"
+name = "refsw2-rust"
 version = "0.1.0"
 dependencies = [
  "bitfield",

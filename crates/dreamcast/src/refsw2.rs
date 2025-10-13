@@ -2,8 +2,8 @@
     refsw2 backend switcher
 
     Feature flags:
-    - "refsw2-cpp": Use C++ FFI backend (refsw2 crate)
-    - "refsw2-rust": Use pure Rust backend (refsw2r crate) - default
+    - "refsw2-cpp": Use C++ FFI backend (refsw2-cpp crate)
+    - "refsw2-rust": Use pure Rust backend (refsw2-rust crate) - default
     - Neither: Stub implementation (no rendering)
 */
 
@@ -12,13 +12,13 @@
 mod cpp_backend {
     pub fn refsw2_render(vram: *mut u8, regs: *const u32) {
         unsafe {
-            refsw2::render(vram, regs);
+            refsw2_cpp::render(vram, regs);
         }
     }
 
     pub fn refsw2_init() {
         unsafe {
-            refsw2::init();
+            refsw2_cpp::init();
         }
     }
 }
@@ -28,13 +28,13 @@ mod cpp_backend {
 mod rust_backend {
     pub fn refsw2_render(vram: *mut u8, regs: *const u32) {
         unsafe {
-            refsw2r::render(vram, regs);
+            refsw2_rust::render(vram, regs);
         }
     }
 
     pub fn refsw2_init() {
         unsafe {
-            refsw2r::init();
+            refsw2_rust::init();
         }
     }
 }

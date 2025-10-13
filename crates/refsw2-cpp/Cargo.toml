@@ -1,5 +1,5 @@
 [package]
-name = "refsw2"
+name = "refsw2-cpp"
 version = "0.1.0"
 edition = "2024"
 
@@ -9,5 +9,5 @@ edition = "2024"
 cc = "1.0"
 
 [lib]
-name = "refsw2"
+name = "refsw2_cpp"
 path = "src/lib.rs"

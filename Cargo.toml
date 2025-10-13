@@ -3,8 +3,8 @@ members = [
     "crates/sh4-core",
     "crates/dreamcast",
     "crates/nulldc-minimal",
-    "crates/refsw2r",
-    "crates/refsw2"
+    "crates/refsw2-rust",
+    "crates/refsw2-cpp"
 ]
 
 default-members = ["."]

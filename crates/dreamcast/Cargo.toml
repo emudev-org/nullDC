@@ -5,8 +5,8 @@ edition = "2021"
 
 [features]
 default = ["refsw2-rust"]
-refsw2-rust = ["dep:refsw2r"]
-refsw2-cpp = ["dep:refsw2"]
+refsw2-rust = ["dep:refsw2-rust"]
+refsw2-cpp = ["dep:refsw2-cpp"]
 # Legacy feature name for compatibility
 refsw2-native = ["refsw2-cpp"]
 
@@ -14,8 +14,8 @@ refsw2-native = ["refsw2-cpp"]
 bitfield = "0.14"
 once_cell = "1.19"
 sh4-core = { path = "../sh4-core" }
-refsw2r = { path = "../refsw2r", optional = true }
-refsw2 = { path = "../refsw2", optional = true }
+refsw2-rust = { path = "../refsw2-rust", optional = true }
+refsw2-cpp = { path = "../refsw2-cpp", optional = true }
 
 [build-dependencies]
 cc = "1.1"

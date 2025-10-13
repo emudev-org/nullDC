@@ -1,5 +1,5 @@
 [package]
-name = "refsw2r"
+name = "refsw2-rust"
 version = "0.1.0"
 edition = "2024"
 
