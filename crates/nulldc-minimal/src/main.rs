@@ -1,10 +1,32 @@
 use dreamcast::{self};
 use minifb::{Key, Window, WindowOptions};
+use std::fs;
 
 const WIDTH: usize = 640;
 const HEIGHT: usize = 480;
 
+fn load_bios_files() -> (Vec<u8>, Vec<u8>) {
+    let mut path = std::env::current_dir().expect("failed to get current directory");
+
+    // Load BIOS ROM (2MB)
+    path.push("data");
+    path.push("dc_boot.bin");
+    let bios_rom = fs::read(&path)
+        .unwrap_or_else(|e| panic!("Failed to load BIOS ROM from {}: {}", path.display(), e));
+
+    // Load BIOS Flash (128KB)
+    let mut path = std::env::current_dir().expect("failed to get current directory");
+    path.push("data");
+    path.push("dc_flash.bin");
+    let bios_flash = fs::read(&path)
+        .unwrap_or_else(|e| panic!("Failed to load BIOS Flash from {}: {}", path.display(), e));
+
+    (bios_rom, bios_flash)
+}
+
 fn main() {
+    let (bios_rom, bios_flash) = load_bios_files();
+
     // Create window
     let mut window = Window::new(
         "nullDC Minimal - Dreamcast Emulator",
@@ -21,7 +43,7 @@ fn main() {
 
     // Initialize Dreamcast
     let dc = Box::into_raw(Box::new(dreamcast::Dreamcast::default()));
-    dreamcast::init_dreamcast(dc);
+    dreamcast::init_dreamcast(dc, &bios_rom, &bios_flash);
 
     // Framebuffer for minifb (ARGB format)
     let mut buffer: Vec<u32> = vec![0; WIDTH * HEIGHT];

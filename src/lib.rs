@@ -682,8 +682,45 @@ impl ApplicationHandler for AppHandle {
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
-pub async fn run(dreamcast: *mut Dreamcast) {
+// WASM initialization - sets up logging only, does not start emulation
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(start)]
+pub fn wasm_init() {
+    // Just set up panic hook and logging
+    // The actual emulation starts when wasm_main_with_bios() is called from JavaScript
+    console_error_panic_hook::set_once();
+    wasm_logger::init(wasm_logger::Config::default());
+    log::info!("nullDC WASM initialized. Waiting for BIOS files...");
+}
+
+// WASM entry point that accepts BIOS data from JavaScript
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub async fn wasm_main_with_bios(bios_rom: Vec<u8>, bios_flash: Vec<u8>) {
+    console_error_panic_hook::set_once();
+    wasm_logger::init(wasm_logger::Config::default());
+
+    log::info!("Received BIOS ROM: {} bytes, BIOS Flash: {} bytes", bios_rom.len(), bios_flash.len());
+
+    // Validate sizes
+    if bios_rom.len() != 2 * 1024 * 1024 {
+        log::error!("Invalid BIOS ROM size: {} (expected 2MB)", bios_rom.len());
+        return;
+    }
+    if bios_flash.len() != 128 * 1024 {
+        log::error!("Invalid BIOS Flash size: {} (expected 128KB)", bios_flash.len());
+        return;
+    }
+
+    // Create and initialize Dreamcast with provided BIOS
+    let dc = Box::into_raw(Box::new(Dreamcast::default()));
+    dreamcast::init_dreamcast(dc, &bios_rom, &bios_flash);
+
+    run(Some(dc)).await;
+}
+
+// Main run function that works for both native and WASM
+pub async fn run(dreamcast: Option<*mut Dreamcast>) {
     // Setup logging and panic hooks for wasm
     #[cfg(target_arch = "wasm32")]
     {
@@ -694,7 +731,16 @@ pub async fn run(dreamcast: *mut Dreamcast) {
     #[cfg(not(target_arch = "wasm32"))]
     env_logger::init();
 
+    // For native builds with no Dreamcast provided, we can't continue
+    let dreamcast_ptr = match dreamcast {
+        Some(ptr) => ptr,
+        None => {
+            log::error!("No Dreamcast instance provided and no BIOS files available");
+            return;
+        }
+    };
+
     let event_loop = EventLoop::new().unwrap();
-    let mut app = AppHandle::new(dreamcast);
+    let mut app = AppHandle::new(dreamcast_ptr);
     event_loop.run_app(&mut app).unwrap();
 }

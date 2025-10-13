@@ -230,7 +230,7 @@ fn load_file_into_slice<P: AsRef<Path>>(path: P, buf: &mut [u8]) -> io::Result<(
 // pub static HELLO_BIN: &[u8] = include_bytes!("../../../data/hello.elf.bin");
 // pub static ARM7W_BIN: &[u8] = include_bytes!("../../../data/arm7wrestler.bin");
 
-pub fn init_dreamcast(dc_: *mut Dreamcast) {
+pub fn init_dreamcast(dc_: *mut Dreamcast, bios_rom: &[u8], bios_flash: &[u8]) {
     let dc: &mut Dreamcast;
     unsafe {
         dc = &mut *dc_;
@@ -241,15 +241,12 @@ pub fn init_dreamcast(dc_: *mut Dreamcast) {
     // Zero entire struct (like memset). In Rust, usually you'd implement Default.
     *dc = Dreamcast::default();
 
-    // Load BIOS ROM + Flash from file
-    let mut path = std::env::current_dir().expect("failed to get current directory");
-    path.push("data");
-    path.push("dc_boot.bin");
-    load_file_into_slice(&path, &mut dc.bios_rom[..]).unwrap();
-    let mut path = std::env::current_dir().expect("failed to get current directory");
-    path.push("data");
-    path.push("dc_flash.bin");
-    load_file_into_slice(&path, &mut dc.bios_flash[..]).unwrap();
+    // Copy BIOS ROM and Flash from provided slices
+    assert_eq!(bios_rom.len(), BIOS_ROM_SIZE as usize, "BIOS ROM must be exactly 2MB");
+    assert_eq!(bios_flash.len(), BIOS_FLASH_SIZE as usize, "BIOS Flash must be exactly 128KB");
+
+    dc.bios_rom[..].copy_from_slice(bios_rom);
+    dc.bios_flash[..].copy_from_slice(bios_flash);
 
     sh4_init_ctx(&mut dc.ctx);
 
