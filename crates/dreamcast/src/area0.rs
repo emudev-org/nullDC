@@ -11,6 +11,25 @@ const BIOS_END: u32 = 0x001F_FFFF;
 const FLASH_START: u32 = 0x0020_0000;
 const FLASH_END: u32 = 0x0021_FFFF;
 
+fn get_rtc_now() -> u32 {
+     use std::time::{SystemTime, UNIX_EPOCH};
+
+    // Dreamcast epoch: 1950-01-01 00:00:00 UTC
+    // Unix epoch:      1970-01-01 00:00:00 UTC
+    // Offset = (20 years + 5 leap days) * 24 * 60 * 60 = 631,152,000 seconds
+
+    const DREAMCAST_EPOCH_OFFSET: i64 = (20 * 365 + 5) * 24 * 60 * 60; // seconds
+
+    // Current UTC timestamp as seconds since Unix epoch
+    let now_unix = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("System time before Unix epoch")
+        .as_secs() as i64;
+
+    // Combine Dreamcast epoch offset + current time + TZ/DST offset
+    (DREAMCAST_EPOCH_OFFSET + now_unix + 30 * 60 * 60) as u32
+}
+
 fn area_0_read<T: sh4mem::MemoryData>(ctx: *mut u8, addr: u32) -> T {
     let dc = unsafe { &*(ctx as *const Dreamcast) };
     let size = std::mem::size_of::<T>();
@@ -73,10 +92,10 @@ fn area_0_read<T: sh4mem::MemoryData>(ctx: *mut u8, addr: u32) -> T {
         0x0071 => {
             match masked_addr {
                 0x0071_0000 => {
-                    return sh4mem::MemoryData::from_u32(0xA320);
+                    return sh4mem::MemoryData::from_u32(0x8F01);
                 }
                 0x0071_0004 => {
-                    return sh4mem::MemoryData::from_u32(0x8F01);
+                    return sh4mem::MemoryData::from_u32(0xA320);
                 }
                 _ => {
                     warn_unimplemented("AICA RTC", "read", masked_addr, size);
@@ -121,10 +140,7 @@ fn area_0_write<T: sh4mem::MemoryData>(ctx: *mut u8, addr: u32, value: T) {
             return;
         }
         0x0020..=0x0021 => {
-            let relative = (masked_addr - FLASH_START) as usize;
-            if write_to_slice(&mut dc.bios_flash[..], relative, value, size).is_none() {
-                log_unaligned("FLASH", "write", masked_addr, size);
-            }
+            log_write_blocked("FLASH", masked_addr, size);
             return;
         }
         0x005F => {
