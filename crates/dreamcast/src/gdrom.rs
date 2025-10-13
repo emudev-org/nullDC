@@ -68,7 +68,7 @@ const REPLY_71: [u16; 506] = [
 // ===================================================
 const ENABLE_LOG_ATA: bool = false;
 const ENABLE_LOG_SPI: bool = false;
-const ENABLE_LOG_SPICMD: bool = true;
+const ENABLE_LOG_SPICMD: bool = false;
 const ENABLE_LOG_RM: bool = false;
 const ENABLE_LOG_SUBCODE: bool = false;
 
@@ -1146,7 +1146,6 @@ impl GDRomV3Impl {
     }
 
     pub fn reset(&mut self) {
-        println!("GDRomV3Impl::Reset");
         self.gd_reset();
     }
 }
