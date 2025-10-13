@@ -18,6 +18,8 @@ fn main() {
 
         build
             .cpp(true)
+            .debug(true)
+            .opt_level(3)
             .file("ffi/refsw2/refsw2_stub.cc")
             .file("ffi/refsw2/refsw_lists.cc")
             .file("ffi/refsw2/refsw_tile.cc")

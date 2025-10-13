@@ -19,7 +19,7 @@
             "name": "(Windows) nulldc-minimal",
             "type": "cppvsdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/target/debug/nulldc-minimal",
+            "program": "${workspaceFolder}/target/release/nulldc-minimal",
             "args": [],
             "stopAtEntry": false,
             "cwd": "C:/Users/skmp/projects/nullDC",

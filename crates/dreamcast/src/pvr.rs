@@ -1,5 +1,5 @@
 use once_cell::sync::Lazy;
-use std::sync::Mutex;
+use std::{ptr, sync::Mutex};
 
 use crate::{
     asic, dreamcast_ptr,
@@ -41,6 +41,19 @@ const SORT_DMA_INTERRUPT_BIT: u8 = 20;
 const RENDER_DONE_VD_INTERRUPT_BIT: u8 = 0;
 const RENDER_DONE_ISP_INTERRUPT_BIT: u8 = 1;
 const RENDER_DONE_INTERRUPT_BIT: u8 = 2;
+
+fn pvr_map32(offset32: u32) -> u32 {
+    let static_bits = (VRAM_MASK - (VRAM_BANK_BIT * 2 - 1)) | 3;
+    let offset_bits = (VRAM_BANK_BIT - 1) & !3;
+
+    let bank = (offset32 & VRAM_BANK_BIT) >> VRAM_BANK_BIT.trailing_zeros();
+
+    let base = offset32 & static_bits;
+    let interleaved = (offset32 & offset_bits) << 1;
+    let bank_offset = bank << 2;
+
+    base | interleaved | bank_offset
+}
 
 struct PvrState {
     regs: [u32; PVR_REG_SIZE / 4],
@@ -546,17 +559,6 @@ fn write_vram_area1_32(dc: &mut Dreamcast, addr: u32, value: u32) {
     }
 }
 
-fn pvr_map32(offset32: u32) -> u32 {
-    let static_bits = (VRAM_MASK - (VRAM_BANK_BIT * 2 - 1)) | 3;
-    let offset_bits = (VRAM_BANK_BIT - 1) & !3;
-
-    let bank = (offset32 & VRAM_BANK_BIT) / VRAM_BANK_BIT;
-    let mut rv = offset32 & static_bits;
-    rv |= (offset32 & offset_bits) * 2;
-    rv |= bank * 4;
-    rv
-}
-
 fn read_sysram_u16(sys_ram: &[u8], addr: u32) -> u16 {
     let offset = (addr & SYSRAM_MASK) as usize;
     let hi = sys_ram[(offset + 1) % sys_ram.len()];
@@ -578,3 +580,68 @@ fn read_sysram_block(sys_ram: &[u8], addr: u32, buf: &mut [u8]) {
         *byte = sys_ram[(offset + i) % sys_ram.len()];
     }
 }
+
+fn pvr_read_area1_8(_ctx: *mut u8, _addr: u32) -> u8 {
+    println!("8-bit VRAM reads are not possible");
+    0
+}
+
+fn pvr_read_area1_16(ctx: *mut u8, addr: u32) -> u16 {
+    unsafe {
+        let vram = ctx;
+        let offset = pvr_map32(addr);
+        ptr::read_unaligned(vram.add(offset as usize) as *const u16)
+    }
+}
+
+fn pvr_read_area1_32(ctx: *mut u8, addr: u32) -> u32 {
+    unsafe {
+        let vram = ctx;
+        let offset = pvr_map32(addr);
+        ptr::read_unaligned(vram.add(offset as usize) as *const u32)
+    }
+}
+
+fn pvr_read_area1_64(ctx: *mut u8, addr: u32) -> u64 {
+    return (pvr_read_area1_32(ctx, addr) as u64)
+        | ((pvr_read_area1_32(ctx, addr.wrapping_add(4)) as u64) << 32);
+}
+
+fn pvr_write_area1_8(_ctx: *mut u8, _addr: u32, _data: u8) {
+    println!("8-bit VRAM writes are not possible");
+}
+
+fn pvr_write_area1_16(ctx: *mut u8, addr: u32, data: u16) {
+    unsafe {
+        let vram = ctx;
+        let vaddr = addr & VRAM_MASK;
+        let offset = pvr_map32(vaddr);
+        ptr::write_unaligned(vram.add(offset as usize) as *mut u16, data);
+    }
+}
+
+fn pvr_write_area1_32(ctx: *mut u8, addr: u32, data: u32) {
+    unsafe {
+        let vram = ctx;
+        let vaddr = addr & VRAM_MASK;
+        let offset = pvr_map32(vaddr);
+        ptr::write_unaligned(vram.add(offset as usize) as *mut u32, data);
+    }
+}
+
+fn pvr_write_area1_64(ctx: *mut u8, addr: u32, data: u64) {
+    pvr_write_area1_32(ctx, addr, data as u32);
+    pvr_write_area1_32(ctx, addr.wrapping_add(4), (data >> 32) as u32);
+}
+
+pub const PVR_32BIT_HANDLERS: sh4_core::MemHandlers = sh4_core::MemHandlers {
+    read8: pvr_read_area1_8,
+    read16: pvr_read_area1_16,
+    read32: pvr_read_area1_32,
+    read64: pvr_read_area1_64,
+
+    write8: pvr_write_area1_8,
+    write16: pvr_write_area1_16,
+    write32: pvr_write_area1_32,
+    write64: pvr_write_area1_64,
+};

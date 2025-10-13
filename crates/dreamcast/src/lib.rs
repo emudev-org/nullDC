@@ -292,19 +292,66 @@ pub fn init_dreamcast(dc_: *mut Dreamcast) {
     sh4_core::sh4_register_mem_buffer(
         &mut dc.ctx,
         0x0400_0000,
-        0x07FF_FFFF,
+        0x04FF_FFFF,
         VIDEORAM_MASK,
         dc.video_ram.as_mut_ptr(),
     );
     sh4_core::sh4_register_mem_buffer(
         &mut dc.ctx,
         0xA400_0000,
+        0xA4FF_FFFF,
+        VIDEORAM_MASK,
+        dc.video_ram.as_mut_ptr(),
+    );
+    sh4_core::sh4_register_mem_handler(
+        &mut dc.ctx,
+        0x0500_0000,
+        0x05FF_FFFF,
+        VIDEORAM_MASK,
+        pvr::PVR_32BIT_HANDLERS,
+        dc.video_ram.as_mut_ptr(),
+    );
+    sh4_core::sh4_register_mem_handler(
+        &mut dc.ctx,
+        0xA500_0000,
         0xA5FF_FFFF,
         VIDEORAM_MASK,
+        pvr::PVR_32BIT_HANDLERS,
+        dc.video_ram.as_mut_ptr(),
+    );
+    sh4_core::sh4_register_mem_buffer(
+        &mut dc.ctx,
+        0x0600_0000,
+        0x06FF_FFFF,
+        VIDEORAM_MASK,
+        dc.video_ram.as_mut_ptr(),
+    );
+    sh4_core::sh4_register_mem_buffer(
+        &mut dc.ctx,
+        0xA600_0000,
+        0xA6FF_FFFF,
+        VIDEORAM_MASK,
+        dc.video_ram.as_mut_ptr(),
+    );
+        sh4_core::sh4_register_mem_handler(
+        &mut dc.ctx,
+        0x0700_0000,
+        0x07FF_FFFF,
+        VIDEORAM_MASK,
+        pvr::PVR_32BIT_HANDLERS,
+        dc.video_ram.as_mut_ptr(),
+    );
+    sh4_core::sh4_register_mem_handler(
+        &mut dc.ctx,
+        0xA700_0000,
+        0xA7FF_FFFF,
+        VIDEORAM_MASK,
+        pvr::PVR_32BIT_HANDLERS,
         dc.video_ram.as_mut_ptr(),
     );
     ta::init(dc.video_ram.as_mut_ptr());
 
+    // OCRAM
     sh4_core::sh4_register_mem_buffer(
         &mut dc.ctx,
         0x7C00_0000,
