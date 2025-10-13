@@ -2,7 +2,6 @@
 //!
 //! The original implementation is licensed under the GPL and so is this file.
 
-use log::warn;
 use once_cell::sync::Lazy;
 use std::sync::Mutex;
 
