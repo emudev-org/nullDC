@@ -412,6 +412,12 @@ impl SystemBus {
         }
     }
 
+    fn sbio_ch2dma(ctx: *mut u32, _addr: u32, data: u32) {
+        if data & 1 != 0 {
+            println!("SB: Channel 2 DMA start requested");
+        }
+    }
+
     pub const fn default() -> Self {
         Self {
             sb_regs: Vec::new(),
@@ -422,7 +428,7 @@ impl SystemBus {
 
     pub fn setup(&mut self) {
         self.sb_regs = vec![RegisterStruct::default(); 0x540];
-        
+
         for i in 0..self.sb_regs.len() {
             self.register_rio(
                 std::ptr::null_mut(),
@@ -450,7 +456,15 @@ impl SystemBus {
         // DMA / Sort-DMA
         rio!(SB_C2DSTAT_ADDR, RIO_DATA);
         rio!(SB_C2DLEN_ADDR, RIO_DATA);
-        rio!(SB_C2DST_ADDR, RIO_DATA);
+        //rio!(SB_C2DST_ADDR, RIO_DATA);
+        let reg_ptr = self.regn32(SB_C2DST_ADDR);
+        self.register_rio(
+            reg_ptr,
+            SB_C2DST_ADDR,
+            RIO_WF,
+            None,
+            Some(Self::sbio_ch2dma as _),
+        );
         rio!(SB_SDSTAW_ADDR, RIO_DATA);
         rio!(SB_SDBAAW_ADDR, RIO_DATA);
         rio!(SB_SDWLT_ADDR, RIO_DATA);
