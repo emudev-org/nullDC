@@ -1952,7 +1952,7 @@ fn write_bsc_pctra(ctx: *mut u8, _addr: u32, data: u32) {
 
 fn dreamcast_cable_setting() -> u32 {
     // TODO: plumb real settings once configuration is available
-    3
+    0
 }
 
 fn read_bsc_pdtra(_ctx: *mut u8, _addr: u32) -> u32 {

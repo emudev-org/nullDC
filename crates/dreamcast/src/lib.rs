@@ -589,7 +589,7 @@ pub fn run_slice_dreamcast(dc: *mut Dreamcast) {
     unsafe {
         let _lock = (*dc).running_mtx.lock();
         if (*dc).running {
-            (*dc).ctx.remaining_cycles += 2_000_000;
+            (*dc).ctx.remaining_cycles += 3_333_333; // ~16.67ms at 200MHz
             sh4_ipr_dispatcher(&mut (*dc).ctx);
             //sh4_fns_dispatcher(&mut (*dc).ctx);
         }
