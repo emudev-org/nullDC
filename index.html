@@ -23,6 +23,63 @@
       width: 1024px !important;
       height: 1024px !important;
     }
+
+    #bios-drop-zone {
+      border: 3px dashed #ccc;
+      border-radius: 10px;
+      padding: 40px;
+      text-align: center;
+      margin: 20px;
+      max-width: 600px;
+      background-color: #f9f9f9;
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+
+    #bios-drop-zone.dragover {
+      border-color: #4CAF50;
+      background-color: #e8f5e9;
+    }
+
+    #bios-drop-zone h2 {
+      margin-top: 0;
+      color: #333;
+    }
+
+    #bios-drop-zone p {
+      color: #666;
+      margin: 10px 0;
+    }
+
+    .file-status {
+      margin: 10px 0;
+      padding: 10px;
+      border-radius: 5px;
+      font-weight: bold;
+    }
+
+    .file-status.pending {
+      background-color: #fff3cd;
+      color: #856404;
+    }
+
+    .file-status.loaded {
+      background-color: #d4edda;
+      color: #155724;
+    }
+
+    .file-status.error {
+      background-color: #f8d7da;
+      color: #721c24;
+    }
+
+    #file-input {
+      display: none;
+    }
+
+    .hidden {
+      display: none !important;
+    }
   </style>
 </head>
 
@@ -33,7 +90,198 @@
 
   <h2 align="center">WASM embed</h2>
   <p align="center"><a href="debugger/" target="_blank">Open Debugger for WASM embed</a> | <a href="https://nulldc-debugger.fly.dev" target="_blank">Open Debugger w/ mock server</a></p>
-  <canvas id="egui_canvas" width="1024" height="1024"></canvas>
+
+  <!-- File Drop Zone -->
+  <div id="bios-drop-zone">
+    <h2>Drop Dreamcast BIOS Files Here</h2>
+    <p>Click to browse or drag and drop files</p>
+    <p style="font-size: 0.9em; color: #999;">Required: dc_boot.bin (2MB) and dc_flash.bin (128KB)</p>
+    <div id="bios-rom-status" class="file-status pending">BIOS ROM (2MB): Pending</div>
+    <div id="bios-flash-status" class="file-status pending">BIOS Flash (128KB): Pending</div>
+    <input type="file" id="file-input" accept=".bin" multiple>
+  </div>
+
+  <canvas id="egui_canvas" width="1024" height="1024" class="hidden"></canvas>
+
+  <script type="module">
+    // Store references to be used when WASM loads
+    let biosRom = null;
+    let biosFlash = null;
+    let wasmReady = false;
+    let wasmModule = null;
+
+    const dropZone = document.getElementById('bios-drop-zone');
+    const fileInput = document.getElementById('file-input');
+    const canvas = document.getElementById('egui_canvas');
+    const biosRomStatus = document.getElementById('bios-rom-status');
+    const biosFlashStatus = document.getElementById('bios-flash-status');
+
+    // Listen for WASM module to be ready (Trunk will inject it)
+    window.addEventListener('load', async () => {
+      // Give Trunk's script time to load
+      await new Promise(resolve => setTimeout(resolve, 100));
+      wasmReady = true;
+      console.log('Page loaded, WASM module should be available');
+    });
+
+    function updateStatus(element, status, message) {
+      element.className = `file-status ${status}`;
+      element.textContent = message;
+    }
+
+    function validateAndProcessFile(file) {
+      const reader = new FileReader();
+
+      reader.onload = function(e) {
+        const data = new Uint8Array(e.target.result);
+        const size = data.length;
+
+        if (size === 2 * 1024 * 1024) {
+          // 2MB - BIOS ROM
+          biosRom = data;
+          updateStatus(biosRomStatus, 'loaded', `BIOS ROM: ${file.name} (2MB) ✓`);
+        } else if (size === 128 * 1024) {
+          // 128KB - BIOS Flash
+          biosFlash = data;
+          updateStatus(biosFlashStatus, 'loaded', `BIOS Flash: ${file.name} (128KB) ✓`);
+        } else {
+          const sizeKB = (size / 1024).toFixed(2);
+          alert(`Invalid file size: ${file.name} (${sizeKB}KB)\nExpected: 2MB or 128KB`);
+          updateStatus(
+            size > 512 * 1024 ? biosRomStatus : biosFlashStatus,
+            'error',
+            `Invalid size: ${sizeKB}KB`
+          );
+          return;
+        }
+
+        // If both files are loaded, start the emulator
+        if (biosRom && biosFlash) {
+          startEmulator();
+        }
+      };
+
+      reader.onerror = function() {
+        alert(`Error reading file: ${file.name}`);
+      };
+
+      reader.readAsArrayBuffer(file);
+    }
+
+    function handleFiles(files) {
+      for (const file of files) {
+        if (file.name.endsWith('.bin')) {
+          validateAndProcessFile(file);
+        } else {
+          alert(`Invalid file type: ${file.name}\nOnly .bin files are accepted`);
+        }
+      }
+    }
+
+    // Click to browse
+    dropZone.addEventListener('click', () => fileInput.click());
+
+    fileInput.addEventListener('change', (e) => {
+      handleFiles(e.target.files);
+    });
+
+    // Drag and drop
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.classList.add('dragover');
+    });
+
+    dropZone.addEventListener('dragleave', () => {
+      dropZone.classList.remove('dragover');
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('dragover');
+      handleFiles(e.dataTransfer.files);
+    });
+
+    async function startEmulator() {
+      console.log('Starting emulator with BIOS files...');
+
+      if (!wasmReady) {
+        alert('WASM module not ready yet. Please wait a moment and try again.');
+        return;
+      }
+
+      // Store BIOS data globally so Trunk-injected script can access it
+      window.__nulldc_bios_rom = biosRom;
+      window.__nulldc_bios_flash = biosFlash;
+
+      // Hide drop zone, show canvas
+      dropZone.classList.add('hidden');
+      canvas.classList.remove('hidden');
+
+      // Signal that BIOS files are ready
+      console.log('BIOS files ready, waiting for WASM module...');
+      window.__nulldc_start_requested = true;
+    }
+
+    // Make startEmulator available globally for debugging
+    window.startEmulatorDebug = startEmulator;
+  </script>
+
+  <!-- Trunk will inject the WASM module script here -->
+  <link data-trunk rel="rust" data-target-name="nulldc" data-wasm-opt="0" />
+
+  <script type="module">
+    // This script runs AFTER Trunk's injection
+    // Wait for the WASM module and start with BIOS files
+    async function initWasmWithBios() {
+      // Wait for both WASM and BIOS files
+      while (!window.__nulldc_start_requested) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+
+      try {
+        // Find the Trunk-injected module
+        const scripts = document.querySelectorAll('script[type="module"]');
+        let wasmModulePath = null;
+
+        for (const script of scripts) {
+          const content = script.textContent;
+          if (content && content.includes('nullDC-') && content.includes('.js')) {
+            const match = content.match(/from\s+['"]([^'"]+)/);
+            if (match) {
+              wasmModulePath = match[1];
+              break;
+            }
+          }
+        }
+
+        if (!wasmModulePath) {
+          throw new Error('Could not find WASM module path');
+        }
+
+        console.log('Loading WASM module from:', wasmModulePath);
+        const wasmModule = await import(wasmModulePath);
+
+        // Initialize WASM
+        await wasmModule.default();
+
+        // Call with BIOS data
+        console.log('Calling wasm_main_with_bios...');
+        await wasmModule.wasm_main_with_bios(
+          window.__nulldc_bios_rom,
+          window.__nulldc_bios_flash
+        );
+      } catch (error) {
+        console.error('Failed to initialize WASM:', error);
+        alert(`Failed to start emulator: ${error.message}\n\nCheck console for details.`);
+
+        // Show drop zone again
+        document.getElementById('bios-drop-zone').classList.remove('hidden');
+        document.getElementById('egui_canvas').classList.add('hidden');
+      }
+    }
+
+    initWasmWithBios();
+  </script>
   <div>
     <h2 align="center">Updated 2025.09.29 - ZeZu is no longer a member of the nullDC team</h2>
     <p align="center">They will be much missed. Be well, Z~</p>
@@ -120,9 +368,8 @@
 
 
   </div>
-  <link data-trunk rel="rust" data-target-name="nulldc" data-wasm-opt="0" />
   <!-- wasm-opt disabled: Trunk doesn't support passing --enable-bulk-memory flag -->
-  <link data-trunk rel="copy-dir" href="debugger-ui/dist" data-target-path="debugger" />
+  <link data-trunk rel="copy-dir" href="devtools/dist" data-target-path="debugger" />
 </body>
 
 </html>

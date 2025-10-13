@@ -2,3 +2,6 @@
 	path = vendor/sh4-tests
 	url = https://github.com/SingleStepTests/sh4.git
 	shallow = true
+[submodule "vendor/aica-dsp-compiler"]
+	path = vendor/aica-dsp-compiler
+	url = https://github.com/pcercuei/aica-dsp.git

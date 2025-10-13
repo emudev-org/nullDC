@@ -24,16 +24,20 @@ const fn parse_opcode(pattern: &str) -> (u16, u16) {
     let bytes = pattern.as_bytes();
     let mut i = 1; // skip leading 'i'
     let mut mask: u16 = 0;
-    let mut key:  u16 = 0;
+    let mut key: u16 = 0;
     while i < bytes.len() {
         let c = bytes[i];
         if c == b'0' || c == b'1' {
             mask = (mask << 1) | 1;
-            if c == b'1' { key = (key << 1) | 1; } else { key = key << 1; }
+            if c == b'1' {
+                key = (key << 1) | 1;
+            } else {
+                key = key << 1;
+            }
         } else if c != b'_' {
             // wildcard
             mask = mask << 1;
-            key  = key  << 1;
+            key = key << 1;
         }
         i += 1;
     }
@@ -134,18 +138,47 @@ macro_rules! sh4op {
     };
 }
 
+#[inline(always)]
+fn GetN(str_: u16) -> usize {
+    ((str_ >> 8) & 0xF) as usize
+}
+#[inline(always)]
+fn GetM(str_: u16) -> usize {
+    ((str_ >> 4) & 0xF) as usize
+}
+#[inline(always)]
+fn GetImm4(str_: u16) -> u32 {
+    (str_ & 0xF) as u32
+}
+#[inline(always)]
+fn GetImm8(str_: u16) -> u32 {
+    (str_ & 0xFF) as u32
+}
+#[inline(always)]
+fn GetSImm8(str_: u16) -> i32 {
+    (str_ & 0xFF) as i8 as i32
+}
+#[inline(always)]
+fn GetImm12(str_: u16) -> u32 {
+    (str_ & 0xFFF) as u32
+}
+#[inline(always)]
+fn GetSImm12(str_: u16) -> i32 {
+    ((((GetImm12(str_) as u16) << 4) as i16) >> 4) as i32
+}
 
-#[inline(always)] fn GetN(str_: u16) -> usize { ((str_ >> 8) & 0xF) as usize }
-#[inline(always)] fn GetM(str_: u16) -> usize { ((str_ >> 4) & 0xF) as usize }
-#[inline(always)] fn GetImm4(str_: u16) -> u32 { (str_ & 0xF) as u32 }
-#[inline(always)] fn GetImm8(str_: u16) -> u32 { (str_ & 0xFF) as u32 }
-#[inline(always)] fn GetSImm8(str_: u16) -> i32 { (str_ & 0xFF) as i8 as i32 }
-#[inline(always)] fn GetImm12(str_: u16) -> u32 { (str_ & 0xFFF) as u32 }
-#[inline(always)] fn GetSImm12(str_: u16) -> i32 { ((((GetImm12(str_) as u16) << 4) as i16) >> 4) as i32 }
-
-#[inline(always)] fn data_target_s8(pc: u32, disp8: i32) -> u32 { ((pc.wrapping_add(4)) & 0xFFFF_FFFC).wrapping_add((disp8 << 2) as u32) }
-#[inline(always)] fn branch_target_s8(pc: u32, disp8: i32) -> u32 { (disp8 as i64 * 2 + 4 + pc as i64) as u32 }
-#[inline(always)] fn branch_target_s12(pc: u32, disp12: i32) -> u32 { (disp12 as i64 * 2 + 4 + pc as i64) as u32 }
+#[inline(always)]
+fn data_target_s8(pc: u32, disp8: i32) -> u32 {
+    ((pc.wrapping_add(4)) & 0xFFFF_FFFC).wrapping_add((disp8 << 2) as u32)
+}
+#[inline(always)]
+fn branch_target_s8(pc: u32, disp8: i32) -> u32 {
+    (disp8 as i64 * 2 + 4 + pc as i64) as u32
+}
+#[inline(always)]
+fn branch_target_s12(pc: u32, disp12: i32) -> u32 {
+    (disp12 as i64 * 2 + 4 + pc as i64) as u32
+}
 
 fn i_not_implemented(dc: *mut Sh4Ctx, state: SH4DecoderState, opcode: u16) {
     let desc_ptr: *const sh4_opcodelistentry = &SH4_OP_DESC[opcode as usize];
@@ -157,7 +190,10 @@ fn i_not_implemented(dc: *mut Sh4Ctx, state: SH4DecoderState, opcode: u16) {
             if d.diss.is_empty() { "missing" } else { d.diss }
         }
     };
-    panic!("{:08X}: {:04X} {} [i_not_implemented]", state.pc, opcode, diss);
+    panic!(
+        "{:08X}: {:04X} {} [i_not_implemented]",
+        state.pc, opcode, diss
+    );
 }
 
 fn i_not_known(dc: *mut Sh4Ctx, opcode: u16) {
@@ -609,7 +645,8 @@ sh4op! {
 
     (disas = "pref @<REG_N>")
     i0000_nnnn_1000_0011(dc, state, opcode) {
-        // Prefetch - no-op for interpreter
+        let n = GetN(opcode);
+        backend::sh4_pref(dc, addr_of!((*dc).r[n]), addr_of!((*dc).sq_both[0]), addr_of!((*dc).qacr0_base), addr_of!((*dc).qacr1_base));
     }
 
     (disas = "mov.b <REG_M>,@(R0,<REG_N>)")
@@ -1431,7 +1468,7 @@ sh4op! {
         backend::sh4_branch_cond_delay(dc, addr_of!((*dc).sr_t), 1, next, target);
     }
 
-    
+
     //bxxx
     (disas = "bsr <bdisp12>")
     i1011_iiii_iiii_iiii(dc, state, opcode) {
@@ -1821,10 +1858,11 @@ const MASK_NH3BIT: u16 = 0xF1FF;
 const MASK_NH2BIT: u16 = 0xF3FF;
 
 pub const fn build_opcode_tables(
-    opcodes: &[sh4_opcodelistentry]
-) -> ([fn(*mut Sh4Ctx, u16); 0x10000],
-      [sh4_opcodelistentry; 0x10000])
-{
+    opcodes: &[sh4_opcodelistentry],
+) -> (
+    [fn(*mut Sh4Ctx, u16); 0x10000],
+    [sh4_opcodelistentry; 0x10000],
+) {
     // The sentinel is always the last element of OPCODES
     let sentinel = opcodes[opcodes.len() - 1];
 
@@ -1842,7 +1880,7 @@ pub const fn build_opcode_tables(
             0xFFFF => (1, 0),
             0xF0FF => (16, 8),
             0xF00F => (256, 4),
-            0xF000 => (256*16, 0),
+            0xF000 => (256 * 16, 0),
             0xFF00 => (256, 0),
             0xF08F => (256, 4),
             0xF1FF => (8, 9),
@@ -1872,17 +1910,17 @@ pub const fn build_opcode_tables(
 // Make the final tables visible to the crate.
 const SH4_OP_TABLES: (
     [fn(*mut Sh4Ctx, u16); 0x10000],
-    [sh4_opcodelistentry; 0x10000]
+    [sh4_opcodelistentry; 0x10000],
 ) = build_opcode_tables(OPCODES);
 
-pub(crate) const SH4_OP_PTR:  [fn(*mut Sh4Ctx, u16); 0x10000] = SH4_OP_TABLES.0;
-pub(crate) const SH4_OP_DESC: [sh4_opcodelistentry; 0x10000]     = SH4_OP_TABLES.1;
+pub(crate) const SH4_OP_PTR: [fn(*mut Sh4Ctx, u16); 0x10000] = SH4_OP_TABLES.0;
+pub(crate) const SH4_OP_DESC: [sh4_opcodelistentry; 0x10000] = SH4_OP_TABLES.1;
 
 // // Re-export for parent (and callers) to `use sh4dec::{...}` or via the re-export in dreamcast_sh4.rs
 // pub use SH4_OP_PTR as _;
 // pub use SH4_OP_DESC as _;
 
-pub fn format_disas(state:SH4DecoderState, opcode: u16) -> String {
+pub fn format_disas(state: SH4DecoderState, opcode: u16) -> String {
     let mut out = unsafe { SH4_OP_DESC.get_unchecked(opcode as usize).diss }.to_string();
 
     // ---------------- General-purpose registers ----------------
@@ -1917,11 +1955,17 @@ pub fn format_disas(state:SH4DecoderState, opcode: u16) -> String {
     // ---------------- Displacements ----------------
     if out.contains("<bdisp8>") {
         let disp = ((opcode & 0xFF) as i8 as i32) << 1;
-        out = out.replace("<bdisp8>", &format!("{:#x}", state.pc.wrapping_add(disp as u32)));
+        out = out.replace(
+            "<bdisp8>",
+            &format!("{:#x}", state.pc.wrapping_add(disp as u32)),
+        );
     }
     if out.contains("<bdisp12>") {
         let disp = ((opcode & 0x0FFF) as i16 as i32) << 1;
-        out = out.replace("<bdisp12>", &format!("{:#x}", state.pc.wrapping_add(disp as u32)));
+        out = out.replace(
+            "<bdisp12>",
+            &format!("{:#x}", state.pc.wrapping_add(disp as u32)),
+        );
     }
 
     // 4-bit disps
@@ -1955,11 +1999,17 @@ pub fn format_disas(state:SH4DecoderState, opcode: u16) -> String {
     // PC relative
     if out.contains("<PCdisp8d>") {
         let d = (opcode & 0xFF) << 2;
-        out = out.replace("<PCdisp8d>", &format!("{:#x}", state.pc.wrapping_add(d as u32)));
+        out = out.replace(
+            "<PCdisp8d>",
+            &format!("{:#x}", state.pc.wrapping_add(d as u32)),
+        );
     }
     if out.contains("<PCdisp8w>") {
         let d = (opcode & 0xFF) << 1;
-        out = out.replace("<PCdisp8w>", &format!("{:#x}", state.pc.wrapping_add(d as u32)));
+        out = out.replace(
+            "<PCdisp8w>",
+            &format!("{:#x}", state.pc.wrapping_add(d as u32)),
+        );
     }
 
     // GBR disps

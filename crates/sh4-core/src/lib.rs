@@ -1,8 +1,20 @@
-use backend_fns::{ dec_start, dec_finalize_shrink, sh4_dec_call_decode, sh4_store32, sh4_store32i, sh4_dec_branch_cond, dec_reserve_dispatcher, dec_patch_dispatcher, dec_run_block, dec_free };
+use backend_fns::{
+    dec_finalize_shrink, dec_free, dec_patch_dispatcher, dec_reserve_dispatcher, dec_run_block,
+    dec_start, sh4_dec_branch_cond, sh4_dec_call_decode, sh4_store32, sh4_store32i,
+};
 
-use std::ptr;
-use std::ptr::{ addr_of, addr_of_mut };
 use bitfield::bitfield;
+use std::ptr;
+use std::ptr::{addr_of, addr_of_mut};
+
+use crate::sh4mem::MAX_MEMHANDLERS;
+
+pub mod pvr;
+mod sh4p4;
+pub use sh4p4::{
+    InterruptSourceId, dmac_get_chcr, dmac_get_dmaor, dmac_get_sar, dmac_set_chcr, dmac_set_dmatcr,
+    dmac_set_sar, intc_clear_interrupt, intc_raise_interrupt, register_peripheral_hook,
+};
 
 #[repr(C)]
 pub union FRBank {
@@ -78,58 +90,55 @@ bitfield! {
     // bits 22-31 reserved (pad)
 }
 
-extern "C" fn dummy_read8(_ctx: *mut u8, addr: u32) -> u8 {
-    panic!("Unhandled read8 at address: 0x{:08X}", addr)
-}
-extern "C" fn dummy_read16(_ctx: *mut u8, addr: u32) -> u16 {
-    panic!("Unhandled read16 at address: 0x{:08X}", addr)
-}
-extern "C" fn dummy_read32(_ctx: *mut u8, addr: u32) -> u32 {
-    panic!("Unhandled read32 at address: 0x{:08X}", addr)
-}
-extern "C" fn dummy_read64(_ctx: *mut u8, addr: u32) -> u64 {
-    panic!("Unhandled read64 at address: 0x{:08X}", addr)
-}
-extern "C" fn dummy_write8(_ctx: *mut u8, addr: u32, value: u8) {
-    panic!("Unhandled write8 at address: 0x{:08X}, value: 0x{:02X}", addr, value)
-}
-extern "C" fn dummy_write16(_ctx: *mut u8, addr: u32, value: u16) {
-    panic!("Unhandled write16 at address: 0x{:08X}, value: 0x{:04X}", addr, value)
-}
-extern "C" fn dummy_write32(_ctx: *mut u8, addr: u32, value: u32) {
-    panic!("Unhandled write32 at address: 0x{:08X}, value: 0x{:08X}", addr, value)
-}
-extern "C" fn dummy_write64(_ctx: *mut u8, addr: u32, value: u64) {
-    panic!("Unhandled write64 at address: 0x{:08X}, value: 0x{:016X}", addr, value)
+fn dummy_read<T: Copy + std::fmt::LowerHex>(_ctx: *mut u8, offset: u32) -> T {
+    panic!(
+        "dummy_read: Attempted read::<u{}> {:x}",
+        std::mem::size_of::<T>(),
+        offset
+    );
 }
 
-#[repr(C)]
+fn dummy_write<T: Copy + std::fmt::LowerHex>(_ctx: *mut u8, addr: u32, value: T) {
+    panic!(
+        "dummy_write: Attempted write::<u{}> {:x} data = {:x}",
+        std::mem::size_of::<T>(),
+        addr,
+        value
+    );
+}
+
+pub fn dummy_write256(_ctx: *mut u8, addr: u32, _value: *const u32) {
+    panic!(
+        "dummy_write: Attempted write256 {:x}",
+        addr
+    );
+}
+
 #[derive(Copy, Clone)]
 pub struct MemHandlers {
-    pub read8: extern "C" fn(ctx: *mut u8, addr: u32) -> u8,
-    pub read16: extern "C" fn(ctx: *mut u8, addr: u32) -> u16,
-    pub read32: extern "C" fn(ctx: *mut u8, addr: u32) -> u32,
-    pub read64: extern "C" fn(ctx: *mut u8, addr: u32) -> u64,
-    pub write8: extern "C" fn(ctx: *mut u8, addr: u32, value: u8),
-    pub write16: extern "C" fn(ctx: *mut u8, addr: u32, value: u16),
-    pub write32: extern "C" fn(ctx: *mut u8, addr: u32, value: u32),
-    pub write64: extern "C" fn(ctx: *mut u8, addr: u32, value: u64),
+    pub read8: fn(ctx: *mut u8, addr: u32) -> u8,
+    pub read16: fn(ctx: *mut u8, addr: u32) -> u16,
+    pub read32: fn(ctx: *mut u8, addr: u32) -> u32,
+    pub read64: fn(ctx: *mut u8, addr: u32) -> u64,
+    pub write8: fn(ctx: *mut u8, addr: u32, value: u8),
+    pub write16: fn(ctx: *mut u8, addr: u32, value: u16),
+    pub write32: fn(ctx: *mut u8, addr: u32, value: u32),
+    pub write64: fn(ctx: *mut u8, addr: u32, value: u64),
+    pub write256: fn(ctx: *mut u8, addr: u32, value: *const u32),
 }
 
-impl Default for MemHandlers {
-    fn default() -> Self {
-        Self {
-            read8: dummy_read8,
-            read16: dummy_read16,
-            read32: dummy_read32,
-            read64: dummy_read64,
-            write8: dummy_write8,
-            write16: dummy_write16,
-            write32: dummy_write32,
-            write64: dummy_write64,
-        }
-    }
-}
+pub const DEFAULT_HANDLERS: MemHandlers = MemHandlers {
+    read8: dummy_read::<u8>,
+    read16: dummy_read::<u16>,
+    read32: dummy_read::<u32>,
+    read64: dummy_read::<u64>,
+
+    write8: dummy_write::<u8>,
+    write16: dummy_write::<u16>,
+    write32: dummy_write::<u32>,
+    write64: dummy_write::<u64>,
+    write256: crate::dummy_write256,
+};
 
 #[repr(C)]
 pub struct Sh4Ctx {
@@ -150,7 +159,7 @@ pub struct Sh4Ctx {
     pub mac: MacReg,
     pub fpul: u32,
     pub fpscr: FpscrReg,
-    
+
     // Additional control registers
     pub gbr: u32,
     pub ssr: u32,
@@ -164,6 +173,11 @@ pub struct Sh4Ctx {
 
     pub temp: [u32; 8],
 
+    pub sq_both: [u32; 16],
+
+    pub qacr0_base: u32,
+    pub qacr1_base: u32,
+
     pub fns_entrypoint: *const u8,
 
     // Memory map (moved from Dreamcast)
@@ -171,6 +185,8 @@ pub struct Sh4Ctx {
     pub memmask: [u32; 256],
     pub memhandlers: [MemHandlers; 256],
     pub memcontexts: [*mut u8; 256],
+
+    pub memhandler_idx: u32,
 
     // Decoder state (for fns/recompiler)
     pub dec_branch: u32,
@@ -181,7 +197,7 @@ pub struct Sh4Ctx {
     pub dec_branch_dslot: u32,
 
     // for fns dispatcher
-    pub ptrs: Vec<*const u8>
+    pub ptrs: Vec<*const u8>,
 }
 
 impl Default for Sh4Ctx {
@@ -218,12 +234,17 @@ impl Default for Sh4Ctx {
 
             temp: [0; 8],
 
+            sq_both: [0; 16],
+            qacr0_base: 0,
+            qacr1_base: 0,
+
             fns_entrypoint: ptr::null(),
 
             memmap: [ptr::null_mut(); 256],
-            memmask: [0; 256],
-            memhandlers: [MemHandlers::default(); 256],
+            memmask: [0xFFFF_FFFF; 256],
+            memhandlers: [DEFAULT_HANDLERS; 256],
             memcontexts: [ptr::null_mut(); 256],
+            memhandler_idx: 1,
 
             ptrs: vec![ptr::null(); 0],
 
@@ -242,18 +263,22 @@ pub mod sh4mem;
 use sh4mem::read_mem;
 
 pub mod sh4dec;
-use sh4dec::{SH4_OP_PTR, SH4_OP_DESC};
+use sh4dec::{SH4_OP_DESC, SH4_OP_PTR};
 
-pub mod backend_ipr;
 pub mod backend_fns;
+pub mod backend_ipr;
 
 pub fn sh4_ipr_dispatcher(ctx: *mut Sh4Ctx) {
     unsafe {
         loop {
+            if (*ctx).is_delayslot0 == 0 {
+                sh4p4::intc_try_service(ctx);
+            }
+
             let mut opcode: u16 = 0;
 
-            // Equivalent of: read_mem(ctx, ctx->pc, opcode);
             read_mem(ctx, (*ctx).pc0, &mut opcode);
+            // println!("PC: {:08X} Opcode: {:04X}", (*ctx).pc0, opcode);
 
             // Call the opcode handler
             let handler = *SH4_OP_PTR.get_unchecked(opcode as usize);
@@ -266,6 +291,7 @@ pub fn sh4_ipr_dispatcher(ctx: *mut Sh4Ctx) {
 
             (*ctx).is_delayslot0 = (*ctx).is_delayslot1;
             (*ctx).is_delayslot1 = 0;
+            sh4p4::peripherals_step(ctx, 1);
 
             // Break when remaining_cycles reaches 0
             (*ctx).remaining_cycles = (*ctx).remaining_cycles.wrapping_sub(1);
@@ -282,7 +308,9 @@ unsafe fn sh4_build_block(ctx: &mut Sh4Ctx, start_pc: u32) -> *const u8 {
     let mut current_pc = start_pc;
 
     // println!("NEW BLOCK {:x} - remaining: {}", current_pc, remaining_line);
-    unsafe { dec_start(1024); }
+    unsafe {
+        dec_start(1024);
+    }
 
     dec_reserve_dispatcher();
 
@@ -313,7 +341,13 @@ unsafe fn sh4_build_block(ctx: &mut Sh4Ctx, start_pc: u32) -> *const u8 {
             match ctx.dec_branch {
                 1 => {
                     // Conditional branch
-                    sh4_dec_branch_cond(addr_of_mut!(ctx.pc0), addr_of!(ctx.virt_jdyn), ctx.dec_branch_cond, ctx.dec_branch_next, ctx.dec_branch_target);
+                    sh4_dec_branch_cond(
+                        addr_of_mut!(ctx.pc0),
+                        addr_of!(ctx.virt_jdyn),
+                        ctx.dec_branch_cond,
+                        ctx.dec_branch_next,
+                        ctx.dec_branch_target,
+                    );
                 }
                 2 => {
                     // Static branch with immediate target
@@ -323,7 +357,7 @@ unsafe fn sh4_build_block(ctx: &mut Sh4Ctx, start_pc: u32) -> *const u8 {
                     // Dynamic branch with pointer to target
                     sh4_store32(addr_of_mut!(ctx.pc0), ctx.dec_branch_target_dynamic);
                 }
-                _ => panic!("invalid dec_branch value")
+                _ => panic!("invalid dec_branch value"),
             }
             break;
         }
@@ -331,7 +365,10 @@ unsafe fn sh4_build_block(ctx: &mut Sh4Ctx, start_pc: u32) -> *const u8 {
         if remaining_line == 1 {
             if ctx.dec_branch != 0 {
                 assert!(ctx.dec_branch_dslot != 0);
-                println!("Warning: branch dslot on different line PC {:08X}", current_pc);
+                println!(
+                    "Warning: branch dslot on different line PC {:08X}",
+                    current_pc
+                );
             } else {
                 sh4_store32i(addr_of_mut!(ctx.pc0), current_pc.wrapping_add(2));
                 break;
@@ -369,6 +406,17 @@ pub fn sh4_fns_dispatcher(ctx: *mut Sh4Ctx) {
 
             let block_cycles = dec_run_block(block);
 
+            sh4p4::peripherals_step(ctx, block_cycles as u32);
+
+            let old_pc0 = (*ctx).pc0;
+            if sh4p4::intc_try_service(ctx) {
+                println!(
+                    "Interrupt taken at PC {:08X} -> {:08X}",
+                    old_pc0,
+                    (*ctx).pc0
+                );
+            }
+
             (*ctx).remaining_cycles = (*ctx).remaining_cycles.wrapping_sub(block_cycles as i32);
             if (*ctx).remaining_cycles <= 0 {
                 break;
@@ -387,13 +435,79 @@ pub fn sh4_init_ctx(ctx: *mut Sh4Ctx) {
 
         default_fns_entrypoint = dec_finalize_shrink().0;
 
-
         (*ctx).fns_entrypoint = default_fns_entrypoint;
         (*ctx).ptrs = vec![default_fns_entrypoint; 8192 * 1024];
     }
+
+    sh4_register_mem_handler(
+        ctx,
+        0xF000_0000,
+        0xFFFF_FFFF,
+        0xFFFF_FFFF,
+        sh4p4::P4_HANDLERS,
+        ctx as *mut _ as *mut u8,
+    );
+
+    sh4_register_mem_handler(
+        ctx,
+        0xE000_0000,
+        0xE3FF_FFFF,
+        63,
+        sh4p4::SQ_HANDLERS,
+        unsafe { (*ctx).sq_both.as_mut_ptr() as *mut u8 },
+    );
+
+    sh4p4::p4_init(unsafe { &mut (*ctx) });
 }
 
 pub fn sh4_term_ctx(ctx: &mut Sh4Ctx) {
     // TODO: Free also ctx.ptrs here
-    unsafe { dec_free(ctx.fns_entrypoint); }
+    unsafe {
+        dec_free(ctx.fns_entrypoint);
+    }
+}
+
+pub fn sh4_register_mem_handler(
+    ctx: *mut Sh4Ctx,
+    base: u32,
+    end: u32,
+    mask: u32,
+    handler: MemHandlers,
+    memctx: *mut u8,
+) {
+    assert!(base <= end);
+
+    unsafe {
+        assert!((*ctx).memhandler_idx < (MAX_MEMHANDLERS - 1) as u32);
+
+        let registered_memhandler = (*ctx).memhandler_idx as usize;
+        (*ctx).memhandler_idx += 1;
+
+        (*ctx).memhandlers[registered_memhandler] = handler;
+        (*ctx).memcontexts[registered_memhandler] = memctx;
+
+        let start_index = (base >> 24) as usize;
+        let end_index = (end >> 24) as usize;
+
+        for i in start_index..=end_index {
+            (*ctx).memmap[i] = registered_memhandler as *mut u8;
+            (*ctx).memmask[i] = mask;
+        }
+    }
+}
+
+pub fn sh4_register_mem_buffer(ctx: *mut Sh4Ctx, base: u32, end: u32, mask: u32, buffer: *mut u8) {
+    assert!(base <= end);
+
+    unsafe {
+        let start_index = (base >> 24) as usize;
+        let end_index = (end >> 24) as usize;
+
+        for i in start_index..=end_index {
+            (*ctx).memmap[i] = buffer.wrapping_add((i << 24) & mask as usize);
+            (*ctx).memmask[i] = mask;
+            (*ctx).memhandlers[i] = DEFAULT_HANDLERS;
+            (*ctx).memcontexts[i] = ptr::null_mut();
+        }
+    }
 }

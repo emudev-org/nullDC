@@ -1,6 +1,7 @@
 use std::sync::Arc;
-use std::ptr;
 
+#[cfg(target_arch = "wasm32")]
+use console_error_panic_hook;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 #[cfg(target_arch = "wasm32")]
@@ -8,24 +9,21 @@ use wasm_bindgen_futures;
 #[cfg(target_arch = "wasm32")]
 use wasm_logger;
 #[cfg(target_arch = "wasm32")]
-use console_error_panic_hook;
-#[cfg(target_arch = "wasm32")]
 use wgpu::web_sys;
 
+use winit::window::Window;
+use winit::window::WindowAttributes;
 use winit::{
-    event::{WindowEvent, KeyEvent, ElementState},
+    event::{ElementState, KeyEvent, WindowEvent},
     event_loop::{ActiveEventLoop, EventLoop},
     keyboard::{KeyCode, PhysicalKey},
 };
-use winit::window::Window;
-use winit::window::WindowAttributes;
-
 
 use git_version::git_version;
 use wgpu::util::DeviceExt;
 
-mod dreamcast;
-use dreamcast::{Dreamcast, init_dreamcast, run_dreamcast};
+pub use dreamcast;
+use dreamcast::{Dreamcast, present_for_texture, run_slice_dreamcast};
 
 const GIT_HASH: &str = git_version!();
 
@@ -77,16 +75,25 @@ impl Vertex {
 }
 
 const VERTICES: &[Vertex] = &[
-    Vertex { position: [0.0, 0.5, 0.0], tex_coords: [0.5, 0.0] },
-    Vertex { position: [-0.5, -0.5, 0.0], tex_coords: [0.0, 1.0] },
-    Vertex { position: [0.5, -0.5, 0.0], tex_coords: [1.0, 1.0] },
+    Vertex {
+        position: [0.0, 0.5, 0.0],
+        tex_coords: [0.5, 0.0],
+    },
+    Vertex {
+        position: [-0.5, -0.5, 0.0],
+        tex_coords: [0.0, 1.0],
+    },
+    Vertex {
+        position: [0.5, -0.5, 0.0],
+        tex_coords: [1.0, 1.0],
+    },
 ];
 
 // In your initialization code (probably in main or new)
 #[cfg(target_arch = "wasm32")]
 fn get_canvas_size() -> winit::dpi::PhysicalSize<u32> {
     use wasm_bindgen::JsCast;
-    
+
     let window = web_sys::window().unwrap();
     let document = window.document().unwrap();
     let canvas = document
@@ -94,11 +101,8 @@ fn get_canvas_size() -> winit::dpi::PhysicalSize<u32> {
         .unwrap()
         .dyn_into::<web_sys::HtmlCanvasElement>()
         .unwrap();
-    
-    winit::dpi::PhysicalSize::new(
-        canvas.width(),
-        canvas.height(),
-    )
+
+    winit::dpi::PhysicalSize::new(canvas.width(), canvas.height())
 }
 
 impl State {
@@ -126,15 +130,13 @@ impl State {
             .expect("request_adapter");
 
         let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: None,
-                    required_features: wgpu::Features::empty(),
-                    required_limits: wgpu::Limits::default(),
-                    memory_hints: wgpu::MemoryHints::Performance,
-                    trace: wgpu::Trace::default(),
-                },
-            )
+            .request_device(&wgpu::DeviceDescriptor {
+                label: None,
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::default(),
+                memory_hints: wgpu::MemoryHints::Performance,
+                trace: wgpu::Trace::default(),
+            })
             .await
             .expect("request_device");
 
@@ -265,11 +267,12 @@ impl State {
             source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
         });
 
-        let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Render Pipeline Layout"),
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
-        });
+        let render_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Render Pipeline Layout"),
+                bind_group_layouts: &[&bind_group_layout],
+                push_constant_ranges: &[],
+            });
 
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Render Pipeline"),
@@ -313,13 +316,7 @@ impl State {
             None,
         );
 
-        let egui_renderer = egui_wgpu::Renderer::new(
-            &device,
-            config.format,
-            None,
-            1,
-            false,
-        );
+        let egui_renderer = egui_wgpu::Renderer::new(&device, config.format, None, 1, false);
 
         let framebuffer: egui::TextureHandle = egui_ctx.load_texture(
             "framebuffer",
@@ -354,10 +351,12 @@ impl State {
             self.surface.configure(&self.device, &self.config);
         }
     }
-    
+
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         let output = self.surface.get_current_texture()?;
-        let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let view = output
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
 
         // Begin egui frame
         let raw_input = self.egui_state.take_egui_input(&*self.window);
@@ -368,9 +367,11 @@ impl State {
         });
 
         // Upload egui textures and meshes
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("main encoder"),
-        });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("main encoder"),
+            });
 
         let screen_desc = egui_wgpu::ScreenDescriptor {
             size_in_pixels: [self.config.width, self.config.height],
@@ -379,14 +380,20 @@ impl State {
         };
 
         for (id, image_delta) in &egui_output.textures_delta.set {
-            self.egui_renderer.update_texture(&self.device, &self.queue, *id, image_delta);
+            self.egui_renderer
+                .update_texture(&self.device, &self.queue, *id, image_delta);
         }
 
-        let paint_jobs =
-            self.egui_ctx
-                .tessellate(egui_output.shapes, self.egui_ctx.pixels_per_point());
-        self.egui_renderer
-            .update_buffers(&self.device, &self.queue, &mut encoder, &paint_jobs, &screen_desc);
+        let paint_jobs = self
+            .egui_ctx
+            .tessellate(egui_output.shapes, self.egui_ctx.pixels_per_point());
+        self.egui_renderer.update_buffers(
+            &self.device,
+            &self.queue,
+            &mut encoder,
+            &paint_jobs,
+            &screen_desc,
+        );
 
         // 1) Clear + draw triangle (if enabled)
         {
@@ -442,7 +449,8 @@ impl State {
             let mut rpass = rpass.forget_lifetime();
 
             // FIX 4: render into a RenderPass, not encoder+view
-            self.egui_renderer.render(&mut rpass, &paint_jobs, &screen_desc);
+            self.egui_renderer
+                .render(&mut rpass, &paint_jobs, &screen_desc);
         }
 
         // Submit
@@ -453,39 +461,38 @@ impl State {
         for id in &egui_output.textures_delta.free {
             self.egui_renderer.free_texture(id);
         }
-        
-    //     log::info!("Render");
-    //     let frame = self.surface.get_current_texture().unwrap();
-    // let view = frame.texture.create_view(&Default::default());
 
-    // let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-    //     label: Some("Render Encoder"),
-    // });
+        //     log::info!("Render");
+        //     let frame = self.surface.get_current_texture().unwrap();
+        // let view = frame.texture.create_view(&Default::default());
 
-    // {
-    //     let _rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-    //         label: Some("Clear Pass"),
-    //         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-    //             view: &view,
-    //             resolve_target: None,
-    //             depth_slice: None,
-    //             ops: wgpu::Operations {
-    //                 load: wgpu::LoadOp::Clear(wgpu::Color::RED), // force bright red
-    //                 store: wgpu::StoreOp::Store,
-    //             },
-    //         })],
-    //         depth_stencil_attachment: None,
-    //         timestamp_writes: None,
-    //         occlusion_query_set: None,
-    //     });
-    // }
+        // let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        //     label: Some("Render Encoder"),
+        // });
 
-    // self.queue.submit(Some(encoder.finish()));
-    // frame.present();
+        // {
+        //     let _rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        //         label: Some("Clear Pass"),
+        //         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+        //             view: &view,
+        //             resolve_target: None,
+        //             depth_slice: None,
+        //             ops: wgpu::Operations {
+        //                 load: wgpu::LoadOp::Clear(wgpu::Color::RED), // force bright red
+        //                 store: wgpu::StoreOp::Store,
+        //             },
+        //         })],
+        //         depth_stencil_attachment: None,
+        //         timestamp_writes: None,
+        //         occlusion_query_set: None,
+        //     });
+        // }
+
+        // self.queue.submit(Some(encoder.finish()));
+        // frame.present();
 
         Ok(())
     }
-
 }
 
 #[derive(Default)]
@@ -495,34 +502,31 @@ struct App {
 }
 
 // Import ApplicationHandler trait from winit
+use std::cell::RefCell;
+use std::rc::Rc;
 use winit::application::ApplicationHandler;
 use winit::window::WindowId;
-use std::rc::Rc;
-use std::cell::RefCell;
-
 
 struct AppHandle(Rc<RefCell<App>>);
 
 impl AppHandle {
-    fn new() -> Self {
+    fn new(dreamcast: *mut Dreamcast) -> Self {
         AppHandle(Rc::new(RefCell::new(App {
             state: None,
-            dreamcast: ptr::null_mut(),
+            dreamcast: dreamcast,
         })))
     }
 }
 
 impl ApplicationHandler for AppHandle {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        
         let window_attributes: WindowAttributes = {
-            let mut attrs = Window::default_attributes()
-                .with_title(format!("nullDC {}", GIT_HASH));
+            let mut attrs = Window::default_attributes().with_title(format!("nullDC {}", GIT_HASH));
 
             #[cfg(target_arch = "wasm32")]
             {
-                use winit::platform::web::WindowAttributesExtWebSys;
                 use wasm_bindgen::JsCast;
+                use winit::platform::web::WindowAttributesExtWebSys;
 
                 let document = web_sys::window().unwrap().document().unwrap();
                 let canvas = document
@@ -547,18 +551,14 @@ impl ApplicationHandler for AppHandle {
         #[cfg(target_arch = "wasm32")]
         {
             use web_sys::window;
-            window().unwrap().document().unwrap().set_title(format!("nullDC {}", GIT_HASH).as_str());
+            window()
+                .unwrap()
+                .document()
+                .unwrap()
+                .set_title(format!("nullDC {}", GIT_HASH).as_str());
         }
 
-        let window = Arc::new(
-            event_loop.create_window(window_attributes).unwrap()
-        );
-        
-        {
-            let mut app = self.0.borrow_mut();
-            app.dreamcast = Box::into_raw(Box::new(Dreamcast::default()));
-            init_dreamcast(app.dreamcast);
-        }
+        let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
 
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -566,13 +566,12 @@ impl ApplicationHandler for AppHandle {
             self.0.borrow_mut().state = Some(state);
         }
 
-
         #[cfg(target_arch = "wasm32")]
         {
-            use wasm_bindgen_futures::spawn_local;
+            use std::cell::RefCell;
             use std::rc::Rc;
             use std::rc::Weak;
-            use std::cell::RefCell;
+            use wasm_bindgen_futures::spawn_local;
 
             let this: Weak<RefCell<App>> = Rc::downgrade(&self.0);
             let window_clone = window.clone();
@@ -587,13 +586,21 @@ impl ApplicationHandler for AppHandle {
         }
     }
 
-    fn window_event(&mut self, event_loop: &ActiveEventLoop, _window_id: WindowId, event: WindowEvent) {
+    fn window_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        _window_id: WindowId,
+        event: WindowEvent,
+    ) {
         let mut app = self.0.borrow_mut();
-        
-        if let Some(state) = app.state.as_mut() {
-            if !state.egui_state.on_window_event(&state.window, &event).consumed {
-                match event {
 
+        if let Some(state) = app.state.as_mut() {
+            if !state
+                .egui_state
+                .on_window_event(&state.window, &event)
+                .consumed
+            {
+                match event {
                     WindowEvent::CloseRequested
                     | WindowEvent::KeyboardInput {
                         event:
@@ -605,42 +612,49 @@ impl ApplicationHandler for AppHandle {
                         ..
                     } => {
                         event_loop.exit();
-                    },
+                    }
 
                     WindowEvent::Resized(size) => {
                         if let Some(state) = app.state.as_mut() {
                             state.resize(size);
                         }
-                    },
+                    }
 
                     WindowEvent::RedrawRequested => {
                         let mut image: Option<egui::ColorImage> = None;
 
                         if !app.dreamcast.is_null() {
                             let dreamcast = app.dreamcast;
-                            unsafe {
-                                (*dreamcast).ctx.remaining_cycles += 2_000_000;
-                                run_dreamcast(dreamcast);
+                            run_slice_dreamcast(dreamcast);
+                        }
 
-                                let base_u8: *const u8 = (*dreamcast).video_ram.as_ptr().add(0x0000); // add offset if needed
-
-                                let base_u16 = base_u8.cast::<u16>();
-                                let len_u16 = 640 * 480;
-                                let buf: &[u16] = core::slice::from_raw_parts(base_u16, len_u16);
-
-                                image = Some(dreamcast::rgb565_to_color32(buf, 640, 480));
+                        if let Some((rgba, width, height)) = present_for_texture() {
+                            let pixel_count = width.saturating_mul(height);
+                            if pixel_count > 0 && rgba.len() >= pixel_count * 4 {
+                                let mut pixels = Vec::with_capacity(pixel_count);
+                                for chunk in rgba.chunks_exact(4) {
+                                    pixels.push(egui::Color32::from_rgba_unmultiplied(
+                                        chunk[0], chunk[1], chunk[2], chunk[3],
+                                    ));
+                                }
+                                image = Some(egui::ColorImage {
+                                    size: [width, height],
+                                    pixels,
+                                    source_size: egui::vec2(width as f32, height as f32),
+                                });
                             }
                         }
 
                         if let Some(state) = app.state.as_mut() {
                             // Update framebuffer texture
-                            if let Some(image) = image {   
+                            if let Some(image) = image {
                                 state.framebuffer.set(image, egui::TextureOptions::NEAREST);
                             }
                             // Render
                             match state.render() {
                                 Ok(()) => {}
-                                Err(wgpu::SurfaceError::Lost) | Err(wgpu::SurfaceError::Outdated) => {
+                                Err(wgpu::SurfaceError::Lost)
+                                | Err(wgpu::SurfaceError::Outdated) => {
                                     state.resize(state.size);
                                 }
                                 Err(wgpu::SurfaceError::OutOfMemory) => {
@@ -668,8 +682,45 @@ impl ApplicationHandler for AppHandle {
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
-pub async fn run() {
+// WASM initialization - sets up logging only, does not start emulation
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(start)]
+pub fn wasm_init() {
+    // Just set up panic hook and logging
+    // The actual emulation starts when wasm_main_with_bios() is called from JavaScript
+    console_error_panic_hook::set_once();
+    wasm_logger::init(wasm_logger::Config::default());
+    log::info!("nullDC WASM initialized. Waiting for BIOS files...");
+}
+
+// WASM entry point that accepts BIOS data from JavaScript
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub async fn wasm_main_with_bios(bios_rom: Vec<u8>, bios_flash: Vec<u8>) {
+    console_error_panic_hook::set_once();
+    wasm_logger::init(wasm_logger::Config::default());
+
+    log::info!("Received BIOS ROM: {} bytes, BIOS Flash: {} bytes", bios_rom.len(), bios_flash.len());
+
+    // Validate sizes
+    if bios_rom.len() != 2 * 1024 * 1024 {
+        log::error!("Invalid BIOS ROM size: {} (expected 2MB)", bios_rom.len());
+        return;
+    }
+    if bios_flash.len() != 128 * 1024 {
+        log::error!("Invalid BIOS Flash size: {} (expected 128KB)", bios_flash.len());
+        return;
+    }
+
+    // Create and initialize Dreamcast with provided BIOS
+    let dc = Box::into_raw(Box::new(Dreamcast::default()));
+    dreamcast::init_dreamcast(dc, &bios_rom, &bios_flash);
+
+    run(Some(dc)).await;
+}
+
+// Main run function that works for both native and WASM
+pub async fn run(dreamcast: Option<*mut Dreamcast>) {
     // Setup logging and panic hooks for wasm
     #[cfg(target_arch = "wasm32")]
     {
@@ -680,8 +731,16 @@ pub async fn run() {
     #[cfg(not(target_arch = "wasm32"))]
     env_logger::init();
 
+    // For native builds with no Dreamcast provided, we can't continue
+    let dreamcast_ptr = match dreamcast {
+        Some(ptr) => ptr,
+        None => {
+            log::error!("No Dreamcast instance provided and no BIOS files available");
+            return;
+        }
+    };
 
     let event_loop = EventLoop::new().unwrap();
-    let mut app = AppHandle::new();
+    let mut app = AppHandle::new(dreamcast_ptr);
     event_loop.run_app(&mut app).unwrap();
 }

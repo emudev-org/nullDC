@@ -1,26 +1,27 @@
-use sh4_core::{Sh4Ctx, MemHandlers, sh4mem};
+use sh4_core::{MemHandlers, Sh4Ctx, sh4mem};
 use std::ptr;
 
-extern "C" fn test_read8(_ctx: *mut u8, offset: u32) -> u8 {
+fn test_read8(_ctx: *mut u8, offset: u32) -> u8 {
     (offset & 0xFF) as u8
 }
 
-extern "C" fn test_read16(_ctx: *mut u8, offset: u32) -> u16 {
+fn test_read16(_ctx: *mut u8, offset: u32) -> u16 {
     (offset & 0xFFFF) as u16
 }
 
-extern "C" fn test_read32(_ctx: *mut u8, offset: u32) -> u32 {
+fn test_read32(_ctx: *mut u8, offset: u32) -> u32 {
     offset
 }
 
-extern "C" fn test_read64(_ctx: *mut u8, offset: u32) -> u64 {
+fn test_read64(_ctx: *mut u8, offset: u32) -> u64 {
     offset as u64 | ((offset as u64) << 32)
 }
 
-extern "C" fn test_write8(_ctx: *mut u8, _addr: u32, _value: u8) {}
-extern "C" fn test_write16(_ctx: *mut u8, _addr: u32, _value: u16) {}
-extern "C" fn test_write32(_ctx: *mut u8, _addr: u32, _value: u32) {}
-extern "C" fn test_write64(_ctx: *mut u8, _addr: u32, _value: u64) {}
+fn test_write8(_ctx: *mut u8, _addr: u32, _value: u8) {}
+fn test_write16(_ctx: *mut u8, _addr: u32, _value: u16) {}
+fn test_write32(_ctx: *mut u8, _addr: u32, _value: u32) {}
+fn test_write64(_ctx: *mut u8, _addr: u32, _value: u64) {}
+fn test_write256(_ctx: *mut u8, _addr: u32, _value: *const u32) {}
 
 #[test]
 fn test_read_mem_sizes() {
@@ -36,6 +37,7 @@ fn test_read_mem_sizes() {
         write16: test_write16,
         write32: test_write32,
         write64: test_write64,
+        write256: test_write256,
     };
 
     for i in 0..256 {
@@ -49,29 +51,24 @@ fn test_read_mem_sizes() {
 
     // Test read8
     let mut val8: u8 = 0;
-    unsafe {
-        sh4mem::read_mem(ctx_ptr, 0x00123456, &mut val8);
-    }
+    sh4mem::read_mem(ctx_ptr, 0x00123456, &mut val8);
     assert_eq!(val8, 0x56);
 
     // Test read16
     let mut val16: u16 = 0;
-    unsafe {
-        sh4mem::read_mem(ctx_ptr, 0x00ABCDEF, &mut val16);
-    }
+    sh4mem::read_mem(ctx_ptr, 0x00ABCDEF, &mut val16);
+
     assert_eq!(val16, 0xCDEF);
 
     // Test read32
     let mut val32: u32 = 0;
-    unsafe {
-        sh4mem::read_mem(ctx_ptr, 0xDEADBEEF, &mut val32);
-    }
+    sh4mem::read_mem(ctx_ptr, 0xDEADBEEF, &mut val32);
+
     assert_eq!(val32, 0xADBEEF); // Masked with 0xFFFFFF
 
     // Test read64
     let mut val64: u64 = 0;
-    unsafe {
-        sh4mem::read_mem(ctx_ptr, 0x12345678, &mut val64);
-    }
+    sh4mem::read_mem(ctx_ptr, 0x12345678, &mut val64);
+
     assert_eq!(val64, 0x0034567800345678); // Masked with 0xFFFFFF
 }

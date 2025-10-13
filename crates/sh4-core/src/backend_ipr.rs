@@ -1,5 +1,5 @@
 use super::Sh4Ctx;
-use super::sh4mem::{read_mem, write_mem};
+use super::sh4mem::{read_mem, write_mem, write_mem_sq};
 
 // Helper functions for double precision register access
 // SH4 stores double precision values in a mixed-endian format:
@@ -18,8 +18,8 @@ pub fn get_double_reg(ptr: *const u32) -> f64 {
         // ptr points to fr[(n<<1)], which is the high 32 bits
         // We need to swap the order: sgl[1] = high, sgl[0] = low
         let fr_ptr = ptr as *const f32;
-        t.sgl[1] = *fr_ptr.add(0);  // high part (fr[n<<1 + 0])
-        t.sgl[0] = *fr_ptr.add(1);  // low part (fr[n<<1 + 1])
+        t.sgl[1] = *fr_ptr.add(0); // high part (fr[n<<1 + 0])
+        t.sgl[0] = *fr_ptr.add(1); // low part (fr[n<<1 + 1])
         t.dbl
     }
 }
@@ -30,8 +30,8 @@ pub fn set_double_reg(ptr: *mut u32, val: f64) {
         let t = DoubleReg { dbl: val };
         // ptr points to fr[(n<<1)], which should get the high 32 bits
         let fr_ptr = ptr as *mut f32;
-        *fr_ptr.add(0) = t.sgl[1];  // high part to fr[n<<1 + 0]
-        *fr_ptr.add(1) = t.sgl[0];  // low part to fr[n<<1 + 1]
+        *fr_ptr.add(0) = t.sgl[1]; // high part to fr[n<<1 + 0]
+        *fr_ptr.add(1) = t.sgl[0]; // low part to fr[n<<1 + 1]
     }
 }
 
@@ -137,9 +137,9 @@ fn set_host_rounding_mode(sh4_rm: u32) {
         //
         // SH4 FPSCR.RM: 00 = nearest, 01 = zero
         let x86_rm = match sh4_rm {
-            0 => 0,  // Round to nearest
-            1 => 3,  // Round to zero
-            _ => 0,  // Reserved modes default to round to nearest
+            0 => 0, // Round to nearest
+            1 => 3, // Round to zero
+            _ => 0, // Reserved modes default to round to nearest
         };
         mxcsr |= x86_rm << 13;
 
@@ -164,9 +164,9 @@ fn set_host_rounding_mode(sh4_rm: u32) {
         //
         // SH4 FPSCR.RM: 00 = nearest, 01 = zero
         let arm_rm = match sh4_rm {
-            0 => 0,  // Round to nearest
-            1 => 3,  // Round to zero
-            _ => 0,  // Reserved modes default to round to nearest
+            0 => 0, // Round to nearest
+            1 => 3, // Round to zero
+            _ => 0, // Reserved modes default to round to nearest
         };
         fpcr |= arm_rm << 22;
 
@@ -191,16 +191,20 @@ fn set_host_rounding_mode(sh4_rm: u32) {
         //
         // SH4 FPSCR.RM: 00 = nearest, 01 = zero
         let riscv_rm = match sh4_rm {
-            0 => 0,  // Round to nearest
-            1 => 1,  // Round to zero
-            _ => 0,  // Reserved modes default to round to nearest
+            0 => 0, // Round to nearest
+            1 => 1, // Round to zero
+            _ => 0, // Reserved modes default to round to nearest
         };
         fcsr |= riscv_rm << 5;
 
         std::arch::asm!("fscsr {}", in(reg) fcsr, options(nomem, nostack));
     }
 
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "riscv64")))]
+    #[cfg(not(any(
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "riscv64"
+    )))]
     {
         // On other architectures (including WASM), we can't set rounding mode
         // The emulator will use the default host rounding mode (round to nearest)
@@ -219,9 +223,9 @@ fn set_host_daz(enable: bool) {
 
         // Bit 6 is DAZ (Denormals Are Zero)
         if enable {
-            mxcsr |= 1 << 6;  // Set DAZ
+            mxcsr |= 1 << 6; // Set DAZ
         } else {
-            mxcsr &= !(1 << 6);  // Clear DAZ
+            mxcsr &= !(1 << 6); // Clear DAZ
         }
 
         // Set new MXCSR
@@ -236,9 +240,9 @@ fn set_host_daz(enable: bool) {
 
         // Bit 24 is FZ (Flush-to-Zero), equivalent to DAZ on x86
         if enable {
-            fpcr |= 1 << 24;  // Set FZ
+            fpcr |= 1 << 24; // Set FZ
         } else {
-            fpcr &= !(1 << 24);  // Clear FZ
+            fpcr &= !(1 << 24); // Clear FZ
         }
 
         std::arch::asm!("msr fpcr, {}", in(reg) fpcr, options(nomem, nostack));
@@ -253,7 +257,11 @@ fn set_host_daz(enable: bool) {
         let _ = enable;
     }
 
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "riscv64")))]
+    #[cfg(not(any(
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "riscv64"
+    )))]
     {
         // On other architectures, we can't set DAZ/FZ
         // The emulator will need software emulation for denormals
@@ -347,7 +355,7 @@ pub fn sh4_dt(sr_t: *mut u32, dst: *mut u32) {
 #[inline(always)]
 pub fn sh4_shlr(sr_t: *mut u32, dst: *mut u32, src_n: *const u32) {
     unsafe {
-        *sr_t = *src_n & 1; 
+        *sr_t = *src_n & 1;
         *dst = *src_n >> 1;
     }
 }
@@ -426,7 +434,6 @@ pub fn sh4_read_mem64(ctx: *mut Sh4Ctx, addr: *const u32, data: *mut u64) {
     }
 }
 
-
 #[inline(always)]
 pub fn sh4_read_mem32i(ctx: *mut Sh4Ctx, addr: u32, data: *mut u32) {
     unsafe {
@@ -440,6 +447,28 @@ pub fn sh4_read_mems16_i(ctx: *mut Sh4Ctx, addr: u32, data: *mut u32) {
         let mut temp: u16 = 0;
         let _ = read_mem::<u16>(ctx, addr, &mut temp);
         *data = temp as i16 as i32 as u32;
+    }
+}
+
+#[inline(always)]
+pub fn sh4_pref(
+    ctx: *mut Sh4Ctx,
+    address: *const u32,
+    sq_both: *const u32,
+    qacr0_base: *const u32,
+    qacr1_base: *const u32,
+) {
+    unsafe {
+        let area = *address >> 26;
+        if area == 0xE0 / 4 {
+            if *address & 0x20 == 0 {
+                let write_address = (*address & 0x03FF_FFE0) | *qacr0_base;
+                write_mem_sq(ctx, write_address, sq_both);
+            } else {
+                let write_address = (*address & 0x03FF_FFE0) | *qacr1_base;
+                write_mem_sq(ctx, write_address, sq_both.wrapping_add(8));
+            }
+        }
     }
 }
 
@@ -523,9 +552,9 @@ pub fn sh4_ftrc(dst: *mut u32, src: *const f32) {
         let result = if val.is_nan() {
             0
         } else if val >= 2147483520.0 {
-            0x7FFFFF80  // Saturate to max f32-representable int
+            0x7FFFFF80 // Saturate to max f32-representable int
         } else if val < -2147483648.0 {
-            0x80000000  // Saturate to INT_MIN
+            0x80000000 // Saturate to INT_MIN
         } else {
             val as i32 as u32
         };
@@ -598,7 +627,13 @@ pub fn sh4_branch_cond(ctx: *mut Sh4Ctx, t: *const u32, condition: u32, next: u3
 }
 
 #[inline(always)]
-pub fn sh4_branch_cond_delay(ctx: *mut Sh4Ctx, t: *const u32, condition: u32, next: u32, target: u32) {
+pub fn sh4_branch_cond_delay(
+    ctx: *mut Sh4Ctx,
+    t: *const u32,
+    condition: u32,
+    next: u32,
+    target: u32,
+) {
     unsafe {
         if *t == condition {
             (*ctx).pc2 = target;
@@ -620,7 +655,13 @@ pub fn sh4_branch_delay(ctx: *mut Sh4Ctx, target: u32) {
 }
 
 #[inline(always)]
-pub fn sh4_dec_branch_cond(dst: *mut u32, jdyn: *const u32, condition: u32, next: u32, target: u32) {
+pub fn sh4_dec_branch_cond(
+    dst: *mut u32,
+    jdyn: *const u32,
+    condition: u32,
+    next: u32,
+    target: u32,
+) {
     unsafe {
         if *jdyn == condition {
             *dst = target;
@@ -696,9 +737,9 @@ pub fn sh4_ftrc_d(dst: *mut u32, src: *const u32) {
         let result = if val.is_nan() {
             0
         } else if val >= 2147483648.0 {
-            0x7FFFFFFF  // Saturate to INT_MAX
+            0x7FFFFFFF // Saturate to INT_MAX
         } else if val < -2147483648.0 {
-            0x80000000  // Saturate to INT_MIN
+            0x80000000 // Saturate to INT_MIN
         } else {
             val as i32 as u32
         };
@@ -724,7 +765,6 @@ pub fn sh4_frchg(fr: *mut u32, xf: *mut u32) {
         }
     }
 }
-
 
 #[inline(always)]
 pub fn sh4_fschg() {
@@ -877,7 +917,6 @@ pub fn sh4_xtrct(dst: *mut u32, src_n: *const u32, src_m: *const u32) {
     }
 }
 
-
 #[inline(always)]
 pub fn sh4_cmp_eq(sr_t: *mut u32, src_n: *const u32, src_m: *const u32) {
     unsafe {
@@ -895,7 +934,11 @@ pub fn sh4_cmp_hs(sr_t: *mut u32, src_n: *const u32, src_m: *const u32) {
 #[inline(always)]
 pub fn sh4_cmp_ge(sr_t: *mut u32, src_n: *const u32, src_m: *const u32) {
     unsafe {
-        *sr_t = if (*src_n as i32) >= (*src_m as i32) { 1 } else { 0 };
+        *sr_t = if (*src_n as i32) >= (*src_m as i32) {
+            1
+        } else {
+            0
+        };
     }
 }
 
@@ -909,7 +952,11 @@ pub fn sh4_cmp_hi(sr_t: *mut u32, src_n: *const u32, src_m: *const u32) {
 #[inline(always)]
 pub fn sh4_cmp_gt(sr_t: *mut u32, src_n: *const u32, src_m: *const u32) {
     unsafe {
-        *sr_t = if (*src_n as i32) > (*src_m as i32) { 1 } else { 0 };
+        *sr_t = if (*src_n as i32) > (*src_m as i32) {
+            1
+        } else {
+            0
+        };
     }
 }
 
@@ -1077,7 +1124,11 @@ pub fn sh4_addc(sr_t: *mut u32, dst: *mut u32, src_n: *const u32, src_m: *const 
 pub fn sh4_addv(sr_t: *mut u32, dst: *mut u32, src_n: *const u32, src_m: *const u32) {
     unsafe {
         let br = (*src_n as i32 as i64).wrapping_add(*src_m as i32 as i64);
-        *sr_t = if br >= 0x80000000 || br < -0x80000000i64 { 1 } else { 0 };
+        *sr_t = if br >= 0x80000000 || br < -0x80000000i64 {
+            1
+        } else {
+            0
+        };
         *dst = (*src_n).wrapping_add(*src_m);
     }
 }
@@ -1099,7 +1150,11 @@ pub fn sh4_subc(sr_t: *mut u32, dst: *mut u32, src_n: *const u32, src_m: *const 
 pub fn sh4_subv(sr_t: *mut u32, dst: *mut u32, src_n: *const u32, src_m: *const u32) {
     unsafe {
         let br = (*src_n as i32 as i64).wrapping_sub(*src_m as i32 as i64);
-        *sr_t = if br >= 0x80000000 || br < -0x80000000i64 { 1 } else { 0 };
+        *sr_t = if br >= 0x80000000 || br < -0x80000000i64 {
+            1
+        } else {
+            0
+        };
         *dst = (*src_n).wrapping_sub(*src_m);
     }
 }
@@ -1168,7 +1223,13 @@ pub fn sh4_dmuls(dst: *mut u64, src_n: *const u32, src_m: *const u32) {
 }
 
 #[inline(always)]
-pub fn sh4_div1(sr: *mut super::SrStatus, sr_t: *mut u32, dst: *mut u32, src_n: *const u32, src_m: *const u32) {
+pub fn sh4_div1(
+    sr: *mut super::SrStatus,
+    sr_t: *mut u32,
+    dst: *mut u32,
+    src_n: *const u32,
+    src_m: *const u32,
+) {
     unsafe {
         let old_q = (*sr).q() as u32;
         let sr_m = (*sr).m() as u32;
@@ -1192,21 +1253,37 @@ pub fn sh4_div1(sr: *mut super::SrStatus, sr_t: *mut u32, dst: *mut u32, src_n: 
             if sr_m == 0 {
                 rn = rn.wrapping_sub(tmp2);
                 tmp1 = if rn > tmp0 { 1 } else { 0 };
-                q = if q == 0 { tmp1 } else { if tmp1 == 0 { 1 } else { 0 } };
+                q = if q == 0 {
+                    tmp1
+                } else {
+                    if tmp1 == 0 { 1 } else { 0 }
+                };
             } else {
                 rn = rn.wrapping_add(tmp2);
                 tmp1 = if rn < tmp0 { 1 } else { 0 };
-                q = if q == 0 { if tmp1 == 0 { 1 } else { 0 } } else { tmp1 };
+                q = if q == 0 {
+                    if tmp1 == 0 { 1 } else { 0 }
+                } else {
+                    tmp1
+                };
             }
         } else {
             if sr_m == 0 {
                 rn = rn.wrapping_add(tmp2);
                 tmp1 = if rn < tmp0 { 1 } else { 0 };
-                q = if q == 0 { tmp1 } else { if tmp1 == 0 { 1 } else { 0 } };
+                q = if q == 0 {
+                    tmp1
+                } else {
+                    if tmp1 == 0 { 1 } else { 0 }
+                };
             } else {
                 rn = rn.wrapping_sub(tmp2);
                 tmp1 = if rn > tmp0 { 1 } else { 0 };
-                q = if q == 0 { if tmp1 == 0 { 1 } else { 0 } } else { tmp1 };
+                q = if q == 0 {
+                    if tmp1 == 0 { 1 } else { 0 }
+                } else {
+                    tmp1
+                };
             }
         }
 
@@ -1220,7 +1297,12 @@ pub fn sh4_div1(sr: *mut super::SrStatus, sr_t: *mut u32, dst: *mut u32, src_n: 
 
 // Memory operations with indexed addressing (R0 + Rn)
 #[inline(always)]
-pub fn sh4_write_mem8_indexed(ctx: *mut Sh4Ctx, base: *const u32, index: *const u32, data: *const u32) {
+pub fn sh4_write_mem8_indexed(
+    ctx: *mut Sh4Ctx,
+    base: *const u32,
+    index: *const u32,
+    data: *const u32,
+) {
     unsafe {
         let addr = (*base).wrapping_add(*index);
         let _ = write_mem::<u8>(ctx, addr, *data as u8);
@@ -1228,7 +1310,12 @@ pub fn sh4_write_mem8_indexed(ctx: *mut Sh4Ctx, base: *const u32, index: *const 
 }
 
 #[inline(always)]
-pub fn sh4_write_mem16_indexed(ctx: *mut Sh4Ctx, base: *const u32, index: *const u32, data: *const u32) {
+pub fn sh4_write_mem16_indexed(
+    ctx: *mut Sh4Ctx,
+    base: *const u32,
+    index: *const u32,
+    data: *const u32,
+) {
     unsafe {
         let addr = (*base).wrapping_add(*index);
         let _ = write_mem::<u16>(ctx, addr, *data as u16);
@@ -1236,7 +1323,12 @@ pub fn sh4_write_mem16_indexed(ctx: *mut Sh4Ctx, base: *const u32, index: *const
 }
 
 #[inline(always)]
-pub fn sh4_write_mem32_indexed(ctx: *mut Sh4Ctx, base: *const u32, index: *const u32, data: *const u32) {
+pub fn sh4_write_mem32_indexed(
+    ctx: *mut Sh4Ctx,
+    base: *const u32,
+    index: *const u32,
+    data: *const u32,
+) {
     unsafe {
         let addr = (*base).wrapping_add(*index);
         let _ = write_mem::<u32>(ctx, addr, *data);
@@ -1244,7 +1336,12 @@ pub fn sh4_write_mem32_indexed(ctx: *mut Sh4Ctx, base: *const u32, index: *const
 }
 
 #[inline(always)]
-pub fn sh4_read_mems8_indexed(ctx: *mut Sh4Ctx, base: *const u32, index: *const u32, data: *mut u32) {
+pub fn sh4_read_mems8_indexed(
+    ctx: *mut Sh4Ctx,
+    base: *const u32,
+    index: *const u32,
+    data: *mut u32,
+) {
     unsafe {
         let addr = (*base).wrapping_add(*index);
         let mut read: i8 = 0;
@@ -1254,7 +1351,12 @@ pub fn sh4_read_mems8_indexed(ctx: *mut Sh4Ctx, base: *const u32, index: *const 
 }
 
 #[inline(always)]
-pub fn sh4_read_mems16_indexed(ctx: *mut Sh4Ctx, base: *const u32, index: *const u32, data: *mut u32) {
+pub fn sh4_read_mems16_indexed(
+    ctx: *mut Sh4Ctx,
+    base: *const u32,
+    index: *const u32,
+    data: *mut u32,
+) {
     unsafe {
         let addr = (*base).wrapping_add(*index);
         let mut read: i16 = 0;
@@ -1264,7 +1366,12 @@ pub fn sh4_read_mems16_indexed(ctx: *mut Sh4Ctx, base: *const u32, index: *const
 }
 
 #[inline(always)]
-pub fn sh4_read_mem32_indexed(ctx: *mut Sh4Ctx, base: *const u32, index: *const u32, data: *mut u32) {
+pub fn sh4_read_mem32_indexed(
+    ctx: *mut Sh4Ctx,
+    base: *const u32,
+    index: *const u32,
+    data: *mut u32,
+) {
     unsafe {
         let addr = (*base).wrapping_add(*index);
         let _ = read_mem::<u32>(ctx, addr, &mut *data);
@@ -1272,7 +1379,12 @@ pub fn sh4_read_mem32_indexed(ctx: *mut Sh4Ctx, base: *const u32, index: *const 
 }
 
 #[inline(always)]
-pub fn sh4_read_mem64_indexed(ctx: *mut Sh4Ctx, base: *const u32, index: *const u32, data: *mut u64) {
+pub fn sh4_read_mem64_indexed(
+    ctx: *mut Sh4Ctx,
+    base: *const u32,
+    index: *const u32,
+    data: *mut u64,
+) {
     unsafe {
         let addr = (*base).wrapping_add(*index);
         let _ = read_mem::<u64>(ctx, addr, &mut *data);
@@ -1280,7 +1392,12 @@ pub fn sh4_read_mem64_indexed(ctx: *mut Sh4Ctx, base: *const u32, index: *const 
 }
 
 #[inline(always)]
-pub fn sh4_write_mem64_indexed(ctx: *mut Sh4Ctx, base: *const u32, index: *const u32, data: *const u64) {
+pub fn sh4_write_mem64_indexed(
+    ctx: *mut Sh4Ctx,
+    base: *const u32,
+    index: *const u32,
+    data: *const u64,
+) {
     unsafe {
         let addr = (*base).wrapping_add(*index);
         let _ = write_mem::<u64>(ctx, addr, *data);
@@ -1289,7 +1406,13 @@ pub fn sh4_write_mem64_indexed(ctx: *mut Sh4Ctx, base: *const u32, index: *const
 
 // Read-modify-write operations for memory with GBR+R0 addressing
 #[inline(always)]
-pub fn sh4_tst_mem(sr_t: *mut u32, ctx: *mut Sh4Ctx, base: *const u32, index: *const u32, imm: u32) {
+pub fn sh4_tst_mem(
+    sr_t: *mut u32,
+    ctx: *mut Sh4Ctx,
+    base: *const u32,
+    index: *const u32,
+    imm: u32,
+) {
     unsafe {
         let addr = (*base).wrapping_add(*index);
         let mut temp: u8 = 0;
@@ -1403,9 +1526,9 @@ pub fn sh4_fsrra(dst: *mut f32, src: *const f32) {
 pub fn sh4_fipr(dst: *mut f32, src1: *const f32, src2: *const f32) {
     unsafe {
         let idp = *src1.add(0) * *src2.add(0)
-                + *src1.add(1) * *src2.add(1)
-                + *src1.add(2) * *src2.add(2)
-                + *src1.add(3) * *src2.add(3);
+            + *src1.add(1) * *src2.add(1)
+            + *src1.add(2) * *src2.add(2)
+            + *src1.add(3) * *src2.add(3);
         *dst = idp;
     }
 }
@@ -1420,25 +1543,25 @@ pub fn sh4_fmac(dst: *mut f32, fr0: *const f32, src_m: *const f32) {
 #[inline(always)]
 pub fn sh4_ftrv(fr: *mut f32, xf: *const f32) {
     unsafe {
-        let v1 = *xf.add(0)  * *fr.add(0) +
-                 *xf.add(4)  * *fr.add(1) +
-                 *xf.add(8)  * *fr.add(2) +
-                 *xf.add(12) * *fr.add(3);
+        let v1 = *xf.add(0) * *fr.add(0)
+            + *xf.add(4) * *fr.add(1)
+            + *xf.add(8) * *fr.add(2)
+            + *xf.add(12) * *fr.add(3);
 
-        let v2 = *xf.add(1)  * *fr.add(0) +
-                 *xf.add(5)  * *fr.add(1) +
-                 *xf.add(9)  * *fr.add(2) +
-                 *xf.add(13) * *fr.add(3);
+        let v2 = *xf.add(1) * *fr.add(0)
+            + *xf.add(5) * *fr.add(1)
+            + *xf.add(9) * *fr.add(2)
+            + *xf.add(13) * *fr.add(3);
 
-        let v3 = *xf.add(2)  * *fr.add(0) +
-                 *xf.add(6)  * *fr.add(1) +
-                 *xf.add(10) * *fr.add(2) +
-                 *xf.add(14) * *fr.add(3);
+        let v3 = *xf.add(2) * *fr.add(0)
+            + *xf.add(6) * *fr.add(1)
+            + *xf.add(10) * *fr.add(2)
+            + *xf.add(14) * *fr.add(3);
 
-        let v4 = *xf.add(3)  * *fr.add(0) +
-                 *xf.add(7)  * *fr.add(1) +
-                 *xf.add(11) * *fr.add(2) +
-                 *xf.add(15) * *fr.add(3);
+        let v4 = *xf.add(3) * *fr.add(0)
+            + *xf.add(7) * *fr.add(1)
+            + *xf.add(11) * *fr.add(2)
+            + *xf.add(15) * *fr.add(3);
 
         *fr.add(0) = v1;
         *fr.add(1) = v2;
@@ -1468,5 +1591,3 @@ pub fn sh4_mac_l_mul(mac_full: *mut u64, temp0: *const u32, temp1: *const u32) {
         *mac_full = (*mac_full as i64).wrapping_add(mul) as u64;
     }
 }
-
-

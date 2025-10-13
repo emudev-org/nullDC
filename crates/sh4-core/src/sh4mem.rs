@@ -1,13 +1,61 @@
 use super::Sh4Ctx;
 use std::ptr;
 
+mod sealed {
+    pub trait IntType {}
+    impl IntType for u8 {}
+    impl IntType for u16 {}
+    impl IntType for u32 {}
+    impl IntType for u64 {}
+}
+
+pub trait MemoryData: sealed::IntType + Copy + Default + std::fmt::LowerHex {
+    fn from_u32(v: u32) -> Self;
+    fn to_u32(self) -> u32;
+}
+
+impl MemoryData for u8 {
+    fn from_u32(v: u32) -> Self {
+        v as u8
+    }
+    fn to_u32(self) -> u32 {
+        self as u32
+    }
+}
+impl MemoryData for u16 {
+    fn from_u32(v: u32) -> Self {
+        v as u16
+    }
+    fn to_u32(self) -> u32 {
+        self as u32
+    }
+}
+impl MemoryData for u32 {
+    fn from_u32(v: u32) -> Self {
+        v
+    }
+    fn to_u32(self) -> u32 {
+        self as u32
+    }
+}
+impl MemoryData for u64 {
+    fn from_u32(v: u32) -> Self {
+        v as u64
+    }
+    fn to_u32(self) -> u32 {
+        self as u32
+    }
+}
+
+pub const MAX_MEMHANDLERS: usize = 256;
+
 pub fn read_mem<T: Copy>(ctx: *mut Sh4Ctx, addr: u32, out: &mut T) -> bool {
     unsafe {
         let region = (addr >> 24) as usize;
         let offset = (addr & (*ctx).memmask[region]) as usize;
 
         let base = (*ctx).memmap[region];
-        if (base as usize) < 256 {
+        if (base as usize) < MAX_MEMHANDLERS {
             let handler = (*ctx).memhandlers.get_unchecked(base as usize);
             let context = *(*ctx).memcontexts.get_unchecked(base as usize);
 
@@ -46,7 +94,7 @@ pub fn write_mem<T: Copy>(ctx: *mut Sh4Ctx, addr: u32, data: T) -> bool {
         let offset = (addr & (*ctx).memmask[region]) as usize;
 
         let base = (*ctx).memmap[region];
-        if (base as usize) < 256 {
+        if (base as usize) < MAX_MEMHANDLERS {
             let handler = (*ctx).memhandlers.get_unchecked(base as usize);
             let context = *(*ctx).memcontexts.get_unchecked(base as usize);
 
@@ -78,4 +126,21 @@ pub fn write_mem<T: Copy>(ctx: *mut Sh4Ctx, addr: u32, data: T) -> bool {
     }
 }
 
+pub fn write_mem_sq(ctx: *mut Sh4Ctx, addr: u32, data: *const u32) {
 
+    unsafe {
+        let region = (addr >> 24) as usize;
+        let offset = (addr & (*ctx).memmask[region]) as usize;
+
+        let base = (*ctx).memmap[region];
+        if (base as usize) < MAX_MEMHANDLERS {
+            let handler = (*ctx).memhandlers.get_unchecked(base as usize);
+            let context = *(*ctx).memcontexts.get_unchecked(base as usize);
+
+            (handler.write256)(context, offset as u32, data);
+        } else {
+            let ptr = base.add(offset) as *mut u32;
+            ptr::copy_nonoverlapping(data, ptr, 32/4);
+        }
+    }
+}

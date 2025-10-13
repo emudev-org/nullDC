@@ -8,12 +8,41 @@
             "name": "(Windows) Launch",
             "type": "cppvsdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/target/release/nullDC.exe",
+            "program": "${workspaceFolder}/target/debug/nullDC",
             "args": [],
             "stopAtEntry": false,
-            "cwd": "${fileDirname}",
+            "cwd": "C:/Users/skmp/projects/nullDC",
             "environment": [],
             "console": "externalTerminal"
+        },
+                {
+            "name": "(Windows) nulldc-minimal",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/target/debug/nulldc-minimal",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "C:/Users/skmp/projects/nullDC",
+            "environment": [],
+            "console": "externalTerminal"
+        },
+        {
+            "name": "(Linux) Launch",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/target/debug/nulldc-minimal",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
         }
 
     ]
