@@ -1209,7 +1209,10 @@ fn build_memory_slice(
     // Try to read from actual emulator memory if pointer is valid
     let bytes: Vec<u8> = if dreamcast_ptr != 0 {
         let dreamcast = dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
-        nulldc::dreamcast::read_memory_slice(dreamcast, base_address, effective_length)
+        match target {
+            "arm7" => nulldc::dreamcast::read_arm_memory_slice(dreamcast, base_address, effective_length),
+            _ => nulldc::dreamcast::read_memory_slice(dreamcast, base_address, effective_length),
+        }
     } else {
         // Fall back to mock data if no emulator context
         (0..effective_length)
@@ -1291,16 +1294,27 @@ fn handle_request(
                 .and_then(|value| value.as_u64())
                 .unwrap_or(128) as usize;
 
-            let lines = if dreamcast_ptr != 0 && target == "sh4" {
+            let lines = if dreamcast_ptr != 0 {
                 let dreamcast = dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
-                nulldc::dreamcast::disassemble_sh4(dreamcast, address, count)
-                    .into_iter()
-                    .map(|line| DisassemblyLine {
-                        address: line.address,
-                        bytes: line.bytes,
-                        disassembly: line.disassembly,
-                    })
-                    .collect::<Vec<_>>()
+                match target {
+                    "sh4" => nulldc::dreamcast::disassemble_sh4(dreamcast, address, count)
+                        .into_iter()
+                        .map(|line| DisassemblyLine {
+                            address: line.address,
+                            bytes: line.bytes,
+                            disassembly: line.disassembly,
+                        })
+                        .collect::<Vec<_>>(),
+                    "arm7" => nulldc::dreamcast::disassemble_arm7(dreamcast, address, count)
+                        .into_iter()
+                        .map(|line| DisassemblyLine {
+                            address: line.address,
+                            bytes: line.bytes,
+                            disassembly: line.disassembly,
+                        })
+                        .collect::<Vec<_>>(),
+                    _ => generate_disassembly(target, address, count),
+                }
             } else {
                 generate_disassembly(target, address, count)
             };

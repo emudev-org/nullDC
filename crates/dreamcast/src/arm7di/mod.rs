@@ -290,7 +290,7 @@ impl Arm7Context {
     }
 
     #[inline]
-    fn read8(&mut self, addr: u32) -> u8 {
+    pub(crate) fn read8(&mut self, addr: u32) -> u8 {
         if let Some(callback) = self.read8 {
             callback(addr, self)
         } else if let Some(ptr) = self.aica_ram {
@@ -302,7 +302,7 @@ impl Arm7Context {
     }
 
     #[inline]
-    fn read32(&mut self, addr: u32) -> u32 {
+    pub(crate) fn read32(&mut self, addr: u32) -> u32 {
         if let Some(callback) = self.read32 {
             callback(addr, self)
         } else if let Some(ptr) = self.aica_ram {

@@ -22,6 +22,7 @@ pub use area0::AREA0_HANDLERS;
 
 mod aica;
 pub mod arm7di;
+mod arm7_disasm;
 mod asic;
 mod gdrom;
 mod sgc;
@@ -29,6 +30,7 @@ mod spg;
 mod system_bus;
 pub mod ta;
 
+use arm7_disasm::{format_arm_instruction, Arm7DecoderState};
 use arm7di::{ArmPsr, R13_IRQ, R13_SVC, R15_ARM_NEXT, RN_CPSR, RN_PSR_FLAGS, RN_SPSR};
 
 static DREAMCAST_PTR: AtomicPtr<Dreamcast> = AtomicPtr::new(std::ptr::null_mut());
@@ -413,6 +415,32 @@ pub fn read_memory_slice(dc: *mut Dreamcast, base_address: u64, length: usize) -
     result
 }
 
+pub fn read_arm_memory_slice(dc: *mut Dreamcast, base_address: u64, length: usize) -> Vec<u8> {
+    let mut result = Vec::with_capacity(length);
+    unsafe {
+        let ctx = &mut (*dc).arm_ctx;
+        if !ctx.enabled {
+            result.resize(length, 0);
+            return result;
+        }
+
+        let mut cached_aligned = u32::MAX;
+        let mut cached_word = 0u32;
+
+        for i in 0..length {
+            let addr = (base_address as u32).wrapping_add(i as u32);
+            let aligned = addr & !3;
+            if aligned != cached_aligned {
+                cached_word = ctx.read32(aligned);
+                cached_aligned = aligned;
+            }
+            let shift = (addr & 3) * 8;
+            result.push(((cached_word >> shift) & 0xFF) as u8);
+        }
+    }
+    result
+}
+
 pub struct DisassemblyLine {
     pub address: u64,
     pub bytes: String,
@@ -455,6 +483,34 @@ pub fn disassemble_sh4(
             });
 
             addr += 2; // SH4 instructions are 2 bytes
+        }
+    }
+
+    result
+}
+
+pub fn disassemble_arm7(
+    dc: *mut Dreamcast,
+    base_address: u64,
+    count: usize,
+) -> Vec<DisassemblyLine> {
+    let mut result = Vec::with_capacity(count);
+    let mut addr = base_address as u32;
+
+    unsafe {
+        let ctx = &mut (*dc).arm_ctx;
+        for _ in 0..count {
+            let opcode = ctx.read32(addr & !3);
+            let disassembly = format_arm_instruction(Arm7DecoderState { pc: addr }, opcode);
+            let bytes = format!("{:08X}", opcode);
+
+            result.push(DisassemblyLine {
+                address: addr as u64,
+                bytes,
+                disassembly,
+            });
+
+            addr = addr.wrapping_add(4);
         }
     }
 
