@@ -584,9 +584,9 @@ pub fn present_for_texture() -> Option<(Vec<u8>, usize, usize)> {
                 for x in 0..width_usize {
                     let base = x * 4;
                     let src = pvr_read_area1_16(vram, pixel_addr);
-                    let r = (((src >> 0) & 0x1F) << 3) as u8;
+                    let b = (((src >> 0) & 0x1F) << 3) as u8;
                     let g = (((src >> 5) & 0x1F) << 3) as u8;
-                    let b = (((src >> 10) & 0x1F) << 3) as u8;
+                    let r = (((src >> 10) & 0x1F) << 3) as u8;
                     row[base] = r.wrapping_add(fb_concat);
                     row[base + 1] = g.wrapping_add(fb_concat);
                     row[base + 2] = b.wrapping_add(fb_concat);
@@ -608,9 +608,9 @@ pub fn present_for_texture() -> Option<(Vec<u8>, usize, usize)> {
                 for x in 0..width_usize {
                     let base = x * 4;
                     let src = pvr_read_area1_16(vram, pixel_addr);
-                    let r = (((src >> 0) & 0x1F) << 3) as u8;
+                    let b = (((src >> 0) & 0x1F) << 3) as u8;
                     let g = (((src >> 5) & 0x3F) << 2) as u8;
-                    let b = (((src >> 11) & 0x1F) << 3) as u8;
+                    let r = (((src >> 11) & 0x1F) << 3) as u8;
                     row[base] = r.wrapping_add(fb_concat);
                     row[base + 1] = g.wrapping_add(fb_concat_green);
                     row[base + 2] = b.wrapping_add(fb_concat);
@@ -639,13 +639,13 @@ pub fn present_for_texture() -> Option<(Vec<u8>, usize, usize)> {
                         pvr_read_area1_32(vram, sample_addr)
                     };
                     if (sample_addr & 1) != 0 {
-                        row[base] = ((src >> 0) & 0xFF) as u8;
+                        row[base + 2] = ((src >> 0) & 0xFF) as u8;
                         row[base + 1] = ((src >> 8) & 0xFF) as u8;
-                        row[base + 2] = ((src >> 16) & 0xFF) as u8;
+                        row[base + 0] = ((src >> 16) & 0xFF) as u8;
                     } else {
-                        row[base] = ((src >> 8) & 0xFF) as u8;
+                        row[base + 2] = ((src >> 8) & 0xFF) as u8;
                         row[base + 1] = ((src >> 16) & 0xFF) as u8;
-                        row[base + 2] = ((src >> 24) & 0xFF) as u8;
+                        row[base + 0] = ((src >> 24) & 0xFF) as u8;
                     }
                     row[base + 3] = 0xFF;
                     pixel_addr = pixel_addr.wrapping_add(bpp);
@@ -666,9 +666,9 @@ pub fn present_for_texture() -> Option<(Vec<u8>, usize, usize)> {
                 for x in 0..width_usize {
                     let base = x * 4;
                     let src = pvr_read_area1_32(vram, pixel_addr);
-                    row[base] = ((src >> 0) & 0xFF) as u8;
+                    row[base + 2] = ((src >> 0) & 0xFF) as u8;
                     row[base + 1] = ((src >> 8) & 0xFF) as u8;
-                    row[base + 2] = ((src >> 16) & 0xFF) as u8;
+                    row[base + 0] = ((src >> 16) & 0xFF) as u8;
                     row[base + 3] = 0xFF;
                     pixel_addr = pixel_addr.wrapping_add(bpp);
                 }
