@@ -312,7 +312,7 @@ const buildDeviceTree = (): DeviceNodeDescriptor[] => [
           },
           {
             path: "dc.holly.ta",
-            label: "CLX2/TA",
+            label: "TA",
             description: "Tile Accelerator",
             actions: [PANEL_IDS.CLX2_TA],
             registers: [
@@ -328,7 +328,7 @@ const buildDeviceTree = (): DeviceNodeDescriptor[] => [
           },
           {
             path: "dc.holly.core",
-            label: "CLX2/CORE",
+            label: "CORE",
             description: "Depth and Shading Engine",
             actions: [PANEL_IDS.CLX2_CORE],
             registers: [

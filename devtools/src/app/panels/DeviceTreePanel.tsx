@@ -47,12 +47,13 @@ export const DeviceTreePanel = ({ onOpenPanel }: DeviceTreePanelProps = {}) => {
 
       const nodePath = node.path.toLowerCase();
       const nodeLabel = node.label.toLowerCase();
+      const nodeDescription = node.description?.toLowerCase() || "";
 
       // Check if this node matches the current level's query word
       const currentWord = queryWords[depth] || queryWords[queryWords.length - 1];
-      const nodeMatches = nodePath.includes(currentWord) || nodeLabel.includes(currentWord);
+      const nodeMatches = nodePath.includes(currentWord) || nodeLabel.includes(currentWord) || nodeDescription.includes(currentWord);
 
-      // Filter registers - check if any register matches remaining query words
+      // Filter registers - only if this node matches, check registers with remaining words
       const remainingWords = queryWords.slice(depth + (nodeMatches ? 1 : 0));
       const filteredRegisters = node.registers?.filter((reg) => {
         const regName = reg.name.toLowerCase();
@@ -72,9 +73,10 @@ export const DeviceTreePanel = ({ onOpenPanel }: DeviceTreePanelProps = {}) => {
       const hasMatchingChildren = filteredChildren && filteredChildren.length > 0;
 
       // Include this node if:
-      // 1. It has matching children, OR
-      // 2. It has matching registers and all query words up to this point are satisfied
-      if (hasMatchingChildren || hasMatchingRegisters) {
+      // 1. This node matches the query word, OR
+      // 2. It has matching children, OR
+      // 3. It has matching registers
+      if (nodeMatches || hasMatchingChildren || hasMatchingRegisters) {
         return {
           ...node,
           registers: hasMatchingRegisters ? filteredRegisters : undefined,

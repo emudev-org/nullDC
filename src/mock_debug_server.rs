@@ -674,7 +674,7 @@ impl ServerState {
             },
             DeviceNodeDescriptor {
                 path: "dc.holly.ta".to_string(),
-                label: "CLX2/TA".to_string(),
+                label: "TA".to_string(),
                 description: Some("Tile Accelerator".to_string()),
                 registers: Some(vec![
                     register("dc.holly.ta", "TA_LIST_BASE", 32),
@@ -691,7 +691,7 @@ impl ServerState {
             },
             DeviceNodeDescriptor {
                 path: "dc.holly.core".to_string(),
-                label: "CLX2/CORE".to_string(),
+                label: "CORE".to_string(),
                 description: Some("Depth and Shading Engine".to_string()),
                 registers: Some(vec![
                     register("dc.holly.core", "PVR_CTRL", 32),

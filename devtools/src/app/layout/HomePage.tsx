@@ -42,12 +42,12 @@ export const HomePage = () => {
         action: () => navigate("/tool/sh4-sim"),
       },
       {
-        title: "CLX2/TA Log Analyzer",
+        title: "TA Log Analyzer",
         description: "Review tile accelerator primitives and generated CORE lists to diagnose frame submission issues.",
         action: () => navigate("/tool/clx2-ta-log-analyzer"),
       },
       {
-        title: "CLX2/CORE Log Analyzer",
+        title: "CORE Log Analyzer",
         description: "Inspect PowerVR CORE primitives, buffers and state changes in a frame to diagnose frame rendering artifacts.",
         action: () => navigate("/tool/clx2-core-log-analyzer"),
       },
