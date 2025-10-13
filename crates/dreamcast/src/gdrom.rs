@@ -68,7 +68,7 @@ const REPLY_71: [u16; 506] = [
 // ===================================================
 const ENABLE_LOG_ATA: bool = false;
 const ENABLE_LOG_SPI: bool = false;
-const ENABLE_LOG_SPICMD: bool = false;
+const ENABLE_LOG_SPICMD: bool = true;
 const ENABLE_LOG_RM: bool = false;
 const ENABLE_LOG_SUBCODE: bool = false;
 
@@ -325,12 +325,13 @@ pub const GD_COMMAND_Write: u32 = 0x005F709C;
 pub struct GDRDisc;
 impl GDRDisc {
     pub fn ReadSector(&self, _dst: *mut u8, _fad: u32, _count: u32, _sz: u32) { println!("ReadSector stub"); }
-    pub fn GetDiscType(&self) -> u32 { 0 }
+    pub fn GetDiscType(&self) -> u32 { 3 } // gdrom
     pub fn GetToc(&self, _dst: *mut u32, _sel: u8) { println!("GetToc stub"); }
     pub fn GetSessionInfo(&self, _dst: *mut u8, _sel: u8) { println!("GetSessionInfo stub"); }
     pub fn ReadSubChannel(&self, _dst: *mut u8, _off: u32, _len: u32) { println!("ReadSubChannel stub"); }
 }
 static mut g_GDRDisc: Option<GDRDisc> = None;
+// static mut g_GDRDisc: Option<GDRDisc> = Some(GDRDisc);
 
 // ===================================================
 // GDRomV3Impl skeleton

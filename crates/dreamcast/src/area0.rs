@@ -71,7 +71,17 @@ fn area_0_read<T: sh4mem::MemoryData>(ctx: *mut u8, addr: u32) -> T {
             }
         }
         0x0071 => {
-            warn_unimplemented("AICA RTC", "read", masked_addr, size);
+            match masked_addr {
+                0x0071_0000 => {
+                    return sh4mem::MemoryData::from_u32(0xA320);
+                }
+                0x0071_0004 => {
+                    return sh4mem::MemoryData::from_u32(0x8F01);
+                }
+                _ => {
+                    warn_unimplemented("AICA RTC", "read", masked_addr, size);
+                }
+            }
         }
         0x0080..=0x00FF => {
             let offset = (masked_addr & crate::AUDIORAM_MASK) as usize;
