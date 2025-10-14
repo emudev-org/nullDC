@@ -46,7 +46,7 @@ jobs:
         working-directory: ./devtools
         run: |
           npm ci
-          npm run build
+          npm run build:${{ matrix.variant }}
         env:
           VITE_TRANSPORT: ${{ matrix.variant == 'wasm' && 'broadcast' || 'websocket' }}
 
