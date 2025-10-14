@@ -30,14 +30,14 @@ use dreamcast::{Dreamcast, present_for_texture, run_slice_dreamcast};
 mod debugger_core;
 
 #[cfg(target_arch = "wasm32")]
-mod broadcast_debug_server;
+mod debugger_html5_broadcast_server;
 #[cfg(target_arch = "wasm32")]
-use broadcast_debug_server::BroadcastDebugServer;
+use debugger_html5_broadcast_server::BroadcastDebugServer;
 
 #[cfg(not(target_arch = "wasm32"))]
-mod websocket_debug_server;
+mod debugger_websocket_server;
 #[cfg(not(target_arch = "wasm32"))]
-pub use websocket_debug_server::start_debugger_server;
+pub use debugger_websocket_server::start_debugger_server;
 
 const GIT_HASH: &str = git_version!();
 
