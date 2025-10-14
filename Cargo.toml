@@ -71,7 +71,8 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 uuid = { version = "1.0", features = ["v4"] }
 
-# Menu support
+[target.'cfg(any(target_os = "windows", target_os = "macos"))'.dependencies]
+# Menu support (Windows and macOS only, to avoid glib dependency on Linux)
 muda = "0.15"
 open = "5.0"
 

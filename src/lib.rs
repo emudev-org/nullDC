@@ -11,7 +11,7 @@ use wasm_logger;
 #[cfg(target_arch = "wasm32")]
 use wgpu::web_sys;
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 use muda::{Menu, MenuItem};
 
 use winit::window::Window;
@@ -451,9 +451,9 @@ impl State {
 struct App {
     state: Option<State>,
     dreamcast: *mut Dreamcast,
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
     menu: Option<Menu>,
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
     devtools_item: Option<MenuItem>,
 }
 
@@ -462,9 +462,9 @@ impl Default for App {
         Self {
             state: None,
             dreamcast: std::ptr::null_mut(),
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
             menu: None,
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
             devtools_item: None,
         }
     }
@@ -483,9 +483,9 @@ impl AppHandle {
         AppHandle(Rc::new(RefCell::new(App {
             state: None,
             dreamcast: dreamcast,
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
             menu: None,
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
             devtools_item: None,
         })))
     }
@@ -533,7 +533,7 @@ impl ApplicationHandler for AppHandle {
 
         let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
 
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(any(target_os = "windows", target_os = "macos"))]
         {
             // Create menu
             let menu = Menu::new();
@@ -554,11 +554,18 @@ impl ApplicationHandler for AppHandle {
                 }
             }
 
-            let state = pollster::block_on(State::new(window));
+            let state = pollster::block_on(State::new(window.clone()));
             let mut app = self.0.borrow_mut();
             app.state = Some(state);
             app.menu = Some(menu);
             app.devtools_item = Some(devtools_item);
+        }
+
+        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "windows"), not(target_os = "macos")))]
+        {
+            let state = pollster::block_on(State::new(window));
+            let mut app = self.0.borrow_mut();
+            app.state = Some(state);
         }
 
         #[cfg(target_arch = "wasm32")]
@@ -653,8 +660,8 @@ impl ApplicationHandler for AppHandle {
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
         let app = self.0.borrow_mut();
 
-        // Handle menu events (non-WASM only)
-        #[cfg(not(target_arch = "wasm32"))]
+        // Handle menu events (Windows and macOS only)
+        #[cfg(any(target_os = "windows", target_os = "macos"))]
         {
             if let Some(ref devtools_item) = app.devtools_item {
                 if let Ok(event) = muda::MenuEvent::receiver().try_recv() {
