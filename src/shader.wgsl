@@ -33,31 +33,30 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
 
     let pos = positions[vertex_index];
 
-    // Convert from 0-1 range to -1 to 1 clip space
-    let x = pos.x * 2.0 - 1.0;
-    let y = pos.y * 2.0 - 1.0;
+    // Integer-only scaling when window is large enough
+    var imgsize_x = uniforms.window_width;
+    var imgsize_y = uniforms.window_height;
+    var topleft_x = 0.0;
+    var topleft_y = 0.0;
 
-    // Calculate aspect ratios
-    let window_aspect = uniforms.window_width / uniforms.window_height;
-    let fb_aspect = uniforms.fb_width / uniforms.fb_height; // 4:3 = 1.333...
-
-    // Calculate scale to maintain 4:3 aspect ratio
-    var scale_x = 1.0;
-    var scale_y = 1.0;
-
-    if (window_aspect > fb_aspect) {
-        // Window is wider than 4:3 - add pillarboxing (black bars on sides)
-        scale_x = fb_aspect / window_aspect;
-    } else {
-        // Window is taller than 4:3 - add letterboxing (black bars top/bottom)
-        scale_y = window_aspect / fb_aspect;
+    if (uniforms.window_width > uniforms.fb_width && uniforms.window_height > uniforms.fb_height) {
+        // Calculate integer scale factor
+        let scale = floor(min(uniforms.window_width / uniforms.fb_width, uniforms.window_height / uniforms.fb_height));
+        imgsize_x = uniforms.fb_width * scale;
+        imgsize_y = uniforms.fb_height * scale;
+        topleft_x = floor((uniforms.window_width - imgsize_x) / 2.0);
+        topleft_y = floor((uniforms.window_height - imgsize_y) / 2.0);
     }
 
-    // Apply scaling to maintain aspect ratio
-    let scaled_x = x * scale_x;
-    let scaled_y = y * scale_y;
+    // Convert to normalized device coordinates (-1 to 1)
+    // Map from pixel coordinates to NDC
+    let pixel_x = topleft_x + pos.x * imgsize_x;
+    let pixel_y = topleft_y + pos.y * imgsize_y;
 
-    out.clip_position = vec4<f32>(scaled_x, scaled_y, 0.0, 1.0);
+    let ndc_x = (pixel_x / uniforms.window_width) * 2.0 - 1.0;
+    let ndc_y = (pixel_y / uniforms.window_height) * 2.0 - 1.0;
+
+    out.clip_position = vec4<f32>(ndc_x, ndc_y, 0.0, 1.0);
 
     // Texture coordinates (flip Y for correct orientation)
     out.tex_coords = vec2<f32>(pos.x, 1.0 - pos.y);
