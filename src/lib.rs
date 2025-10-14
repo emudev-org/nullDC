@@ -11,6 +11,9 @@ use wasm_logger;
 #[cfg(target_arch = "wasm32")]
 use wgpu::web_sys;
 
+#[cfg(not(target_arch = "wasm32"))]
+use muda::{Menu, MenuItem};
+
 use winit::window::Window;
 use winit::window::WindowAttributes;
 use winit::{
@@ -445,10 +448,26 @@ impl State {
     }
 }
 
-#[derive(Default)]
 struct App {
     state: Option<State>,
     dreamcast: *mut Dreamcast,
+    #[cfg(not(target_arch = "wasm32"))]
+    menu: Option<Menu>,
+    #[cfg(not(target_arch = "wasm32"))]
+    devtools_item: Option<MenuItem>,
+}
+
+impl Default for App {
+    fn default() -> Self {
+        Self {
+            state: None,
+            dreamcast: std::ptr::null_mut(),
+            #[cfg(not(target_arch = "wasm32"))]
+            menu: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            devtools_item: None,
+        }
+    }
 }
 
 // Import ApplicationHandler trait from winit
@@ -464,6 +483,10 @@ impl AppHandle {
         AppHandle(Rc::new(RefCell::new(App {
             state: None,
             dreamcast: dreamcast,
+            #[cfg(not(target_arch = "wasm32"))]
+            menu: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            devtools_item: None,
         })))
     }
 }
@@ -512,8 +535,30 @@ impl ApplicationHandler for AppHandle {
 
         #[cfg(not(target_arch = "wasm32"))]
         {
+            // Create menu
+            let menu = Menu::new();
+            let devtools_item = MenuItem::new("DevTools", true, None);
+
+            menu.append(&devtools_item).unwrap();
+
+            // Initialize menu for the window
+            #[cfg(target_os = "windows")]
+            {
+                use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+                if let Ok(handle) = window.window_handle() {
+                    if let RawWindowHandle::Win32(win32_handle) = handle.as_ref() {
+                        unsafe {
+                            menu.init_for_hwnd(win32_handle.hwnd.get() as _).unwrap();
+                        }
+                    }
+                }
+            }
+
             let state = pollster::block_on(State::new(window));
-            self.0.borrow_mut().state = Some(state);
+            let mut app = self.0.borrow_mut();
+            app.state = Some(state);
+            app.menu = Some(menu);
+            app.devtools_item = Some(devtools_item);
         }
 
         #[cfg(target_arch = "wasm32")]
@@ -607,6 +652,24 @@ impl ApplicationHandler for AppHandle {
 
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
         let app = self.0.borrow_mut();
+
+        // Handle menu events (non-WASM only)
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if let Some(ref devtools_item) = app.devtools_item {
+                if let Ok(event) = muda::MenuEvent::receiver().try_recv() {
+                    if event.id == devtools_item.id() {
+                        // Open DevTools URL in default browser
+                        if let Err(e) = open::that("http://127.0.0.1:55543") {
+                            log::error!("Failed to open DevTools URL: {}", e);
+                        } else {
+                            log::info!("Opened DevTools in default browser");
+                        }
+                    }
+                }
+            }
+        }
+
         if let Some(state) = app.state.as_ref() {
             state.window.request_redraw();
         }
