@@ -3,7 +3,6 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -54,94 +53,7 @@ mod panel_ids {
     pub const ARM7_CALLSTACK: &str = "arm7-callstack";
 }
 
-type FrameEventGenerator = fn(u64) -> (&'static str, &'static str, String);
-
-fn frame_event_ta(counter: u64) -> (&'static str, &'static str, String) {
-    (
-        "ta",
-        "info",
-        format!("TA/END_LIST tile {}", (counter % 32) as usize),
-    )
-}
-
-fn frame_event_core(counter: u64) -> (&'static str, &'static str, String) {
-    let phase = match counter % 3 {
-        0 => "START_RENDER",
-        1 => "QUEUE_SUBMISSION",
-        _ => "END_RENDER",
-    };
-    (
-        "core",
-        if phase == "QUEUE_SUBMISSION" {
-            "trace"
-        } else {
-            "info"
-        },
-        format!("CORE/{}", phase),
-    )
-}
-
-fn frame_event_dsp(counter: u64) -> (&'static str, &'static str, String) {
-    (
-        "dsp",
-        "trace",
-        format!("DSP/STEP pipeline advanced ({})", counter % 8),
-    )
-}
-
-fn frame_event_aica(counter: u64) -> (&'static str, &'static str, String) {
-    (
-        "aica",
-        "info",
-        format!("AICA/SGC/STEP channel {}", (counter % 2) as usize),
-    )
-}
-
-fn frame_event_sh4(counter: u64) -> (&'static str, &'static str, String) {
-    (
-        "sh4",
-        "warn",
-        format!("SH4/INTERRUPT IRQ{} asserted", (counter % 6) + 1),
-    )
-}
-
-fn frame_event_holly(counter: u64) -> (&'static str, &'static str, String) {
-    (
-        "holly",
-        "info",
-        format!("HOLLY/START_RENDER pass {}", (counter % 4) + 1),
-    )
-}
-
-const FRAME_EVENT_GENERATORS: &[FrameEventGenerator] = &[
-    frame_event_ta,
-    frame_event_core,
-    frame_event_dsp,
-    frame_event_aica,
-    frame_event_sh4,
-    frame_event_holly,
-];
-
-fn create_frame_event_with_id(event_id: u64) -> EventLogEntry {
-    let generator = FRAME_EVENT_GENERATORS[(event_id as usize) % FRAME_EVENT_GENERATORS.len()];
-    let (subsystem, severity, message) = generator(event_id);
-    EventLogEntry {
-        event_id: event_id.to_string(),
-        timestamp: current_timestamp_ms(),
-        subsystem: subsystem.to_string(),
-        severity: severity.to_string(),
-        message,
-        metadata: None,
-    }
-}
-
-fn initial_event_log() -> (Vec<EventLogEntry>, u64) {
-    let mut log = Vec::new();
-    for id in 1..=6 {
-        log.push(create_frame_event_with_id(id));
-    }
-    (log, 7)
-}
+// Mock event generation removed - use real emulator events only
 
 // For WASM, we use js_sys::Date::now() instead of SystemTime
 #[cfg(target_arch = "wasm32")]
@@ -356,8 +268,9 @@ impl ServerState {
             );
         }
 
-        // Initialize event log with sample entries
-        let (event_log, next_event_id) = initial_event_log();
+        // Initialize with empty event log - use real emulator events only
+        let event_log = Vec::new();
+        let next_event_id = 1;
 
         Self {
             breakpoints: Arc::new(Mutex::new(HashMap::new())),
@@ -371,17 +284,16 @@ impl ServerState {
         }
     }
 
-    // Get register value from the actual emulator
+    // Get register value from the actual emulator - works for both native and WASM builds
     fn get_register_value(&self, dreamcast_ptr: usize, path: &str, name: &str) -> String {
-        #[cfg(not(target_arch = "wasm32"))]
         if dreamcast_ptr != 0 {
-            let dreamcast = dreamcast_ptr as *mut crate::dreamcast::Dreamcast;
+            let dreamcast = dreamcast_ptr as *mut dreamcast::Dreamcast;
             if path == "dc.sh4.cpu" || path == "dc.sh4" {
-                if let Some(value) = crate::dreamcast::get_sh4_register(dreamcast, name) {
+                if let Some(value) = dreamcast::get_sh4_register(dreamcast, name) {
                     return format!("0x{:08X}", value);
                 }
             } else if path == "dc.aica.arm7" {
-                if let Some(value) = crate::dreamcast::get_arm_register(dreamcast, name) {
+                if let Some(value) = dreamcast::get_arm_register(dreamcast, name) {
                     return format!("0x{:08X}", value);
                 }
             }
@@ -815,9 +727,8 @@ impl ServerState {
             registers_by_id.insert(path, registers);
         }
 
-        #[cfg(not(target_arch = "wasm32"))]
         if dreamcast_ptr != 0 {
-            let dreamcast = dreamcast_ptr as *mut crate::dreamcast::Dreamcast;
+            let dreamcast = dreamcast_ptr as *mut dreamcast::Dreamcast;
 
             let sh4_registers = [
                 ("PC", 32),
@@ -832,7 +743,7 @@ impl ServerState {
             ];
             let mut sh4_cpu_regs = Vec::new();
             for (name, width) in sh4_registers {
-                if let Some(value) = crate::dreamcast::get_sh4_register(dreamcast, name) {
+                if let Some(value) = dreamcast::get_sh4_register(dreamcast, name) {
                     sh4_cpu_regs.push(RegisterValue {
                         name: name.to_string(),
                         value: format!("0x{:08X}", value),
@@ -844,7 +755,7 @@ impl ServerState {
             }
             for idx in 0..16 {
                 let reg_name = format!("R{}", idx);
-                if let Some(value) = crate::dreamcast::get_sh4_register(dreamcast, &reg_name) {
+                if let Some(value) = dreamcast::get_sh4_register(dreamcast, &reg_name) {
                     sh4_cpu_regs.push(RegisterValue {
                         name: reg_name,
                         value: format!("0x{:08X}", value),
@@ -859,7 +770,7 @@ impl ServerState {
             }
 
             let mut arm_regs = Vec::new();
-            if let Some(value) = crate::dreamcast::get_arm_register(dreamcast, "PC") {
+            if let Some(value) = dreamcast::get_arm_register(dreamcast, "PC") {
                 arm_regs.push(RegisterValue {
                     name: "PC".to_string(),
                     value: format!("0x{:08X}", value),
@@ -870,7 +781,7 @@ impl ServerState {
             }
             for idx in 0..16 {
                 let reg_name = format!("R{}", idx);
-                if let Some(value) = crate::dreamcast::get_arm_register(dreamcast, &reg_name) {
+                if let Some(value) = dreamcast::get_arm_register(dreamcast, &reg_name) {
                     arm_regs.push(RegisterValue {
                         name: reg_name,
                         value: format!("0x{:08X}", value),
@@ -913,18 +824,14 @@ impl ServerState {
 
         let mut callstacks = HashMap::new();
 
-        #[cfg(not(target_arch = "wasm32"))]
         let sh4_pc = if dreamcast_ptr != 0 {
-            let dreamcast = dreamcast_ptr as *mut crate::dreamcast::Dreamcast;
-            crate::dreamcast::get_sh4_register(dreamcast, "PC")
+            let dreamcast = dreamcast_ptr as *mut dreamcast::Dreamcast;
+            dreamcast::get_sh4_register(dreamcast, "PC")
                 .map(|value| value as u64)
                 .unwrap_or(0x8C00_00A0)
         } else {
             0x8C00_00A0
         };
-
-        #[cfg(target_arch = "wasm32")]
-        let sh4_pc = 0x8C00_00A0;
 
         let sh4_frames = (0..16)
             .map(|index| CallstackFrame {
@@ -941,18 +848,14 @@ impl ServerState {
             .collect::<Vec<_>>();
         callstacks.insert("sh4".to_string(), sh4_frames);
 
-        #[cfg(not(target_arch = "wasm32"))]
         let arm7_pc = if dreamcast_ptr != 0 {
-            let dreamcast = dreamcast_ptr as *mut crate::dreamcast::Dreamcast;
-            crate::dreamcast::get_arm_register(dreamcast, "PC")
+            let dreamcast = dreamcast_ptr as *mut dreamcast::Dreamcast;
+            dreamcast::get_arm_register(dreamcast, "PC")
                 .map(|value| value as u64)
                 .unwrap_or(0x0020_0010)
         } else {
             0x0020_0010
         };
-
-        #[cfg(target_arch = "wasm32")]
-        let arm7_pc = 0x0020_0010;
 
         let arm7_frames = (0..16)
             .map(|index| CallstackFrame {
@@ -978,16 +881,12 @@ impl ServerState {
 
         let timestamp = current_timestamp_ms();
 
-        #[cfg(not(target_arch = "wasm32"))]
         let is_running = if dreamcast_ptr != 0 {
-            let dreamcast = dreamcast_ptr as *mut crate::dreamcast::Dreamcast;
-            crate::dreamcast::is_dreamcast_running(dreamcast)
+            let dreamcast = dreamcast_ptr as *mut dreamcast::Dreamcast;
+            dreamcast::is_dreamcast_running(dreamcast)
         } else {
             false // Default to paused when no emulator context
         };
-
-        #[cfg(target_arch = "wasm32")]
-        let is_running = false; // Default to paused for WASM
 
         DebuggerTick {
             tick_id,
@@ -1009,97 +908,6 @@ impl ServerState {
     }
 }
 
-fn sha256_byte(input: &str) -> u8 {
-    let mut hasher = Sha256::new();
-    hasher.update(input.as_bytes());
-    let result = hasher.finalize();
-    result[0]
-}
-
-fn generate_disassembly(target: &str, address: u64, count: usize) -> Vec<DisassemblyLine> {
-    type OperandFn = fn(u8, u8, u8, u8, u16) -> String;
-
-    let sh4_instructions: Vec<(&str, OperandFn, u64)> = vec![
-        ("mov.l", |r1, r2, _, _, _| format!("@r{}+, r{}", r1, r2), 2),
-        ("mov", |r1, r2, _, _, _| format!("r{}, r{}", r1, r2), 2),
-        ("sts.l", |r1, _, _, _, _| format!("pr, @-r{}", r1), 2),
-        ("add", |r1, r2, _, _, _| format!("r{}, r{}", r1, r2), 2),
-        ("cmp/eq", |r1, r2, _, _, _| format!("r{}, r{}", r1, r2), 2),
-        ("bf", |_, _, _, _, offset| format!("0x{:x}", offset), 2),
-        ("jmp", |r, _, _, _, _| format!("@r{}", r), 2),
-        ("nop", |_, _, _, _, _| String::new(), 2),
-    ];
-
-    let arm7_instructions: Vec<(&str, OperandFn, u64)> = vec![
-        ("mov", |r1, _, _, val, _| format!("r{}, #{}", r1, val), 4),
-        (
-            "ldr",
-            |r1, r2, _, _, offset| format!("r{}, [r{}, #{}]", r1, r2, offset),
-            4,
-        ),
-        ("str", |r1, r2, _, _, _| format!("r{}, [r{}]", r1, r2), 4),
-        (
-            "add",
-            |r1, r2, r3, _, _| format!("r{}, r{}, r{}", r1, r2, r3),
-            4,
-        ),
-        (
-            "sub",
-            |r1, r2, r3, _, _| format!("r{}, r{}, r{}", r1, r2, r3),
-            4,
-        ),
-        ("bx", |r, _, _, _, _| format!("r{}", r), 4),
-        ("bl", |_, _, _, _, offset| format!("0x{:x}", offset), 4),
-        ("nop", |_, _, _, _, _| String::new(), 4),
-    ];
-
-    let selected = if target == "arm7" {
-        &arm7_instructions
-    } else {
-        &sh4_instructions
-    };
-
-    let mut lines = Vec::new();
-    let mut current_addr = address;
-
-    for _ in 0..count {
-        let hash = sha256_byte(&format!("{}:{:x}", target, current_addr));
-        let instr_index = (hash as usize) % selected.len();
-        let (mnemonic, operand_fn, bytes_len) = selected[instr_index];
-
-        let r1 = (hash >> 4) % 16;
-        let r2 = (hash >> 2) % 16;
-        let r3 = hash % 16;
-        let val = (hash.wrapping_mul(3)) & 0xff;
-        let offset = (hash.wrapping_mul(7) as u16) & 0xfff;
-
-        let operands = operand_fn(r1, r2, r3, val, offset);
-        let disassembly = if operands.is_empty() {
-            mnemonic.to_string()
-        } else {
-            format!("{} {}", mnemonic, operands)
-        };
-
-        let byte_values: Vec<String> = (0..bytes_len)
-            .map(|b| {
-                format!(
-                    "{:02X}",
-                    sha256_byte(&format!("{}:{:x}:{}", target, current_addr, b))
-                )
-            })
-            .collect();
-
-        lines.push(DisassemblyLine {
-            address: current_addr,
-            bytes: byte_values.join(" "),
-            disassembly,
-        });
-
-        current_addr += bytes_len;
-    }
-
-    lines
-}
 
 fn build_memory_slice(
     dreamcast_ptr: usize,
@@ -1117,32 +925,24 @@ fn build_memory_slice(
     let base_address = address.unwrap_or(default_base);
     let effective_length = length.unwrap_or(64);
 
-    // Try to read from actual emulator memory if pointer is valid
-    #[cfg(not(target_arch = "wasm32"))]
     let bytes: Vec<u8> = if dreamcast_ptr != 0 {
-        let dreamcast = dreamcast_ptr as *mut crate::dreamcast::Dreamcast;
+        let dreamcast = dreamcast_ptr as *mut dreamcast::Dreamcast;
         match target {
             "arm7" => {
-                crate::dreamcast::read_arm_memory_slice(dreamcast, base_address, effective_length)
+                dreamcast::read_arm_memory_slice(dreamcast, base_address, effective_length)
             }
-            _ => crate::dreamcast::read_memory_slice(dreamcast, base_address, effective_length),
+            _ => dreamcast::read_memory_slice(dreamcast, base_address, effective_length),
         }
     } else {
-        // Fall back to mock data if no emulator context
-        (0..effective_length)
-            .map(|i| sha256_byte(&format!("{}:{:x}", target, base_address + i as u64)))
-            .collect()
+        Vec::new()
     };
 
-    #[cfg(target_arch = "wasm32")]
-    let bytes: Vec<u8> = (0..effective_length)
-        .map(|i| sha256_byte(&format!("{}:{:x}", target, base_address + i as u64)))
-        .collect();
-
+    let bytes_empty = bytes.is_empty();
+    
     MemorySlice {
         base_address,
         data: bytes,
-        validity: "ok".to_string(),
+        validity: if bytes_empty { "unavailable".to_string() } else { "ok".to_string() },
     }
 }
 
@@ -1213,11 +1013,10 @@ pub fn handle_request(
                 .and_then(|value| value.as_u64())
                 .unwrap_or(128) as usize;
 
-            #[cfg(not(target_arch = "wasm32"))]
             let lines = if dreamcast_ptr != 0 {
-                let dreamcast = dreamcast_ptr as *mut crate::dreamcast::Dreamcast;
+                let dreamcast = dreamcast_ptr as *mut dreamcast::Dreamcast;
                 match target {
-                    "sh4" => crate::dreamcast::disassemble_sh4(dreamcast, address, count)
+                    "sh4" => dreamcast::disassemble_sh4(dreamcast, address, count)
                         .into_iter()
                         .map(|line| DisassemblyLine {
                             address: line.address,
@@ -1225,7 +1024,7 @@ pub fn handle_request(
                             disassembly: line.disassembly,
                         })
                         .collect::<Vec<_>>(),
-                    "arm7" => crate::dreamcast::disassemble_arm7(dreamcast, address, count)
+                    "arm7" => dreamcast::disassemble_arm7(dreamcast, address, count)
                         .into_iter()
                         .map(|line| DisassemblyLine {
                             address: line.address,
@@ -1233,14 +1032,11 @@ pub fn handle_request(
                             disassembly: line.disassembly,
                         })
                         .collect::<Vec<_>>(),
-                    _ => generate_disassembly(target, address, count),
+                    _ => Vec::new(), // Unsupported target, return empty
                 }
             } else {
-                generate_disassembly(target, address, count)
+                Vec::new()
             };
-
-            #[cfg(target_arch = "wasm32")]
-            let lines = generate_disassembly(target, address, count);
 
             Ok((json!({ "lines": lines }), false))
         }
@@ -1370,29 +1166,26 @@ pub fn handle_request(
         }
 
         "control.pause" => {
-            #[cfg(not(target_arch = "wasm32"))]
             if dreamcast_ptr != 0 {
-                let dreamcast = dreamcast_ptr as *mut crate::dreamcast::Dreamcast;
-                crate::dreamcast::set_dreamcast_running(dreamcast, false);
+                let dreamcast = dreamcast_ptr as *mut dreamcast::Dreamcast;
+                dreamcast::set_dreamcast_running(dreamcast, false);
             }
             Ok((json!({}), true))
         }
 
         "control.step" | "control.stepOver" | "control.stepOut" => {
-            #[cfg(not(target_arch = "wasm32"))]
             if dreamcast_ptr != 0 {
-                let dreamcast = dreamcast_ptr as *mut crate::dreamcast::Dreamcast;
-                crate::dreamcast::step_dreamcast(dreamcast);
-                crate::dreamcast::set_dreamcast_running(dreamcast, false);
+                let dreamcast = dreamcast_ptr as *mut dreamcast::Dreamcast;
+                dreamcast::step_dreamcast(dreamcast);
+                dreamcast::set_dreamcast_running(dreamcast, false);
             }
             Ok((json!({}), true))
         }
 
         "control.runUntil" => {
-            #[cfg(not(target_arch = "wasm32"))]
             if dreamcast_ptr != 0 {
-                let dreamcast = dreamcast_ptr as *mut crate::dreamcast::Dreamcast;
-                crate::dreamcast::set_dreamcast_running(dreamcast, true);
+                let dreamcast = dreamcast_ptr as *mut dreamcast::Dreamcast;
+                dreamcast::set_dreamcast_running(dreamcast, true);
             }
             Ok((json!({}), true))
         }
