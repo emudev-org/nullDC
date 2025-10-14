@@ -8,7 +8,7 @@ use axum::{
 use include_dir::{Dir, include_dir};
 use nulldc::dreamcast::Dreamcast;
 
-static DEBUGGER_UI: Dir = include_dir!("$CARGO_MANIFEST_DIR/devtools/dist");
+static DEBUGGER_UI: Dir = include_dir!("$CARGO_MANIFEST_DIR/devtools/dist-native");
 
 /// Start the debugger UI HTTP server on port 9999
 /// The server runs in a background thread and serves static files

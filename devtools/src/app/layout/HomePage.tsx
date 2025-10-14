@@ -96,7 +96,7 @@ export const HomePage = () => {
               Welcome to the nullDC DevTools
             </Typography>
             <Typography variant="h6" sx={{ color: "text.secondary", maxWidth: 720 }}>
-              Dive into Dreamcast with curated workspaces for CPU, GPU, and audio analysis, as well as sh4 simulator and dsp authoring tools.
+              Dive into Dreamcast with curated workspaces for CPU, GPU, and audio debugging, as well as sh4 simulator and dsp authoring tools.
               Choose a task to get started.
             </Typography>
           </Stack>

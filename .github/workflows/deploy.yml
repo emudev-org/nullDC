@@ -58,7 +58,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: devtools-dist-${{ matrix.variant }}
-          path: devtools/dist
+          path: devtools/dist-${{ matrix.variant }}
   build-emulator:
     needs: build-debugger
     runs-on: ${{ matrix.os }}
@@ -143,7 +143,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: devtools-dist-native
-          path: devtools/dist
+          path: devtools/dist-native
       - name: "Native: Run SH4 tests"
         if: matrix.target != 'wasm32-unknown-unknown' && matrix.target != 'aarch64-unknown-linux-gnu' && matrix.target != 'riscv64gc-unknown-linux-gnu' && matrix.target != 'aarch64-pc-windows-msvc'
         run: cargo test --package sh4-core --target ${{ matrix.target }}
@@ -192,7 +192,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: devtools-dist-wasm
-          path: devtools/dist
+          path: devtools/dist-wasm
 
       - name: "WASM: Build code and site"
         if: matrix.target == 'wasm32-unknown-unknown'

@@ -1831,6 +1831,7 @@ dependencies = [
  "futures",
  "git-version",
  "include_dir",
+ "js-sys",
  "log",
  "pollster",
  "serde",
@@ -1843,6 +1844,7 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-logger",
+ "web-sys",
  "wgpu",
  "winit",
 ]

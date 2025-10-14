@@ -10,18 +10,19 @@ fn main() {
     println!("cargo:rerun-if-changed=devtools/vite.config.ts");
     println!("cargo:rerun-if-changed=devtools/tsconfig.json");
 
-    let dist_path = Path::new("devtools/dist");
+    let target_arch = std::env::var("TARGET").unwrap_or_default();
+    let is_wasm = target_arch.contains("wasm32");
+
+    println!(
+        "cargo:warning=Building devtools for target: {} - is_wasm: {}",
+        target_arch, is_wasm
+    );
+
+    let dist_path = Path::new(if is_wasm { "devtools/dist-wasm" } else { "devtools/dist-native" });
     let is_ci = std::env::var("CI").is_ok();
 
     // If not in CI, build the debugger-UI
     if !is_ci {
-        let target_arch = std::env::var("TARGET").unwrap_or_default();
-        let is_wasm = target_arch.contains("wasm32");
-
-        println!(
-            "cargo:warning=Building devtools for target: {}",
-            target_arch
-        );
 
         let npm_cmd = if cfg!(target_os = "windows") {
             "npm.cmd"
@@ -40,12 +41,9 @@ fn main() {
         }
 
         let mut build_cmd = Command::new(npm_cmd);
-        build_cmd.args(&["run", "build"]).current_dir("devtools");
-
-        // Set environment variable for vite to know if building for wasm
-        if is_wasm {
-            build_cmd.env("VITE_USE_BROADCAST", "true");
-        }
+        build_cmd
+            .args(&["run", if is_wasm { "build:wasm" } else { "build:native" }])
+            .current_dir("devtools");
 
         let status = build_cmd.status().expect("Failed to run npm build");
 
@@ -57,7 +55,7 @@ fn main() {
 
         // Verify that dist exists in CI
         if !dist_path.exists() {
-            panic!("devtools/dist not found - CI should have provided this artifact");
+            panic!("{} not found - CI should have provided this artifact", dist_path.display());
         }
     }
 }
