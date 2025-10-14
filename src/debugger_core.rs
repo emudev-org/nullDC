@@ -316,14 +316,12 @@ struct ServerWatch {
     expression: String,
 }
 
-// Server state
+// Server state - no more mock register values, uses real emulator
 pub struct ServerState {
     breakpoints: Arc<Mutex<HashMap<u32, BreakpointDescriptor>>>,
     watches: Arc<Mutex<HashMap<u32, ServerWatch>>>,
-    register_values: Arc<Mutex<HashMap<String, String>>>,
     event_log: Arc<Mutex<Vec<EventLogEntry>>>,
     category_states: Arc<Mutex<HashMap<String, BreakpointCategoryState>>>,
-    is_running: Arc<Mutex<bool>>,
     tick_id: Arc<Mutex<u64>>,
     next_event_id: Arc<Mutex<u64>>,
     next_watch_id: Arc<Mutex<u32>>,
@@ -332,57 +330,6 @@ pub struct ServerState {
 
 impl ServerState {
     pub fn new() -> Self {
-        let mut register_values = HashMap::new();
-
-        // Initialize register values
-        register_values.insert("dc.sh4.cpu.pc".to_string(), "0x8C0000A0".to_string());
-        register_values.insert("dc.sh4.cpu.pr".to_string(), "0x8C0000A2".to_string());
-        register_values.insert("dc.sh4.vbr".to_string(), "0x8C000000".to_string());
-        register_values.insert("dc.sh4.sr".to_string(), "0x40000000".to_string());
-        register_values.insert("dc.sh4.fpscr".to_string(), "0x00040001".to_string());
-        register_values.insert("dc.sh4.cpu.gbr".to_string(), "0x8C000100".to_string());
-        register_values.insert("dc.sh4.cpu.mach".to_string(), "0x00000000".to_string());
-        register_values.insert("dc.sh4.cpu.macl".to_string(), "0x00000000".to_string());
-        register_values.insert("dc.sh4.cpu.fpul".to_string(), "0x00000000".to_string());
-        register_values.insert(
-            "dc.sh4.icache.icache_ctrl".to_string(),
-            "0x00000003".to_string(),
-        );
-        register_values.insert(
-            "dc.sh4.dcache.dcache_ctrl".to_string(),
-            "0x00000003".to_string(),
-        );
-        register_values.insert("dc.sh4.dmac.dmaor".to_string(), "0x8201".to_string());
-        register_values.insert("dc.holly.holly_id".to_string(), "0x00050000".to_string());
-        register_values.insert("dc.holly.dmac_ctrl".to_string(), "0x00000001".to_string());
-        register_values.insert("dc.holly.dmac.dmaor".to_string(), "0x8201".to_string());
-        register_values.insert("dc.holly.dmac.chcr0".to_string(), "0x00000001".to_string());
-        register_values.insert(
-            "dc.holly.ta.ta_list_base".to_string(),
-            "0x0C000000".to_string(),
-        );
-        register_values.insert(
-            "dc.holly.ta.ta_status".to_string(),
-            "0x00000000".to_string(),
-        );
-        register_values.insert(
-            "dc.holly.core.pvr_ctrl".to_string(),
-            "0x00000001".to_string(),
-        );
-        register_values.insert(
-            "dc.holly.core.pvr_status".to_string(),
-            "0x00010000".to_string(),
-        );
-        register_values.insert("dc.aica.aica_ctrl".to_string(), "0x00000002".to_string());
-        register_values.insert("dc.aica.aica_status".to_string(), "0x00000001".to_string());
-        register_values.insert("dc.aica.arm7.pc".to_string(), "0x00200010".to_string());
-        register_values.insert("dc.aica.channels.ch0_vol".to_string(), "0x7F".to_string());
-        register_values.insert("dc.aica.channels.ch1_vol".to_string(), "0x6A".to_string());
-        register_values.insert("dc.aica.dsp.step".to_string(), "0x000".to_string());
-        register_values.insert("dc.aica.dsp.dsp_acc".to_string(), "0x1F".to_string());
-        register_values.insert("dc.sysclk".to_string(), "200MHz".to_string());
-        register_values.insert("dc.asic_rev".to_string(), "0x0001".to_string());
-
         // Initialize default watches
         let mut watches = HashMap::new();
         let mut next_watch_id = 1;
@@ -415,10 +362,8 @@ impl ServerState {
         Self {
             breakpoints: Arc::new(Mutex::new(HashMap::new())),
             watches: Arc::new(Mutex::new(watches)),
-            register_values: Arc::new(Mutex::new(register_values)),
             event_log: Arc::new(Mutex::new(event_log)),
             category_states: Arc::new(Mutex::new(category_states)),
-            is_running: Arc::new(Mutex::new(true)),
             tick_id: Arc::new(Mutex::new(0)),
             next_event_id: Arc::new(Mutex::new(next_event_id)),
             next_watch_id: Arc::new(Mutex::new(next_watch_id)),
@@ -426,19 +371,24 @@ impl ServerState {
         }
     }
 
-    fn get_register_value(&self, path: &str, name: &str) -> String {
-        let key = format!("{}.{}", path, name.to_lowercase());
-        self.register_values
-            .lock()
-            .unwrap()
-            .get(&key)
-            .cloned()
-            .unwrap_or_else(|| "0x00000000".to_string())
-    }
+    // Get register value from the actual emulator
+    fn get_register_value(&self, dreamcast_ptr: usize, path: &str, name: &str) -> String {
+        #[cfg(not(target_arch = "wasm32"))]
+        if dreamcast_ptr != 0 {
+            let dreamcast = dreamcast_ptr as *mut crate::dreamcast::Dreamcast;
+            if path == "dc.sh4.cpu" || path == "dc.sh4" {
+                if let Some(value) = crate::dreamcast::get_sh4_register(dreamcast, name) {
+                    return format!("0x{:08X}", value);
+                }
+            } else if path == "dc.aica.arm7" {
+                if let Some(value) = crate::dreamcast::get_arm_register(dreamcast, name) {
+                    return format!("0x{:08X}", value);
+                }
+            }
+        }
 
-    fn set_register_value(&self, path: &str, name: &str, value: String) {
-        let key = format!("{}.{}", path, name.to_lowercase());
-        self.register_values.lock().unwrap().insert(key, value);
+        // Return default value if emulator not available or register not found
+        "0x00000000".to_string()
     }
 
     fn evaluate_watch_expression(&self, dreamcast_ptr: usize, expression: &str) -> String {
@@ -460,29 +410,15 @@ impl ServerState {
             ("dc.sh4.cpu".to_string(), parts[0].to_string())
         };
 
-        // Try to get value from actual emulator if available
-        #[cfg(not(target_arch = "wasm32"))]
-        if dreamcast_ptr != 0 {
-            let dreamcast = dreamcast_ptr as *mut crate::dreamcast::Dreamcast;
-            if path == "dc.sh4.cpu" {
-                if let Some(value) = crate::dreamcast::get_sh4_register(dreamcast, &name) {
-                    return format!("0x{:08X}", value);
-                }
-            } else if path == "dc.aica.arm7" {
-                if let Some(value) = crate::dreamcast::get_arm_register(dreamcast, &name) {
-                    return format!("0x{:08X}", value);
-                }
-            }
-        }
-
-        // Fall back to mock values
-        self.get_register_value(&path, &name)
+        self.get_register_value(dreamcast_ptr, &path, &name)
     }
 
-    fn build_device_tree(&self) -> Vec<DeviceNodeDescriptor> {
+    fn build_device_tree(&self, dreamcast_ptr: usize) -> Vec<DeviceNodeDescriptor> {
+        let get_reg = |path: &str, name: &str| self.get_register_value(dreamcast_ptr, path, name);
+
         let register = |path: &str, name: &str, width: u32| RegisterValue {
             name: name.to_string(),
-            value: self.get_register_value(path, name),
+            value: get_reg(path, name),
             width,
             flags: None,
             metadata: None,
@@ -847,49 +783,6 @@ impl ServerState {
         }]
     }
 
-    fn set_running(&self, running: bool) {
-        let mut guard = self.is_running.lock().unwrap();
-        *guard = running;
-    }
-
-    fn increment_program_counter(&self, target: &str) {
-        let target_lower = target.to_ascii_lowercase();
-        if target_lower.contains("sh4") {
-            if let Some(stripped) = self
-                .get_register_value("dc.sh4.cpu", "PC")
-                .strip_prefix("0x")
-            {
-                if let Ok(pc) = u32::from_str_radix(stripped, 16) {
-                    let base = 0x8C0000A0;
-                    let offset = pc.wrapping_sub(base);
-                    let new_pc = base + ((offset + 2) % (8 * 2));
-                    self.set_register_value("dc.sh4.cpu", "PC", format!("0x{:08X}", new_pc));
-                }
-            }
-        } else if target_lower.contains("arm7") {
-            if let Some(stripped) = self
-                .get_register_value("dc.aica.arm7", "PC")
-                .strip_prefix("0x")
-            {
-                if let Ok(pc) = u32::from_str_radix(stripped, 16) {
-                    let base = 0x0020_0010;
-                    let offset = pc.wrapping_sub(base);
-                    let new_pc = base + ((offset + 4) % (8 * 4));
-                    self.set_register_value("dc.aica.arm7", "PC", format!("0x{:08X}", new_pc));
-                }
-            }
-        } else if target_lower.contains("dsp") {
-            if let Some(stripped) = self
-                .get_register_value("dc.aica.dsp", "STEP")
-                .strip_prefix("0x")
-            {
-                if let Ok(step) = u32::from_str_radix(stripped, 16) {
-                    let new_step = (step + 1) % 8;
-                    self.set_register_value("dc.aica.dsp", "STEP", format!("0x{:03X}", new_step));
-                }
-            }
-        }
-    }
 
     #[allow(dead_code)]
     fn next_event_id(&self) -> u64 {
@@ -914,7 +807,7 @@ impl ServerState {
     }
 
     pub fn build_tick(&self, dreamcast_ptr: usize, hit_breakpoint_id: Option<u32>) -> DebuggerTick {
-        let device_tree = self.build_device_tree();
+        let device_tree = self.build_device_tree(dreamcast_ptr);
         let all_registers = collect_registers_from_tree(&device_tree);
 
         let mut registers_by_id: HashMap<String, Vec<RegisterValue>> = HashMap::new();
@@ -1027,17 +920,11 @@ impl ServerState {
                 .map(|value| value as u64)
                 .unwrap_or(0x8C00_00A0)
         } else {
-            self.get_register_value("dc.sh4.cpu", "PC")
-                .strip_prefix("0x")
-                .and_then(|value| u64::from_str_radix(value, 16).ok())
-                .unwrap_or(0x8C00_00A0)
+            0x8C00_00A0
         };
 
         #[cfg(target_arch = "wasm32")]
-        let sh4_pc = self.get_register_value("dc.sh4.cpu", "PC")
-            .strip_prefix("0x")
-            .and_then(|value| u64::from_str_radix(value, 16).ok())
-            .unwrap_or(0x8C00_00A0);
+        let sh4_pc = 0x8C00_00A0;
 
         let sh4_frames = (0..16)
             .map(|index| CallstackFrame {
@@ -1061,17 +948,11 @@ impl ServerState {
                 .map(|value| value as u64)
                 .unwrap_or(0x0020_0010)
         } else {
-            self.get_register_value("dc.aica.arm7", "PC")
-                .strip_prefix("0x")
-                .and_then(|value| u64::from_str_radix(value, 16).ok())
-                .unwrap_or(0x0020_0010)
+            0x0020_0010
         };
 
         #[cfg(target_arch = "wasm32")]
-        let arm7_pc = self.get_register_value("dc.aica.arm7", "PC")
-            .strip_prefix("0x")
-            .and_then(|value| u64::from_str_radix(value, 16).ok())
-            .unwrap_or(0x0020_0010);
+        let arm7_pc = 0x0020_0010;
 
         let arm7_frames = (0..16)
             .map(|index| CallstackFrame {
@@ -1102,11 +983,11 @@ impl ServerState {
             let dreamcast = dreamcast_ptr as *mut crate::dreamcast::Dreamcast;
             crate::dreamcast::is_dreamcast_running(dreamcast)
         } else {
-            *self.is_running.lock().unwrap()
+            false // Default to paused when no emulator context
         };
 
         #[cfg(target_arch = "wasm32")]
-        let is_running = *self.is_running.lock().unwrap();
+        let is_running = false; // Default to paused for WASM
 
         DebuggerTick {
             tick_id,
@@ -1289,7 +1170,7 @@ pub fn handle_request(
 
     match request.method.as_str() {
         "debugger.describe" => {
-            let device_tree = state.build_device_tree();
+            let device_tree = state.build_device_tree(dreamcast_ptr);
             Ok((
                 json!({
                     "emulator": {
@@ -1436,70 +1317,13 @@ pub fn handle_request(
         }
 
         "state.editWatch" => {
-            let watch_id = params
-                .get("watchId")
-                .and_then(|value| value.as_u64())
-                .map(|value| value as u32);
-            let value = params
-                .get("value")
-                .and_then(|value| value.as_str())
-                .unwrap_or("");
-
-            if let Some(id) = watch_id {
-                let expression = {
-                    let watches = state.watches.lock().unwrap();
-                    watches.get(&id).map(|watch| watch.expression.clone())
-                };
-
-                if let Some(expr) = expression {
-                    let parts: Vec<&str> = expr.split('.').collect();
-                    let (path, name) = if parts.len() > 1 {
-                        let name = parts.last().unwrap();
-                        let path = parts[..parts.len() - 1].join(".");
-                        (path, name.to_string())
-                    } else {
-                        ("dc.sh4.cpu".to_string(), parts[0].to_string())
-                    };
-                    let key = format!("{}.{}", path, name.to_lowercase());
-
-                    {
-                        let registers = state.register_values.lock().unwrap();
-                        if !registers.contains_key(&key) {
-                            return Ok((
-                                json!({
-                                    "error": {
-                                        "code": -32602,
-                                        "message": format!(
-                                            "Cannot edit non-register expression \"{}\"",
-                                            expr
-                                        ),
-                                    }
-                                }),
-                                false,
-                            ));
-                        }
-                    }
-
-                    state.set_register_value(&path, &name, value.to_string());
-                    return Ok((json!({}), true));
-                }
-
-                return Ok((
-                    json!({
-                        "error": {
-                            "code": -32602,
-                            "message": format!("Watch \"{}\" not found", id),
-                        }
-                    }),
-                    false,
-                ));
-            }
-
+            // Editing watch values not supported when using real emulator
+            // This would require writing back to emulator memory/registers
             Ok((
                 json!({
                     "error": {
                         "code": -32602,
-                        "message": "Watch not found or cannot edit",
+                        "message": "Watch editing not supported",
                     }
                 }),
                 false,
@@ -1551,29 +1375,16 @@ pub fn handle_request(
                 let dreamcast = dreamcast_ptr as *mut crate::dreamcast::Dreamcast;
                 crate::dreamcast::set_dreamcast_running(dreamcast, false);
             }
-            state.set_running(false);
             Ok((json!({}), true))
         }
 
         "control.step" | "control.stepOver" | "control.stepOut" => {
-            let target = params
-                .get("target")
-                .and_then(|value| value.as_str())
-                .unwrap_or("sh4");
-
             #[cfg(not(target_arch = "wasm32"))]
             if dreamcast_ptr != 0 {
                 let dreamcast = dreamcast_ptr as *mut crate::dreamcast::Dreamcast;
                 crate::dreamcast::step_dreamcast(dreamcast);
                 crate::dreamcast::set_dreamcast_running(dreamcast, false);
-            } else {
-                state.increment_program_counter(target);
             }
-
-            #[cfg(target_arch = "wasm32")]
-            state.increment_program_counter(target);
-
-            state.set_running(false);
             Ok((json!({}), true))
         }
 
@@ -1583,7 +1394,6 @@ pub fn handle_request(
                 let dreamcast = dreamcast_ptr as *mut crate::dreamcast::Dreamcast;
                 crate::dreamcast::set_dreamcast_running(dreamcast, true);
             }
-            state.set_running(true);
             Ok((json!({}), true))
         }
 

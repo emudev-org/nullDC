@@ -50,11 +50,6 @@ git-version = "0.3"
 wgpu = "26.0.1"
 winit = "0.30.12"
 
-# Disable default features globally
-egui = { git = "https://github.com/emilk/egui", rev = "18ea9ff", default-features = false }
-egui-winit = { git = "https://github.com/emilk/egui", rev = "18ea9ff", default-features = false }
-egui-wgpu = { git = "https://github.com/emilk/egui", rev = "18ea9ff", default-features = false }
-
 # Utilities
 bytemuck = "1.16"
 pollster = "0.4"
@@ -63,11 +58,6 @@ log = "0.4"
 sha2 = "0.10"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-# Re-enable native-only features (clipboard, etc.)
-egui = { git = "https://github.com/emilk/egui", rev = "18ea9ff", features = ["default_fonts"    ] }
-egui-winit = { git = "https://github.com/emilk/egui", rev = "18ea9ff", features = ["clipboard"] }
-egui-wgpu = { git = "https://github.com/emilk/egui", rev = "18ea9ff" }
-
 # Debugger UI server
 include_dir = "0.7"
 
