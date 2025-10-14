@@ -32,6 +32,10 @@ opt-level = 3
 strip = false
 debug = true
 
+[profile.release.package."*"]
+debug = false
+strip = true
+
 [features]
 default = ["refsw2-rust"]
 refsw2-rust = ["dreamcast/refsw2-rust"]
