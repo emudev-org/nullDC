@@ -25,6 +25,18 @@ use wgpu::util::DeviceExt;
 pub use dreamcast;
 use dreamcast::{Dreamcast, present_for_texture, run_slice_dreamcast};
 
+mod debugger_core;
+
+#[cfg(target_arch = "wasm32")]
+mod broadcast_debug_server;
+#[cfg(target_arch = "wasm32")]
+use broadcast_debug_server::BroadcastDebugServer;
+
+#[cfg(not(target_arch = "wasm32"))]
+mod websocket_debug_server;
+#[cfg(not(target_arch = "wasm32"))]
+pub use websocket_debug_server::start_debugger_server;
+
 const GIT_HASH: &str = git_version!();
 
 struct State {
@@ -715,6 +727,23 @@ pub async fn wasm_main_with_bios(bios_rom: Vec<u8>, bios_flash: Vec<u8>) {
     // Create and initialize Dreamcast with provided BIOS
     let dc = Box::into_raw(Box::new(Dreamcast::default()));
     dreamcast::init_dreamcast(dc, &bios_rom, &bios_flash);
+    let debug_server = BroadcastDebugServer::new(dc);
+
+    // Start broadcast debug server for WASM
+    match debug_server {
+        Ok(mut server) => {
+            if let Err(e) = server.start() {
+                log::error!("Failed to start broadcast debug server: {:?}", e);
+            } else {
+                log::info!("Broadcast debug server started successfully");
+                // Keep the server alive by forgetting it (leak it intentionally)
+                std::mem::forget(server);
+            }
+        }
+        Err(e) => {
+            log::error!("Failed to create broadcast debug server: {:?}", e);
+        }
+    }
 
     run(Some(dc)).await;
 }

@@ -1,9 +1,7 @@
-#[cfg(not(target_arch = "wasm32"))]
-mod debugger_server_main;
-#[cfg(not(target_arch = "wasm32"))]
-mod mock_debug_server;
-
 use nulldc::dreamcast::{Dreamcast, init_dreamcast};
+
+#[cfg(not(target_arch = "wasm32"))]
+use nulldc::start_debugger_server;
 use std::fs;
 
 fn load_bios_files() -> (Vec<u8>, Vec<u8>) {
@@ -32,7 +30,7 @@ fn main() {
 
     init_dreamcast(dreamcast, &bios_rom, &bios_flash);
     #[cfg(not(target_arch = "wasm32"))]
-    debugger_server_main::start_debugger_server(dreamcast);
+    start_debugger_server(dreamcast);
 
     pollster::block_on(nulldc::run(Some(dreamcast)));
 }

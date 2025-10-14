@@ -5,7 +5,9 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsValue;
 use web_sys::BroadcastChannel;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use crate::dreamcast::Dreamcast;
+use crate::debugger_core::{JsonRpcRequest, JsonRpcSuccess, JsonRpcError, JsonRpcNotification, ServerState};
 
 // Generate a simple GUID for this instance using JS Date API
 fn generate_guid() -> String {
@@ -28,6 +30,7 @@ pub struct BroadcastDebugServer {
     communication_channel: BroadcastChannel,
     announcement_interval: Option<i32>,
     dreamcast_ptr: usize,
+    state: Arc<ServerState>,
 }
 
 impl BroadcastDebugServer {
@@ -42,12 +45,16 @@ impl BroadcastDebugServer {
         let comm_channel_name = format!("nulldc-debugger-{}", guid);
         let communication_channel = BroadcastChannel::new(&comm_channel_name)?;
 
+        // Create server state
+        let state = Arc::new(ServerState::new());
+
         Ok(Self {
             guid,
             announcement_channel,
             communication_channel,
             announcement_interval: None,
             dreamcast_ptr: dreamcast as usize,
+            state,
         })
     }
 
@@ -67,7 +74,18 @@ impl BroadcastDebugServer {
         let guid = self.guid.clone();
         let announcement_channel = self.announcement_channel.clone();
 
+        // Send initial announcement immediately
+        let announcement = Announcement {
+            id: guid.clone(),
+            name: format!("nullDC Instance {}", &guid[..8]),
+            timestamp: js_sys::Date::now() as u64,
+        };
+        if let Ok(json) = serde_json::to_string(&announcement) {
+            let _ = announcement_channel.post_message(&JsValue::from_str(&json));
+        }
+
         let announce_callback = Closure::<dyn Fn()>::new(move || {
+            log::debug!("Announcement interval fired");
             let announcement = Announcement {
                 id: guid.clone(),
                 name: format!("nullDC Instance {}", &guid[..8]),
@@ -75,8 +93,13 @@ impl BroadcastDebugServer {
             };
 
             if let Ok(json) = serde_json::to_string(&announcement) {
+                log::debug!("Posting announcement: {}", json);
                 // Post the JSON string directly
-                let _ = announcement_channel.post_message(&JsValue::from_str(&json));
+                if let Err(e) = announcement_channel.post_message(&JsValue::from_str(&json)) {
+                    log::error!("Failed to post announcement: {:?}", e);
+                }
+            } else {
+                log::error!("Failed to serialize announcement");
             }
         });
 
@@ -99,27 +122,87 @@ impl BroadcastDebugServer {
 
     fn setup_communication_handler(&self) -> Result<(), JsValue> {
         let communication_channel = self.communication_channel.clone();
-        let _dreamcast_ptr = self.dreamcast_ptr;
+        let dreamcast_ptr = self.dreamcast_ptr;
+        let state = self.state.clone();
 
         // Handle incoming messages
         let message_callback = Closure::<dyn Fn(web_sys::MessageEvent)>::new(move |event: web_sys::MessageEvent| {
+            log::debug!("Communication channel received message");
             let data = event.data();
 
             // Check if it's a ping message
             if let Some(msg) = data.as_string() {
+                log::debug!("Received string message: {}", msg);
                 if msg == "ping" {
+                    log::debug!("Responding to ping with pong");
                     // Respond with pong
-                    let _ = communication_channel.post_message(&JsValue::from_str("pong"));
+                    if let Err(e) = communication_channel.post_message(&JsValue::from_str("pong")) {
+                        log::error!("Failed to send pong: {:?}", e);
+                    }
                     return;
                 }
 
                 // Handle JSON-RPC messages
-                // For now, we'll delegate to the mock server logic
-                // In a full implementation, this would process RPC requests
-                log::debug!("Received message: {}", msg);
+                log::debug!("Received JSON-RPC message: {}", msg);
 
-                // TODO: Process JSON-RPC messages using the same handler as WebSocket
-                // This would call into mock_debug_server::handle_request
+                // Parse and handle the RPC request
+                if let Ok(request) = serde_json::from_str::<JsonRpcRequest>(&msg) {
+                    let id = request.id.clone();
+                    let method = request.method.clone();
+                    log::debug!("Processing RPC method: {}", method);
+
+                    // Call the shared RPC handler
+                    match crate::debugger_core::handle_request(state.clone(), dreamcast_ptr, request) {
+                        Ok((result, should_broadcast)) => {
+                            // Send success response
+                            let response = JsonRpcSuccess {
+                                jsonrpc: "2.0".to_string(),
+                                id,
+                                result,
+                            };
+
+                            if let Ok(response_str) = serde_json::to_string(&response) {
+                                if let Err(e) = communication_channel.post_message(&JsValue::from_str(&response_str)) {
+                                    log::error!("Failed to send RPC response: {:?}", e);
+                                }
+                            }
+
+                            // Send tick notification if needed
+                            if should_broadcast {
+                                let tick = state.build_tick(dreamcast_ptr, None);
+                                let notification = JsonRpcNotification {
+                                    jsonrpc: "2.0".to_string(),
+                                    method: "event.tick".to_string(),
+                                    params: serde_json::to_value(tick).unwrap(),
+                                };
+
+                                if let Ok(notification_str) = serde_json::to_string(&notification) {
+                                    if let Err(e) = communication_channel.post_message(&JsValue::from_str(&notification_str)) {
+                                        log::error!("Failed to send tick notification: {:?}", e);
+                                    }
+                                }
+                            }
+                        }
+                        Err(error) => {
+                            // Send error response
+                            let response = JsonRpcError {
+                                jsonrpc: "2.0".to_string(),
+                                id,
+                                error,
+                            };
+
+                            if let Ok(response_str) = serde_json::to_string(&response) {
+                                if let Err(e) = communication_channel.post_message(&JsValue::from_str(&response_str)) {
+                                    log::error!("Failed to send RPC error: {:?}", e);
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    log::error!("Failed to parse JSON-RPC request: {}", msg);
+                }
+            } else {
+                log::warn!("Received non-string message");
             }
         });
 

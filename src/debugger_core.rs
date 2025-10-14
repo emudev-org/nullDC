@@ -1,14 +1,19 @@
-use axum::extract::ws::{Message, WebSocket};
-use futures::SinkExt;
-use futures::stream::StreamExt;
+// Core debugger logic shared between native (WebSocket) and WASM (BroadcastChannel) builds
+// This module contains the complete debugger implementation
+
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const JSON_RPC_VERSION: &str = "2.0";
+const DEFAULT_WATCH_EXPRESSIONS: &[&str] = &["dc.sh4.cpu.pc", "dc.sh4.dmac.dmaor"];
+const EVENT_LOG_LIMIT: usize = 60;
+const CAPABILITIES: &[&str] = &["watches", "step", "breakpoints", "frame-log"];
 
 #[allow(dead_code)]
 mod panel_ids {
@@ -48,10 +53,6 @@ mod panel_ids {
     pub const SH4_CALLSTACK: &str = "sh4-callstack";
     pub const ARM7_CALLSTACK: &str = "arm7-callstack";
 }
-
-const DEFAULT_WATCH_EXPRESSIONS: &[&str] = &["dc.sh4.cpu.pc", "dc.sh4.dmac.dmaor"];
-const EVENT_LOG_LIMIT: usize = 60;
-const CAPABILITIES: &[&str] = &["watches", "step", "breakpoints", "frame-log"];
 
 type FrameEventGenerator = fn(u64) -> (&'static str, &'static str, String);
 
@@ -142,6 +143,13 @@ fn initial_event_log() -> (Vec<EventLogEntry>, u64) {
     (log, 7)
 }
 
+// For WASM, we use js_sys::Date::now() instead of SystemTime
+#[cfg(target_arch = "wasm32")]
+fn current_timestamp_ms() -> u64 {
+    js_sys::Date::now() as u64
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 fn current_timestamp_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -272,7 +280,7 @@ struct WatchDescriptor {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct DebuggerTick {
+pub struct DebuggerTick {
     #[serde(rename = "tickId")]
     tick_id: u64,
     timestamp: u64,
@@ -453,14 +461,15 @@ impl ServerState {
         };
 
         // Try to get value from actual emulator if available
+        #[cfg(not(target_arch = "wasm32"))]
         if dreamcast_ptr != 0 {
-            let dreamcast = dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
+            let dreamcast = dreamcast_ptr as *mut crate::dreamcast::Dreamcast;
             if path == "dc.sh4.cpu" {
-                if let Some(value) = nulldc::dreamcast::get_sh4_register(dreamcast, &name) {
+                if let Some(value) = crate::dreamcast::get_sh4_register(dreamcast, &name) {
                     return format!("0x{:08X}", value);
                 }
             } else if path == "dc.aica.arm7" {
-                if let Some(value) = nulldc::dreamcast::get_arm_register(dreamcast, &name) {
+                if let Some(value) = crate::dreamcast::get_arm_register(dreamcast, &name) {
                     return format!("0x{:08X}", value);
                 }
             }
@@ -913,8 +922,9 @@ impl ServerState {
             registers_by_id.insert(path, registers);
         }
 
+        #[cfg(not(target_arch = "wasm32"))]
         if dreamcast_ptr != 0 {
-            let dreamcast = dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
+            let dreamcast = dreamcast_ptr as *mut crate::dreamcast::Dreamcast;
 
             let sh4_registers = [
                 ("PC", 32),
@@ -929,7 +939,7 @@ impl ServerState {
             ];
             let mut sh4_cpu_regs = Vec::new();
             for (name, width) in sh4_registers {
-                if let Some(value) = nulldc::dreamcast::get_sh4_register(dreamcast, name) {
+                if let Some(value) = crate::dreamcast::get_sh4_register(dreamcast, name) {
                     sh4_cpu_regs.push(RegisterValue {
                         name: name.to_string(),
                         value: format!("0x{:08X}", value),
@@ -941,7 +951,7 @@ impl ServerState {
             }
             for idx in 0..16 {
                 let reg_name = format!("R{}", idx);
-                if let Some(value) = nulldc::dreamcast::get_sh4_register(dreamcast, &reg_name) {
+                if let Some(value) = crate::dreamcast::get_sh4_register(dreamcast, &reg_name) {
                     sh4_cpu_regs.push(RegisterValue {
                         name: reg_name,
                         value: format!("0x{:08X}", value),
@@ -956,7 +966,7 @@ impl ServerState {
             }
 
             let mut arm_regs = Vec::new();
-            if let Some(value) = nulldc::dreamcast::get_arm_register(dreamcast, "PC") {
+            if let Some(value) = crate::dreamcast::get_arm_register(dreamcast, "PC") {
                 arm_regs.push(RegisterValue {
                     name: "PC".to_string(),
                     value: format!("0x{:08X}", value),
@@ -967,7 +977,7 @@ impl ServerState {
             }
             for idx in 0..16 {
                 let reg_name = format!("R{}", idx);
-                if let Some(value) = nulldc::dreamcast::get_arm_register(dreamcast, &reg_name) {
+                if let Some(value) = crate::dreamcast::get_arm_register(dreamcast, &reg_name) {
                     arm_regs.push(RegisterValue {
                         name: reg_name,
                         value: format!("0x{:08X}", value),
@@ -1010,9 +1020,10 @@ impl ServerState {
 
         let mut callstacks = HashMap::new();
 
+        #[cfg(not(target_arch = "wasm32"))]
         let sh4_pc = if dreamcast_ptr != 0 {
-            let dreamcast = dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
-            nulldc::dreamcast::get_sh4_register(dreamcast, "PC")
+            let dreamcast = dreamcast_ptr as *mut crate::dreamcast::Dreamcast;
+            crate::dreamcast::get_sh4_register(dreamcast, "PC")
                 .map(|value| value as u64)
                 .unwrap_or(0x8C00_00A0)
         } else {
@@ -1021,6 +1032,13 @@ impl ServerState {
                 .and_then(|value| u64::from_str_radix(value, 16).ok())
                 .unwrap_or(0x8C00_00A0)
         };
+
+        #[cfg(target_arch = "wasm32")]
+        let sh4_pc = self.get_register_value("dc.sh4.cpu", "PC")
+            .strip_prefix("0x")
+            .and_then(|value| u64::from_str_radix(value, 16).ok())
+            .unwrap_or(0x8C00_00A0);
+
         let sh4_frames = (0..16)
             .map(|index| CallstackFrame {
                 index,
@@ -1036,9 +1054,10 @@ impl ServerState {
             .collect::<Vec<_>>();
         callstacks.insert("sh4".to_string(), sh4_frames);
 
+        #[cfg(not(target_arch = "wasm32"))]
         let arm7_pc = if dreamcast_ptr != 0 {
-            let dreamcast = dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
-            nulldc::dreamcast::get_arm_register(dreamcast, "PC")
+            let dreamcast = dreamcast_ptr as *mut crate::dreamcast::Dreamcast;
+            crate::dreamcast::get_arm_register(dreamcast, "PC")
                 .map(|value| value as u64)
                 .unwrap_or(0x0020_0010)
         } else {
@@ -1047,6 +1066,13 @@ impl ServerState {
                 .and_then(|value| u64::from_str_radix(value, 16).ok())
                 .unwrap_or(0x0020_0010)
         };
+
+        #[cfg(target_arch = "wasm32")]
+        let arm7_pc = self.get_register_value("dc.aica.arm7", "PC")
+            .strip_prefix("0x")
+            .and_then(|value| u64::from_str_radix(value, 16).ok())
+            .unwrap_or(0x0020_0010);
+
         let arm7_frames = (0..16)
             .map(|index| CallstackFrame {
                 index,
@@ -1071,12 +1097,16 @@ impl ServerState {
 
         let timestamp = current_timestamp_ms();
 
+        #[cfg(not(target_arch = "wasm32"))]
         let is_running = if dreamcast_ptr != 0 {
-            let dreamcast = dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
-            nulldc::dreamcast::is_dreamcast_running(dreamcast)
+            let dreamcast = dreamcast_ptr as *mut crate::dreamcast::Dreamcast;
+            crate::dreamcast::is_dreamcast_running(dreamcast)
         } else {
             *self.is_running.lock().unwrap()
         };
+
+        #[cfg(target_arch = "wasm32")]
+        let is_running = *self.is_running.lock().unwrap();
 
         DebuggerTick {
             tick_id,
@@ -1207,13 +1237,14 @@ fn build_memory_slice(
     let effective_length = length.unwrap_or(64);
 
     // Try to read from actual emulator memory if pointer is valid
+    #[cfg(not(target_arch = "wasm32"))]
     let bytes: Vec<u8> = if dreamcast_ptr != 0 {
-        let dreamcast = dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
+        let dreamcast = dreamcast_ptr as *mut crate::dreamcast::Dreamcast;
         match target {
             "arm7" => {
-                nulldc::dreamcast::read_arm_memory_slice(dreamcast, base_address, effective_length)
+                crate::dreamcast::read_arm_memory_slice(dreamcast, base_address, effective_length)
             }
-            _ => nulldc::dreamcast::read_memory_slice(dreamcast, base_address, effective_length),
+            _ => crate::dreamcast::read_memory_slice(dreamcast, base_address, effective_length),
         }
     } else {
         // Fall back to mock data if no emulator context
@@ -1221,6 +1252,11 @@ fn build_memory_slice(
             .map(|i| sha256_byte(&format!("{}:{:x}", target, base_address + i as u64)))
             .collect()
     };
+
+    #[cfg(target_arch = "wasm32")]
+    let bytes: Vec<u8> = (0..effective_length)
+        .map(|i| sha256_byte(&format!("{}:{:x}", target, base_address + i as u64)))
+        .collect();
 
     MemorySlice {
         base_address,
@@ -1257,9 +1293,9 @@ pub fn handle_request(
             Ok((
                 json!({
                     "emulator": {
-                        "name": "mockServer",
+                        "name": "nullDC",
                         "version": "unspecified",
-                        "build": "native"
+                        "build": if cfg!(target_arch = "wasm32") { "wasm" } else { "native" }
                     },
                     "deviceTree": device_tree,
                     "capabilities": CAPABILITIES,
@@ -1296,10 +1332,11 @@ pub fn handle_request(
                 .and_then(|value| value.as_u64())
                 .unwrap_or(128) as usize;
 
+            #[cfg(not(target_arch = "wasm32"))]
             let lines = if dreamcast_ptr != 0 {
-                let dreamcast = dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
+                let dreamcast = dreamcast_ptr as *mut crate::dreamcast::Dreamcast;
                 match target {
-                    "sh4" => nulldc::dreamcast::disassemble_sh4(dreamcast, address, count)
+                    "sh4" => crate::dreamcast::disassemble_sh4(dreamcast, address, count)
                         .into_iter()
                         .map(|line| DisassemblyLine {
                             address: line.address,
@@ -1307,7 +1344,7 @@ pub fn handle_request(
                             disassembly: line.disassembly,
                         })
                         .collect::<Vec<_>>(),
-                    "arm7" => nulldc::dreamcast::disassemble_arm7(dreamcast, address, count)
+                    "arm7" => crate::dreamcast::disassemble_arm7(dreamcast, address, count)
                         .into_iter()
                         .map(|line| DisassemblyLine {
                             address: line.address,
@@ -1320,6 +1357,9 @@ pub fn handle_request(
             } else {
                 generate_disassembly(target, address, count)
             };
+
+            #[cfg(target_arch = "wasm32")]
+            let lines = generate_disassembly(target, address, count);
 
             Ok((json!({ "lines": lines }), false))
         }
@@ -1506,9 +1546,10 @@ pub fn handle_request(
         }
 
         "control.pause" => {
+            #[cfg(not(target_arch = "wasm32"))]
             if dreamcast_ptr != 0 {
-                let dreamcast = dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
-                nulldc::dreamcast::set_dreamcast_running(dreamcast, false);
+                let dreamcast = dreamcast_ptr as *mut crate::dreamcast::Dreamcast;
+                crate::dreamcast::set_dreamcast_running(dreamcast, false);
             }
             state.set_running(false);
             Ok((json!({}), true))
@@ -1520,22 +1561,27 @@ pub fn handle_request(
                 .and_then(|value| value.as_str())
                 .unwrap_or("sh4");
 
+            #[cfg(not(target_arch = "wasm32"))]
             if dreamcast_ptr != 0 {
-                let dreamcast = dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
-                nulldc::dreamcast::step_dreamcast(dreamcast);
-                nulldc::dreamcast::set_dreamcast_running(dreamcast, false);
+                let dreamcast = dreamcast_ptr as *mut crate::dreamcast::Dreamcast;
+                crate::dreamcast::step_dreamcast(dreamcast);
+                crate::dreamcast::set_dreamcast_running(dreamcast, false);
             } else {
                 state.increment_program_counter(target);
             }
+
+            #[cfg(target_arch = "wasm32")]
+            state.increment_program_counter(target);
 
             state.set_running(false);
             Ok((json!({}), true))
         }
 
         "control.runUntil" => {
+            #[cfg(not(target_arch = "wasm32"))]
             if dreamcast_ptr != 0 {
-                let dreamcast = dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
-                nulldc::dreamcast::set_dreamcast_running(dreamcast, true);
+                let dreamcast = dreamcast_ptr as *mut crate::dreamcast::Dreamcast;
+                crate::dreamcast::set_dreamcast_running(dreamcast, true);
             }
             state.set_running(true);
             Ok((json!({}), true))
@@ -1649,64 +1695,5 @@ pub fn handle_request(
             message: format!("Method not found: {}", request.method),
             data: None,
         }),
-    }
-}
-
-pub async fn handle_websocket_connection(socket: WebSocket, dreamcast_ptr: usize) {
-    use std::sync::OnceLock;
-    static STATE: OnceLock<Arc<ServerState>> = OnceLock::new();
-    let state = STATE.get_or_init(|| Arc::new(ServerState::new())).clone();
-
-    // Convert usize back to *mut Dreamcast when needed to access emulator state
-    // let _dreamcast = dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
-    // TODO: Use dreamcast pointer to read/write actual emulator state instead of mock data
-
-    let (mut sender, mut receiver) = socket.split();
-
-    while let Some(Ok(msg)) = receiver.next().await {
-        match msg {
-            Message::Text(text) => {
-                if let Ok(request) = serde_json::from_str::<JsonRpcRequest>(&text) {
-                    let id = request.id.clone();
-                    match handle_request(state.clone(), dreamcast_ptr, request) {
-                        Ok((result, should_broadcast)) => {
-                            let response = JsonRpcSuccess {
-                                jsonrpc: JSON_RPC_VERSION.to_string(),
-                                id,
-                                result,
-                            };
-                            if let Ok(json) = serde_json::to_string(&response) {
-                                let _ = sender.send(Message::Text(json.into())).await;
-                            }
-
-                            if should_broadcast {
-                                let tick = state.build_tick(dreamcast_ptr, None);
-                                let notification = JsonRpcNotification {
-                                    jsonrpc: JSON_RPC_VERSION.to_string(),
-                                    method: "event.tick".to_string(),
-                                    params: serde_json::to_value(tick).unwrap(),
-                                };
-
-                                if let Ok(json) = serde_json::to_string(&notification) {
-                                    let _ = sender.send(Message::Text(json.into())).await;
-                                }
-                            }
-                        }
-                        Err(error) => {
-                            let response = JsonRpcError {
-                                jsonrpc: JSON_RPC_VERSION.to_string(),
-                                id,
-                                error,
-                            };
-                            if let Ok(json) = serde_json::to_string(&response) {
-                                let _ = sender.send(Message::Text(json.into())).await;
-                            }
-                        }
-                    }
-                }
-            }
-            Message::Close(_) => break,
-            _ => {}
-        }
     }
 }
