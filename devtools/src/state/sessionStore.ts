@@ -41,6 +41,29 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
       transportOptions,
     });
 
+    // Subscribe to transport state changes to keep connectionState in sync
+    client.onTransportStateChange((state, event) => {
+      console.log("Transport state changed:", state, event);
+
+      if (state === "closed") {
+        const currentClient = get().client;
+        // Only update if this is still the active client
+        if (currentClient === client) {
+          set({
+            connectionState: "error",
+            connectionError: "Connection closed",
+          });
+        }
+      } else if (state === "open") {
+        const currentClient = get().client;
+        if (currentClient === client) {
+          set({
+            connectionState: "connected",
+          });
+        }
+      }
+    });
+
     set({
       connectionState: "connecting",
       connectionError: undefined,
