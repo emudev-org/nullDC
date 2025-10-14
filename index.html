@@ -89,7 +89,7 @@
   <p>Go to the <a href="builds/">builds page</a>.</p>
 
   <h2 align="center">WASM embed</h2>
-  <p align="center"><a href="debugger/" target="_blank">Open Debugger for WASM embed</a> | <a href="https://nulldc-debugger.fly.dev" target="_blank">Open Debugger w/ mock server</a></p>
+  <p align="center"><a href="devtools/" target="_blank">Open Devtools for WASM embed</a></p>
 
   <!-- File Drop Zone -->
   <div id="bios-drop-zone">
@@ -369,7 +369,9 @@
 
   </div>
   <!-- wasm-opt disabled: Trunk doesn't support passing --enable-bulk-memory flag -->
-  <link data-trunk rel="copy-dir" href="devtools/dist" data-target-path="debugger" />
+  <!-- Copy broadcast-mode devtools build (dist) for WASM emulator -->
+  <!-- Native-mode devtools build (dist-native) is for standalone use with WebSocket server -->
+  <link data-trunk rel="copy-dir" href="devtools/dist-wasm" data-target-path="devtools" />
 </body>
 
 </html>

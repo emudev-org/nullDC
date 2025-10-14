@@ -50,23 +50,14 @@ git-version = "0.3"
 wgpu = "26.0.1"
 winit = "0.30.12"
 
-# Disable default features globally
-egui = { git = "https://github.com/emilk/egui", rev = "18ea9ff", default-features = false }
-egui-winit = { git = "https://github.com/emilk/egui", rev = "18ea9ff", default-features = false }
-egui-wgpu = { git = "https://github.com/emilk/egui", rev = "18ea9ff", default-features = false }
-
 # Utilities
 bytemuck = "1.16"
 pollster = "0.4"
 env_logger = "0.11"
 log = "0.4"
+sha2 = "0.10"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-# Re-enable native-only features (clipboard, etc.)
-egui = { git = "https://github.com/emilk/egui", rev = "18ea9ff", features = ["default_fonts"    ] }
-egui-winit = { git = "https://github.com/emilk/egui", rev = "18ea9ff", features = ["clipboard"] }
-egui-wgpu = { git = "https://github.com/emilk/egui", rev = "18ea9ff" }
-
 # Debugger UI server
 include_dir = "0.7"
 
@@ -78,11 +69,19 @@ tower-http = { version = "0.5", features = ["fs"] }
 futures = "0.3"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-sha2 = "0.10"
 uuid = { version = "1.0", features = ["v4"] }
+
+[target.'cfg(any(target_os = "windows", target_os = "macos"))'.dependencies]
+# Menu support (Windows and macOS only, to avoid glib dependency on Linux)
+muda = "0.15"
+open = "5.0"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 console_error_panic_hook = "0.1"
 wasm-logger = "0.2"
+web-sys = { version = "0.3", features = ["BroadcastChannel", "MessageEvent", "Window"] }
+js-sys = "0.3"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

@@ -1,14 +1,18 @@
-use axum::extract::ws::{Message, WebSocket};
-use futures::SinkExt;
-use futures::stream::StreamExt;
+// Core debugger logic shared between native (WebSocket) and WASM (BroadcastChannel) builds
+// This module contains the complete debugger implementation
+
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const JSON_RPC_VERSION: &str = "2.0";
+const DEFAULT_WATCH_EXPRESSIONS: &[&str] = &["dc.sh4.cpu.pc", "dc.sh4.dmac.dmaor"];
+const EVENT_LOG_LIMIT: usize = 60;
+const CAPABILITIES: &[&str] = &["watches", "step", "breakpoints", "frame-log"];
 
 #[allow(dead_code)]
 mod panel_ids {
@@ -49,99 +53,15 @@ mod panel_ids {
     pub const ARM7_CALLSTACK: &str = "arm7-callstack";
 }
 
-const DEFAULT_WATCH_EXPRESSIONS: &[&str] = &["dc.sh4.cpu.pc", "dc.sh4.dmac.dmaor"];
-const EVENT_LOG_LIMIT: usize = 60;
-const CAPABILITIES: &[&str] = &["watches", "step", "breakpoints", "frame-log"];
+// Mock event generation removed - use real emulator events only
 
-type FrameEventGenerator = fn(u64) -> (&'static str, &'static str, String);
-
-fn frame_event_ta(counter: u64) -> (&'static str, &'static str, String) {
-    (
-        "ta",
-        "info",
-        format!("TA/END_LIST tile {}", (counter % 32) as usize),
-    )
+// For WASM, we use js_sys::Date::now() instead of SystemTime
+#[cfg(target_arch = "wasm32")]
+fn current_timestamp_ms() -> u64 {
+    js_sys::Date::now() as u64
 }
 
-fn frame_event_core(counter: u64) -> (&'static str, &'static str, String) {
-    let phase = match counter % 3 {
-        0 => "START_RENDER",
-        1 => "QUEUE_SUBMISSION",
-        _ => "END_RENDER",
-    };
-    (
-        "core",
-        if phase == "QUEUE_SUBMISSION" {
-            "trace"
-        } else {
-            "info"
-        },
-        format!("CORE/{}", phase),
-    )
-}
-
-fn frame_event_dsp(counter: u64) -> (&'static str, &'static str, String) {
-    (
-        "dsp",
-        "trace",
-        format!("DSP/STEP pipeline advanced ({})", counter % 8),
-    )
-}
-
-fn frame_event_aica(counter: u64) -> (&'static str, &'static str, String) {
-    (
-        "aica",
-        "info",
-        format!("AICA/SGC/STEP channel {}", (counter % 2) as usize),
-    )
-}
-
-fn frame_event_sh4(counter: u64) -> (&'static str, &'static str, String) {
-    (
-        "sh4",
-        "warn",
-        format!("SH4/INTERRUPT IRQ{} asserted", (counter % 6) + 1),
-    )
-}
-
-fn frame_event_holly(counter: u64) -> (&'static str, &'static str, String) {
-    (
-        "holly",
-        "info",
-        format!("HOLLY/START_RENDER pass {}", (counter % 4) + 1),
-    )
-}
-
-const FRAME_EVENT_GENERATORS: &[FrameEventGenerator] = &[
-    frame_event_ta,
-    frame_event_core,
-    frame_event_dsp,
-    frame_event_aica,
-    frame_event_sh4,
-    frame_event_holly,
-];
-
-fn create_frame_event_with_id(event_id: u64) -> EventLogEntry {
-    let generator = FRAME_EVENT_GENERATORS[(event_id as usize) % FRAME_EVENT_GENERATORS.len()];
-    let (subsystem, severity, message) = generator(event_id);
-    EventLogEntry {
-        event_id: event_id.to_string(),
-        timestamp: current_timestamp_ms(),
-        subsystem: subsystem.to_string(),
-        severity: severity.to_string(),
-        message,
-        metadata: None,
-    }
-}
-
-fn initial_event_log() -> (Vec<EventLogEntry>, u64) {
-    let mut log = Vec::new();
-    for id in 1..=6 {
-        log.push(create_frame_event_with_id(id));
-    }
-    (log, 7)
-}
-
+#[cfg(not(target_arch = "wasm32"))]
 fn current_timestamp_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -151,40 +71,40 @@ fn current_timestamp_ms() -> u64 {
 
 // JSON-RPC structures
 #[derive(Debug, Serialize, Deserialize)]
-struct JsonRpcRequest {
-    jsonrpc: String,
-    id: serde_json::Value,
-    method: String,
-    params: Option<serde_json::Value>,
+pub struct JsonRpcRequest {
+    pub jsonrpc: String,
+    pub id: serde_json::Value,
+    pub method: String,
+    pub params: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize)]
-struct JsonRpcSuccess {
-    jsonrpc: String,
-    id: serde_json::Value,
-    result: serde_json::Value,
+pub struct JsonRpcSuccess {
+    pub jsonrpc: String,
+    pub id: serde_json::Value,
+    pub result: serde_json::Value,
 }
 
 #[derive(Debug, Serialize)]
-struct JsonRpcError {
-    jsonrpc: String,
-    id: serde_json::Value,
-    error: JsonRpcErrorObject,
+pub struct JsonRpcError {
+    pub jsonrpc: String,
+    pub id: serde_json::Value,
+    pub error: JsonRpcErrorObject,
 }
 
 #[derive(Debug, Serialize)]
-struct JsonRpcErrorObject {
-    code: i32,
-    message: String,
+pub struct JsonRpcErrorObject {
+    pub code: i32,
+    pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    data: Option<serde_json::Value>,
+    pub data: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize)]
-struct JsonRpcNotification {
-    jsonrpc: String,
-    method: String,
-    params: serde_json::Value,
+pub struct JsonRpcNotification {
+    pub jsonrpc: String,
+    pub method: String,
+    pub params: serde_json::Value,
 }
 
 // Debugger schema structures
@@ -272,7 +192,7 @@ struct WatchDescriptor {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct DebuggerTick {
+pub struct DebuggerTick {
     #[serde(rename = "tickId")]
     tick_id: u64,
     timestamp: u64,
@@ -308,14 +228,12 @@ struct ServerWatch {
     expression: String,
 }
 
-// Server state
-struct ServerState {
+// Server state - no more mock register values, uses real emulator
+pub struct ServerState {
     breakpoints: Arc<Mutex<HashMap<u32, BreakpointDescriptor>>>,
     watches: Arc<Mutex<HashMap<u32, ServerWatch>>>,
-    register_values: Arc<Mutex<HashMap<String, String>>>,
     event_log: Arc<Mutex<Vec<EventLogEntry>>>,
     category_states: Arc<Mutex<HashMap<String, BreakpointCategoryState>>>,
-    is_running: Arc<Mutex<bool>>,
     tick_id: Arc<Mutex<u64>>,
     next_event_id: Arc<Mutex<u64>>,
     next_watch_id: Arc<Mutex<u32>>,
@@ -323,58 +241,7 @@ struct ServerState {
 }
 
 impl ServerState {
-    fn new() -> Self {
-        let mut register_values = HashMap::new();
-
-        // Initialize register values
-        register_values.insert("dc.sh4.cpu.pc".to_string(), "0x8C0000A0".to_string());
-        register_values.insert("dc.sh4.cpu.pr".to_string(), "0x8C0000A2".to_string());
-        register_values.insert("dc.sh4.vbr".to_string(), "0x8C000000".to_string());
-        register_values.insert("dc.sh4.sr".to_string(), "0x40000000".to_string());
-        register_values.insert("dc.sh4.fpscr".to_string(), "0x00040001".to_string());
-        register_values.insert("dc.sh4.cpu.gbr".to_string(), "0x8C000100".to_string());
-        register_values.insert("dc.sh4.cpu.mach".to_string(), "0x00000000".to_string());
-        register_values.insert("dc.sh4.cpu.macl".to_string(), "0x00000000".to_string());
-        register_values.insert("dc.sh4.cpu.fpul".to_string(), "0x00000000".to_string());
-        register_values.insert(
-            "dc.sh4.icache.icache_ctrl".to_string(),
-            "0x00000003".to_string(),
-        );
-        register_values.insert(
-            "dc.sh4.dcache.dcache_ctrl".to_string(),
-            "0x00000003".to_string(),
-        );
-        register_values.insert("dc.sh4.dmac.dmaor".to_string(), "0x8201".to_string());
-        register_values.insert("dc.holly.holly_id".to_string(), "0x00050000".to_string());
-        register_values.insert("dc.holly.dmac_ctrl".to_string(), "0x00000001".to_string());
-        register_values.insert("dc.holly.dmac.dmaor".to_string(), "0x8201".to_string());
-        register_values.insert("dc.holly.dmac.chcr0".to_string(), "0x00000001".to_string());
-        register_values.insert(
-            "dc.holly.ta.ta_list_base".to_string(),
-            "0x0C000000".to_string(),
-        );
-        register_values.insert(
-            "dc.holly.ta.ta_status".to_string(),
-            "0x00000000".to_string(),
-        );
-        register_values.insert(
-            "dc.holly.core.pvr_ctrl".to_string(),
-            "0x00000001".to_string(),
-        );
-        register_values.insert(
-            "dc.holly.core.pvr_status".to_string(),
-            "0x00010000".to_string(),
-        );
-        register_values.insert("dc.aica.aica_ctrl".to_string(), "0x00000002".to_string());
-        register_values.insert("dc.aica.aica_status".to_string(), "0x00000001".to_string());
-        register_values.insert("dc.aica.arm7.pc".to_string(), "0x00200010".to_string());
-        register_values.insert("dc.aica.channels.ch0_vol".to_string(), "0x7F".to_string());
-        register_values.insert("dc.aica.channels.ch1_vol".to_string(), "0x6A".to_string());
-        register_values.insert("dc.aica.dsp.step".to_string(), "0x000".to_string());
-        register_values.insert("dc.aica.dsp.dsp_acc".to_string(), "0x1F".to_string());
-        register_values.insert("dc.sysclk".to_string(), "200MHz".to_string());
-        register_values.insert("dc.asic_rev".to_string(), "0x0001".to_string());
-
+    pub fn new() -> Self {
         // Initialize default watches
         let mut watches = HashMap::new();
         let mut next_watch_id = 1;
@@ -401,16 +268,15 @@ impl ServerState {
             );
         }
 
-        // Initialize event log with sample entries
-        let (event_log, next_event_id) = initial_event_log();
+        // Initialize with empty event log - use real emulator events only
+        let event_log = Vec::new();
+        let next_event_id = 1;
 
         Self {
             breakpoints: Arc::new(Mutex::new(HashMap::new())),
             watches: Arc::new(Mutex::new(watches)),
-            register_values: Arc::new(Mutex::new(register_values)),
             event_log: Arc::new(Mutex::new(event_log)),
             category_states: Arc::new(Mutex::new(category_states)),
-            is_running: Arc::new(Mutex::new(true)),
             tick_id: Arc::new(Mutex::new(0)),
             next_event_id: Arc::new(Mutex::new(next_event_id)),
             next_watch_id: Arc::new(Mutex::new(next_watch_id)),
@@ -418,19 +284,23 @@ impl ServerState {
         }
     }
 
-    fn get_register_value(&self, path: &str, name: &str) -> String {
-        let key = format!("{}.{}", path, name.to_lowercase());
-        self.register_values
-            .lock()
-            .unwrap()
-            .get(&key)
-            .cloned()
-            .unwrap_or_else(|| "0x00000000".to_string())
-    }
+    // Get register value from the actual emulator - works for both native and WASM builds
+    fn get_register_value(&self, dreamcast_ptr: usize, path: &str, name: &str) -> String {
+        if dreamcast_ptr != 0 {
+            let dreamcast = dreamcast_ptr as *mut dreamcast::Dreamcast;
+            if path == "dc.sh4.cpu" || path == "dc.sh4" {
+                if let Some(value) = dreamcast::get_sh4_register(dreamcast, name) {
+                    return format!("0x{:08X}", value);
+                }
+            } else if path == "dc.aica.arm7" {
+                if let Some(value) = dreamcast::get_arm_register(dreamcast, name) {
+                    return format!("0x{:08X}", value);
+                }
+            }
+        }
 
-    fn set_register_value(&self, path: &str, name: &str, value: String) {
-        let key = format!("{}.{}", path, name.to_lowercase());
-        self.register_values.lock().unwrap().insert(key, value);
+        // Return default value if emulator not available or register not found
+        "0x00000000".to_string()
     }
 
     fn evaluate_watch_expression(&self, dreamcast_ptr: usize, expression: &str) -> String {
@@ -452,28 +322,15 @@ impl ServerState {
             ("dc.sh4.cpu".to_string(), parts[0].to_string())
         };
 
-        // Try to get value from actual emulator if available
-        if dreamcast_ptr != 0 {
-            let dreamcast = dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
-            if path == "dc.sh4.cpu" {
-                if let Some(value) = nulldc::dreamcast::get_sh4_register(dreamcast, &name) {
-                    return format!("0x{:08X}", value);
-                }
-            } else if path == "dc.aica.arm7" {
-                if let Some(value) = nulldc::dreamcast::get_arm_register(dreamcast, &name) {
-                    return format!("0x{:08X}", value);
-                }
-            }
-        }
-
-        // Fall back to mock values
-        self.get_register_value(&path, &name)
+        self.get_register_value(dreamcast_ptr, &path, &name)
     }
 
-    fn build_device_tree(&self) -> Vec<DeviceNodeDescriptor> {
+    fn build_device_tree(&self, dreamcast_ptr: usize) -> Vec<DeviceNodeDescriptor> {
+        let get_reg = |path: &str, name: &str| self.get_register_value(dreamcast_ptr, path, name);
+
         let register = |path: &str, name: &str, width: u32| RegisterValue {
             name: name.to_string(),
-            value: self.get_register_value(path, name),
+            value: get_reg(path, name),
             width,
             flags: None,
             metadata: None,
@@ -838,49 +695,6 @@ impl ServerState {
         }]
     }
 
-    fn set_running(&self, running: bool) {
-        let mut guard = self.is_running.lock().unwrap();
-        *guard = running;
-    }
-
-    fn increment_program_counter(&self, target: &str) {
-        let target_lower = target.to_ascii_lowercase();
-        if target_lower.contains("sh4") {
-            if let Some(stripped) = self
-                .get_register_value("dc.sh4.cpu", "PC")
-                .strip_prefix("0x")
-            {
-                if let Ok(pc) = u32::from_str_radix(stripped, 16) {
-                    let base = 0x8C0000A0;
-                    let offset = pc.wrapping_sub(base);
-                    let new_pc = base + ((offset + 2) % (8 * 2));
-                    self.set_register_value("dc.sh4.cpu", "PC", format!("0x{:08X}", new_pc));
-                }
-            }
-        } else if target_lower.contains("arm7") {
-            if let Some(stripped) = self
-                .get_register_value("dc.aica.arm7", "PC")
-                .strip_prefix("0x")
-            {
-                if let Ok(pc) = u32::from_str_radix(stripped, 16) {
-                    let base = 0x0020_0010;
-                    let offset = pc.wrapping_sub(base);
-                    let new_pc = base + ((offset + 4) % (8 * 4));
-                    self.set_register_value("dc.aica.arm7", "PC", format!("0x{:08X}", new_pc));
-                }
-            }
-        } else if target_lower.contains("dsp") {
-            if let Some(stripped) = self
-                .get_register_value("dc.aica.dsp", "STEP")
-                .strip_prefix("0x")
-            {
-                if let Ok(step) = u32::from_str_radix(stripped, 16) {
-                    let new_step = (step + 1) % 8;
-                    self.set_register_value("dc.aica.dsp", "STEP", format!("0x{:03X}", new_step));
-                }
-            }
-        }
-    }
 
     #[allow(dead_code)]
     fn next_event_id(&self) -> u64 {
@@ -904,8 +718,8 @@ impl ServerState {
         }
     }
 
-    fn build_tick(&self, dreamcast_ptr: usize, hit_breakpoint_id: Option<u32>) -> DebuggerTick {
-        let device_tree = self.build_device_tree();
+    pub fn build_tick(&self, dreamcast_ptr: usize, hit_breakpoint_id: Option<u32>) -> DebuggerTick {
+        let device_tree = self.build_device_tree(dreamcast_ptr);
         let all_registers = collect_registers_from_tree(&device_tree);
 
         let mut registers_by_id: HashMap<String, Vec<RegisterValue>> = HashMap::new();
@@ -914,7 +728,7 @@ impl ServerState {
         }
 
         if dreamcast_ptr != 0 {
-            let dreamcast = dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
+            let dreamcast = dreamcast_ptr as *mut dreamcast::Dreamcast;
 
             let sh4_registers = [
                 ("PC", 32),
@@ -929,7 +743,7 @@ impl ServerState {
             ];
             let mut sh4_cpu_regs = Vec::new();
             for (name, width) in sh4_registers {
-                if let Some(value) = nulldc::dreamcast::get_sh4_register(dreamcast, name) {
+                if let Some(value) = dreamcast::get_sh4_register(dreamcast, name) {
                     sh4_cpu_regs.push(RegisterValue {
                         name: name.to_string(),
                         value: format!("0x{:08X}", value),
@@ -941,7 +755,7 @@ impl ServerState {
             }
             for idx in 0..16 {
                 let reg_name = format!("R{}", idx);
-                if let Some(value) = nulldc::dreamcast::get_sh4_register(dreamcast, &reg_name) {
+                if let Some(value) = dreamcast::get_sh4_register(dreamcast, &reg_name) {
                     sh4_cpu_regs.push(RegisterValue {
                         name: reg_name,
                         value: format!("0x{:08X}", value),
@@ -956,7 +770,7 @@ impl ServerState {
             }
 
             let mut arm_regs = Vec::new();
-            if let Some(value) = nulldc::dreamcast::get_arm_register(dreamcast, "PC") {
+            if let Some(value) = dreamcast::get_arm_register(dreamcast, "PC") {
                 arm_regs.push(RegisterValue {
                     name: "PC".to_string(),
                     value: format!("0x{:08X}", value),
@@ -967,7 +781,7 @@ impl ServerState {
             }
             for idx in 0..16 {
                 let reg_name = format!("R{}", idx);
-                if let Some(value) = nulldc::dreamcast::get_arm_register(dreamcast, &reg_name) {
+                if let Some(value) = dreamcast::get_arm_register(dreamcast, &reg_name) {
                     arm_regs.push(RegisterValue {
                         name: reg_name,
                         value: format!("0x{:08X}", value),
@@ -1011,16 +825,14 @@ impl ServerState {
         let mut callstacks = HashMap::new();
 
         let sh4_pc = if dreamcast_ptr != 0 {
-            let dreamcast = dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
-            nulldc::dreamcast::get_sh4_register(dreamcast, "PC")
+            let dreamcast = dreamcast_ptr as *mut dreamcast::Dreamcast;
+            dreamcast::get_sh4_register(dreamcast, "PC")
                 .map(|value| value as u64)
                 .unwrap_or(0x8C00_00A0)
         } else {
-            self.get_register_value("dc.sh4.cpu", "PC")
-                .strip_prefix("0x")
-                .and_then(|value| u64::from_str_radix(value, 16).ok())
-                .unwrap_or(0x8C00_00A0)
+            0x8C00_00A0
         };
+
         let sh4_frames = (0..16)
             .map(|index| CallstackFrame {
                 index,
@@ -1037,16 +849,14 @@ impl ServerState {
         callstacks.insert("sh4".to_string(), sh4_frames);
 
         let arm7_pc = if dreamcast_ptr != 0 {
-            let dreamcast = dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
-            nulldc::dreamcast::get_arm_register(dreamcast, "PC")
+            let dreamcast = dreamcast_ptr as *mut dreamcast::Dreamcast;
+            dreamcast::get_arm_register(dreamcast, "PC")
                 .map(|value| value as u64)
                 .unwrap_or(0x0020_0010)
         } else {
-            self.get_register_value("dc.aica.arm7", "PC")
-                .strip_prefix("0x")
-                .and_then(|value| u64::from_str_radix(value, 16).ok())
-                .unwrap_or(0x0020_0010)
+            0x0020_0010
         };
+
         let arm7_frames = (0..16)
             .map(|index| CallstackFrame {
                 index,
@@ -1072,10 +882,10 @@ impl ServerState {
         let timestamp = current_timestamp_ms();
 
         let is_running = if dreamcast_ptr != 0 {
-            let dreamcast = dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
-            nulldc::dreamcast::is_dreamcast_running(dreamcast)
+            let dreamcast = dreamcast_ptr as *mut dreamcast::Dreamcast;
+            dreamcast::is_dreamcast_running(dreamcast)
         } else {
-            *self.is_running.lock().unwrap()
+            false // Default to paused when no emulator context
         };
 
         DebuggerTick {
@@ -1098,97 +908,6 @@ impl ServerState {
     }
 }
 
-fn sha256_byte(input: &str) -> u8 {
-    let mut hasher = Sha256::new();
-    hasher.update(input.as_bytes());
-    let result = hasher.finalize();
-    result[0]
-}
-
-fn generate_disassembly(target: &str, address: u64, count: usize) -> Vec<DisassemblyLine> {
-    type OperandFn = fn(u8, u8, u8, u8, u16) -> String;
-
-    let sh4_instructions: Vec<(&str, OperandFn, u64)> = vec![
-        ("mov.l", |r1, r2, _, _, _| format!("@r{}+, r{}", r1, r2), 2),
-        ("mov", |r1, r2, _, _, _| format!("r{}, r{}", r1, r2), 2),
-        ("sts.l", |r1, _, _, _, _| format!("pr, @-r{}", r1), 2),
-        ("add", |r1, r2, _, _, _| format!("r{}, r{}", r1, r2), 2),
-        ("cmp/eq", |r1, r2, _, _, _| format!("r{}, r{}", r1, r2), 2),
-        ("bf", |_, _, _, _, offset| format!("0x{:x}", offset), 2),
-        ("jmp", |r, _, _, _, _| format!("@r{}", r), 2),
-        ("nop", |_, _, _, _, _| String::new(), 2),
-    ];
-
-    let arm7_instructions: Vec<(&str, OperandFn, u64)> = vec![
-        ("mov", |r1, _, _, val, _| format!("r{}, #{}", r1, val), 4),
-        (
-            "ldr",
-            |r1, r2, _, _, offset| format!("r{}, [r{}, #{}]", r1, r2, offset),
-            4,
-        ),
-        ("str", |r1, r2, _, _, _| format!("r{}, [r{}]", r1, r2), 4),
-        (
-            "add",
-            |r1, r2, r3, _, _| format!("r{}, r{}, r{}", r1, r2, r3),
-            4,
-        ),
-        (
-            "sub",
-            |r1, r2, r3, _, _| format!("r{}, r{}, r{}", r1, r2, r3),
-            4,
-        ),
-        ("bx", |r, _, _, _, _| format!("r{}", r), 4),
-        ("bl", |_, _, _, _, offset| format!("0x{:x}", offset), 4),
-        ("nop", |_, _, _, _, _| String::new(), 4),
-    ];
-
-    let selected = if target == "arm7" {
-        &arm7_instructions
-    } else {
-        &sh4_instructions
-    };
-
-    let mut lines = Vec::new();
-    let mut current_addr = address;
-
-    for _ in 0..count {
-        let hash = sha256_byte(&format!("{}:{:x}", target, current_addr));
-        let instr_index = (hash as usize) % selected.len();
-        let (mnemonic, operand_fn, bytes_len) = selected[instr_index];
-
-        let r1 = (hash >> 4) % 16;
-        let r2 = (hash >> 2) % 16;
-        let r3 = hash % 16;
-        let val = (hash.wrapping_mul(3)) & 0xff;
-        let offset = (hash.wrapping_mul(7) as u16) & 0xfff;
-
-        let operands = operand_fn(r1, r2, r3, val, offset);
-        let disassembly = if operands.is_empty() {
-            mnemonic.to_string()
-        } else {
-            format!("{} {}", mnemonic, operands)
-        };
-
-        let byte_values: Vec<String> = (0..bytes_len)
-            .map(|b| {
-                format!(
-                    "{:02X}",
-                    sha256_byte(&format!("{}:{:x}:{}", target, current_addr, b))
-                )
-            })
-            .collect();
-
-        lines.push(DisassemblyLine {
-            address: current_addr,
-            bytes: byte_values.join(" "),
-            disassembly,
-        });
-
-        current_addr += bytes_len;
-    }
-
-    lines
-}
 
 fn build_memory_slice(
     dreamcast_ptr: usize,
@@ -1206,26 +925,24 @@ fn build_memory_slice(
     let base_address = address.unwrap_or(default_base);
     let effective_length = length.unwrap_or(64);
 
-    // Try to read from actual emulator memory if pointer is valid
     let bytes: Vec<u8> = if dreamcast_ptr != 0 {
-        let dreamcast = dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
+        let dreamcast = dreamcast_ptr as *mut dreamcast::Dreamcast;
         match target {
             "arm7" => {
-                nulldc::dreamcast::read_arm_memory_slice(dreamcast, base_address, effective_length)
+                dreamcast::read_arm_memory_slice(dreamcast, base_address, effective_length)
             }
-            _ => nulldc::dreamcast::read_memory_slice(dreamcast, base_address, effective_length),
+            _ => dreamcast::read_memory_slice(dreamcast, base_address, effective_length),
         }
     } else {
-        // Fall back to mock data if no emulator context
-        (0..effective_length)
-            .map(|i| sha256_byte(&format!("{}:{:x}", target, base_address + i as u64)))
-            .collect()
+        Vec::new()
     };
 
+    let bytes_empty = bytes.is_empty();
+    
     MemorySlice {
         base_address,
         data: bytes,
-        validity: "ok".to_string(),
+        validity: if bytes_empty { "unavailable".to_string() } else { "ok".to_string() },
     }
 }
 
@@ -1244,7 +961,7 @@ fn collect_registers_from_tree(tree: &[DeviceNodeDescriptor]) -> Vec<(String, Ve
     result
 }
 
-fn handle_request(
+pub fn handle_request(
     state: Arc<ServerState>,
     dreamcast_ptr: usize,
     request: JsonRpcRequest,
@@ -1253,13 +970,13 @@ fn handle_request(
 
     match request.method.as_str() {
         "debugger.describe" => {
-            let device_tree = state.build_device_tree();
+            let device_tree = state.build_device_tree(dreamcast_ptr);
             Ok((
                 json!({
                     "emulator": {
-                        "name": "mockServer",
+                        "name": "nullDC",
                         "version": "unspecified",
-                        "build": "native"
+                        "build": if cfg!(target_arch = "wasm32") { "wasm" } else { "native" }
                     },
                     "deviceTree": device_tree,
                     "capabilities": CAPABILITIES,
@@ -1297,9 +1014,9 @@ fn handle_request(
                 .unwrap_or(128) as usize;
 
             let lines = if dreamcast_ptr != 0 {
-                let dreamcast = dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
+                let dreamcast = dreamcast_ptr as *mut dreamcast::Dreamcast;
                 match target {
-                    "sh4" => nulldc::dreamcast::disassemble_sh4(dreamcast, address, count)
+                    "sh4" => dreamcast::disassemble_sh4(dreamcast, address, count)
                         .into_iter()
                         .map(|line| DisassemblyLine {
                             address: line.address,
@@ -1307,7 +1024,7 @@ fn handle_request(
                             disassembly: line.disassembly,
                         })
                         .collect::<Vec<_>>(),
-                    "arm7" => nulldc::dreamcast::disassemble_arm7(dreamcast, address, count)
+                    "arm7" => dreamcast::disassemble_arm7(dreamcast, address, count)
                         .into_iter()
                         .map(|line| DisassemblyLine {
                             address: line.address,
@@ -1315,10 +1032,10 @@ fn handle_request(
                             disassembly: line.disassembly,
                         })
                         .collect::<Vec<_>>(),
-                    _ => generate_disassembly(target, address, count),
+                    _ => Vec::new(), // Unsupported target, return empty
                 }
             } else {
-                generate_disassembly(target, address, count)
+                Vec::new()
             };
 
             Ok((json!({ "lines": lines }), false))
@@ -1396,70 +1113,13 @@ fn handle_request(
         }
 
         "state.editWatch" => {
-            let watch_id = params
-                .get("watchId")
-                .and_then(|value| value.as_u64())
-                .map(|value| value as u32);
-            let value = params
-                .get("value")
-                .and_then(|value| value.as_str())
-                .unwrap_or("");
-
-            if let Some(id) = watch_id {
-                let expression = {
-                    let watches = state.watches.lock().unwrap();
-                    watches.get(&id).map(|watch| watch.expression.clone())
-                };
-
-                if let Some(expr) = expression {
-                    let parts: Vec<&str> = expr.split('.').collect();
-                    let (path, name) = if parts.len() > 1 {
-                        let name = parts.last().unwrap();
-                        let path = parts[..parts.len() - 1].join(".");
-                        (path, name.to_string())
-                    } else {
-                        ("dc.sh4.cpu".to_string(), parts[0].to_string())
-                    };
-                    let key = format!("{}.{}", path, name.to_lowercase());
-
-                    {
-                        let registers = state.register_values.lock().unwrap();
-                        if !registers.contains_key(&key) {
-                            return Ok((
-                                json!({
-                                    "error": {
-                                        "code": -32602,
-                                        "message": format!(
-                                            "Cannot edit non-register expression \"{}\"",
-                                            expr
-                                        ),
-                                    }
-                                }),
-                                false,
-                            ));
-                        }
-                    }
-
-                    state.set_register_value(&path, &name, value.to_string());
-                    return Ok((json!({}), true));
-                }
-
-                return Ok((
-                    json!({
-                        "error": {
-                            "code": -32602,
-                            "message": format!("Watch \"{}\" not found", id),
-                        }
-                    }),
-                    false,
-                ));
-            }
-
+            // Editing watch values not supported when using real emulator
+            // This would require writing back to emulator memory/registers
             Ok((
                 json!({
                     "error": {
                         "code": -32602,
-                        "message": "Watch not found or cannot edit",
+                        "message": "Watch editing not supported",
                     }
                 }),
                 false,
@@ -1507,37 +1167,26 @@ fn handle_request(
 
         "control.pause" => {
             if dreamcast_ptr != 0 {
-                let dreamcast = dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
-                nulldc::dreamcast::set_dreamcast_running(dreamcast, false);
+                let dreamcast = dreamcast_ptr as *mut dreamcast::Dreamcast;
+                dreamcast::set_dreamcast_running(dreamcast, false);
             }
-            state.set_running(false);
             Ok((json!({}), true))
         }
 
         "control.step" | "control.stepOver" | "control.stepOut" => {
-            let target = params
-                .get("target")
-                .and_then(|value| value.as_str())
-                .unwrap_or("sh4");
-
             if dreamcast_ptr != 0 {
-                let dreamcast = dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
-                nulldc::dreamcast::step_dreamcast(dreamcast);
-                nulldc::dreamcast::set_dreamcast_running(dreamcast, false);
-            } else {
-                state.increment_program_counter(target);
+                let dreamcast = dreamcast_ptr as *mut dreamcast::Dreamcast;
+                dreamcast::step_dreamcast(dreamcast);
+                dreamcast::set_dreamcast_running(dreamcast, false);
             }
-
-            state.set_running(false);
             Ok((json!({}), true))
         }
 
         "control.runUntil" => {
             if dreamcast_ptr != 0 {
-                let dreamcast = dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
-                nulldc::dreamcast::set_dreamcast_running(dreamcast, true);
+                let dreamcast = dreamcast_ptr as *mut dreamcast::Dreamcast;
+                dreamcast::set_dreamcast_running(dreamcast, true);
             }
-            state.set_running(true);
             Ok((json!({}), true))
         }
 
@@ -1649,64 +1298,5 @@ fn handle_request(
             message: format!("Method not found: {}", request.method),
             data: None,
         }),
-    }
-}
-
-pub async fn handle_websocket_connection(socket: WebSocket, dreamcast_ptr: usize) {
-    use std::sync::OnceLock;
-    static STATE: OnceLock<Arc<ServerState>> = OnceLock::new();
-    let state = STATE.get_or_init(|| Arc::new(ServerState::new())).clone();
-
-    // Convert usize back to *mut Dreamcast when needed to access emulator state
-    // let _dreamcast = dreamcast_ptr as *mut nulldc::dreamcast::Dreamcast;
-    // TODO: Use dreamcast pointer to read/write actual emulator state instead of mock data
-
-    let (mut sender, mut receiver) = socket.split();
-
-    while let Some(Ok(msg)) = receiver.next().await {
-        match msg {
-            Message::Text(text) => {
-                if let Ok(request) = serde_json::from_str::<JsonRpcRequest>(&text) {
-                    let id = request.id.clone();
-                    match handle_request(state.clone(), dreamcast_ptr, request) {
-                        Ok((result, should_broadcast)) => {
-                            let response = JsonRpcSuccess {
-                                jsonrpc: JSON_RPC_VERSION.to_string(),
-                                id,
-                                result,
-                            };
-                            if let Ok(json) = serde_json::to_string(&response) {
-                                let _ = sender.send(Message::Text(json.into())).await;
-                            }
-
-                            if should_broadcast {
-                                let tick = state.build_tick(dreamcast_ptr, None);
-                                let notification = JsonRpcNotification {
-                                    jsonrpc: JSON_RPC_VERSION.to_string(),
-                                    method: "event.tick".to_string(),
-                                    params: serde_json::to_value(tick).unwrap(),
-                                };
-
-                                if let Ok(json) = serde_json::to_string(&notification) {
-                                    let _ = sender.send(Message::Text(json.into())).await;
-                                }
-                            }
-                        }
-                        Err(error) => {
-                            let response = JsonRpcError {
-                                jsonrpc: JSON_RPC_VERSION.to_string(),
-                                id,
-                                error,
-                            };
-                            if let Ok(json) = serde_json::to_string(&response) {
-                                let _ = sender.send(Message::Text(json.into())).await;
-                            }
-                        }
-                    }
-                }
-            }
-            Message::Close(_) => break,
-            _ => {}
-        }
     }
 }

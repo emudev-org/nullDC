@@ -11,6 +11,9 @@ use wasm_logger;
 #[cfg(target_arch = "wasm32")]
 use wgpu::web_sys;
 
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+use muda::{Menu, MenuItem};
+
 use winit::window::Window;
 use winit::window::WindowAttributes;
 use winit::{
@@ -20,10 +23,21 @@ use winit::{
 };
 
 use git_version::git_version;
-use wgpu::util::DeviceExt;
 
 pub use dreamcast;
 use dreamcast::{Dreamcast, present_for_texture, run_slice_dreamcast};
+
+mod debugger_core;
+
+#[cfg(target_arch = "wasm32")]
+mod debugger_html5_broadcast_server;
+#[cfg(target_arch = "wasm32")]
+use debugger_html5_broadcast_server::BroadcastDebugServer;
+
+#[cfg(not(target_arch = "wasm32"))]
+mod debugger_websocket_server;
+#[cfg(not(target_arch = "wasm32"))]
+pub use debugger_websocket_server::start_debugger_server;
 
 const GIT_HASH: &str = git_version!();
 
@@ -35,59 +49,28 @@ struct State {
     config: wgpu::SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
     render_pipeline: wgpu::RenderPipeline,
-    vertex_buffer: wgpu::Buffer,
-    bind_group: wgpu::BindGroup,
-    egui_renderer: egui_wgpu::Renderer,
-    egui_state: egui_winit::State,
-    egui_ctx: egui::Context,
-    // UI state
-    clear_color: [f32; 3],
-    show_triangle: bool,
-    framebuffer: egui::TextureHandle,
+    bind_group_layout: wgpu::BindGroupLayout,
+    uniform_bind_group_layout: wgpu::BindGroupLayout,
+    uniform_buffer: wgpu::Buffer,
+    uniform_bind_group: wgpu::BindGroup,
+    framebuffer_texture: wgpu::Texture,
+    framebuffer_bind_group: wgpu::BindGroup,
+    framebuffer_width: u32,
+    framebuffer_height: u32,
 }
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-struct Vertex {
-    position: [f32; 3],
-    tex_coords: [f32; 2],
+struct Uniforms {
+    window_width: f32,
+    window_height: f32,
+    fb_width: f32,
+    fb_height: f32,
 }
 
-impl Vertex {
-    fn desc() -> wgpu::VertexBufferLayout<'static> {
-        wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &[
-                wgpu::VertexAttribute {
-                    offset: 0,
-                    shader_location: 0,
-                    format: wgpu::VertexFormat::Float32x3,
-                },
-                wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
-                    shader_location: 1,
-                    format: wgpu::VertexFormat::Float32x2,
-                },
-            ],
-        }
-    }
-}
-
-const VERTICES: &[Vertex] = &[
-    Vertex {
-        position: [0.0, 0.5, 0.0],
-        tex_coords: [0.5, 0.0],
-    },
-    Vertex {
-        position: [-0.5, -0.5, 0.0],
-        tex_coords: [0.0, 1.0],
-    },
-    Vertex {
-        position: [0.5, -0.5, 0.0],
-        tex_coords: [1.0, 1.0],
-    },
-];
+// Framebuffer dimensions - default Dreamcast resolution
+const DEFAULT_FB_WIDTH: u32 = 640;
+const DEFAULT_FB_HEIGHT: u32 = 480;
 
 // In your initialization code (probably in main or new)
 #[cfg(target_arch = "wasm32")]
@@ -145,7 +128,7 @@ impl State {
             .formats
             .iter()
             .copied()
-            .find(|f| f.is_srgb())
+            .find(|f| !f.is_srgb())
             .unwrap_or(surface_caps.formats[0]);
 
         let present_mode = surface_caps
@@ -168,60 +151,28 @@ impl State {
         log::info!("Surface size: {}x{}", config.width, config.height);
         surface.configure(&device, &config);
 
-        // Checker texture
-        let texture_size = 256u32;
-        let texture_data: Vec<u8> = (0..texture_size * texture_size)
-            .flat_map(|i| {
-                let x = i % texture_size;
-                let y = i / texture_size;
-                let checker = ((x / 32) + (y / 32)) % 2 == 0;
-                if checker {
-                    [255, 100, 100, 255]
-                } else {
-                    [100, 100, 255, 255]
-                }
-            })
-            .collect();
-
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
+        // Create framebuffer texture
+        let framebuffer_texture = device.create_texture(&wgpu::TextureDescriptor {
             size: wgpu::Extent3d {
-                width: texture_size,
-                height: texture_size,
+                width: DEFAULT_FB_WIDTH,
+                height: DEFAULT_FB_HEIGHT,
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            label: Some("texture"),
+            label: Some("framebuffer_texture"),
             view_formats: &[],
         });
 
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            &texture_data,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(4 * texture_size),
-                rows_per_image: Some(texture_size),
-            },
-            wgpu::Extent3d {
-                width: texture_size,
-                height: texture_size,
-                depth_or_array_layers: 1,
-            },
-        );
-
-        let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let framebuffer_view = framebuffer_texture.create_view(&wgpu::TextureViewDescriptor::default());
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Linear,
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
             ..Default::default()
         });
 
@@ -244,22 +195,62 @@ impl State {
                     count: None,
                 },
             ],
-            label: Some("texture_bind_group_layout"),
+            label: Some("framebuffer_bind_group_layout"),
         });
 
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let framebuffer_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&texture_view),
+                    resource: wgpu::BindingResource::TextureView(&framebuffer_view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
                     resource: wgpu::BindingResource::Sampler(&sampler),
                 },
             ],
-            label: Some("texture_bind_group"),
+            label: Some("framebuffer_bind_group"),
+        });
+
+        // Create uniform buffer for window/framebuffer dimensions
+        let uniforms = Uniforms {
+            window_width: size.width as f32,
+            window_height: size.height as f32,
+            fb_width: DEFAULT_FB_WIDTH as f32,
+            fb_height: DEFAULT_FB_HEIGHT as f32,
+        };
+
+        let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Uniform Buffer"),
+            size: std::mem::size_of::<Uniforms>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        queue.write_buffer(&uniform_buffer, 0, bytemuck::cast_slice(&[uniforms]));
+
+        let uniform_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+            label: Some("uniform_bind_group_layout"),
+        });
+
+        let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &uniform_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniform_buffer.as_entire_binding(),
+            }],
+            label: Some("uniform_bind_group"),
         });
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -270,7 +261,7 @@ impl State {
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[&bind_group_layout],
+                bind_group_layouts: &[&bind_group_layout, &uniform_bind_group_layout],
                 push_constant_ranges: &[],
             });
 
@@ -280,7 +271,7 @@ impl State {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs_main"),
-                buffers: &[Vertex::desc()],
+                buffers: &[],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -300,30 +291,6 @@ impl State {
             cache: None,
         });
 
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Vertex Buffer"),
-            contents: bytemuck::cast_slice(VERTICES),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-
-        let egui_ctx = egui::Context::default();
-        let egui_state = egui_winit::State::new(
-            egui_ctx.clone(),
-            egui::ViewportId::ROOT,
-            &*window,
-            Some(window.scale_factor() as f32),
-            None,
-            None,
-        );
-
-        let egui_renderer = egui_wgpu::Renderer::new(&device, config.format, None, 1, false);
-
-        let framebuffer: egui::TextureHandle = egui_ctx.load_texture(
-            "framebuffer",
-            egui::ColorImage::new([640, 480], vec![egui::Color32::BLACK; 640 * 480]),
-            egui::TextureOptions::NEAREST,
-        );
-
         Self {
             window,
             surface,
@@ -332,14 +299,14 @@ impl State {
             config,
             size,
             render_pipeline,
-            vertex_buffer,
-            bind_group,
-            egui_renderer,
-            egui_state,
-            egui_ctx,
-            clear_color: [0.1, 0.2, 0.3],
-            show_triangle: true,
-            framebuffer,
+            bind_group_layout,
+            uniform_bind_group_layout,
+            uniform_buffer,
+            uniform_bind_group,
+            framebuffer_texture,
+            framebuffer_bind_group,
+            framebuffer_width: DEFAULT_FB_WIDTH,
+            framebuffer_height: DEFAULT_FB_HEIGHT,
         }
     }
 
@@ -349,6 +316,15 @@ impl State {
             self.config.width = new_size.width;
             self.config.height = new_size.height;
             self.surface.configure(&self.device, &self.config);
+
+            // Update uniforms with new window size
+            let uniforms = Uniforms {
+                window_width: new_size.width as f32,
+                window_height: new_size.height as f32,
+                fb_width: self.framebuffer_width as f32,
+                fb_height: self.framebuffer_height as f32,
+            };
+            self.queue.write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[uniforms]));
         }
     }
 
@@ -358,60 +334,22 @@ impl State {
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
-        // Begin egui frame
-        let raw_input = self.egui_state.take_egui_input(&*self.window);
-        let egui_output = self.egui_ctx.run(raw_input, |ctx| {
-            egui::Window::new("Framebuffer").show(ctx, |ui| {
-                ui.image((self.framebuffer.id(), egui::vec2(640.0, 480.0)));
-            });
-        });
-
-        // Upload egui textures and meshes
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("main encoder"),
+                label: Some("Render Encoder"),
             });
 
-        let screen_desc = egui_wgpu::ScreenDescriptor {
-            size_in_pixels: [self.config.width, self.config.height],
-            // FIX 1: Use egui Context for ppp
-            pixels_per_point: self.egui_ctx.pixels_per_point(),
-        };
-
-        for (id, image_delta) in &egui_output.textures_delta.set {
-            self.egui_renderer
-                .update_texture(&self.device, &self.queue, *id, image_delta);
-        }
-
-        let paint_jobs = self
-            .egui_ctx
-            .tessellate(egui_output.shapes, self.egui_ctx.pixels_per_point());
-        self.egui_renderer.update_buffers(
-            &self.device,
-            &self.queue,
-            &mut encoder,
-            &paint_jobs,
-            &screen_desc,
-        );
-
-        // 1) Clear + draw triangle (if enabled)
+        // Single render pass - draw fullscreen quad with framebuffer texture
         {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("triangle pass"),
+                label: Some("Framebuffer Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
-                    // FIX 2: New field in wgpu
                     depth_slice: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: self.clear_color[0] as f64,
-                            g: self.clear_color[1] as f64,
-                            b: self.clear_color[2] as f64,
-                            a: 1.0,
-                        }),
-                        // FIX 3: StoreOp, not bool
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -420,85 +358,116 @@ impl State {
                 occlusion_query_set: None,
             });
 
-            if self.show_triangle {
-                rpass.set_pipeline(&self.render_pipeline);
-                rpass.set_bind_group(0, &self.bind_group, &[]);
-                rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-                rpass.draw(0..3, 0..1);
-            }
+            rpass.set_pipeline(&self.render_pipeline);
+            rpass.set_bind_group(0, &self.framebuffer_bind_group, &[]);
+            rpass.set_bind_group(1, &self.uniform_bind_group, &[]);
+            rpass.draw(0..6, 0..1); // Draw 6 vertices for fullscreen quad (2 triangles)
         }
 
-        // 2) Draw egui on top (separate pass, load existing color)
-        {
-            let rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("egui pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    depth_slice: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
-
-            let mut rpass = rpass.forget_lifetime();
-
-            // FIX 4: render into a RenderPass, not encoder+view
-            self.egui_renderer
-                .render(&mut rpass, &paint_jobs, &screen_desc);
-        }
-
-        // Submit
         self.queue.submit(Some(encoder.finish()));
         output.present();
 
-        // Cleanup egui textures
-        for id in &egui_output.textures_delta.free {
-            self.egui_renderer.free_texture(id);
+        Ok(())
+    }
+
+    fn update_framebuffer(&mut self, rgba_data: &[u8], width: usize, height: usize) {
+        // If framebuffer size changed, recreate texture and bind group
+        if width as u32 != self.framebuffer_width || height as u32 != self.framebuffer_height {
+            self.framebuffer_width = width as u32;
+            self.framebuffer_height = height as u32;
+
+            self.framebuffer_texture = self.device.create_texture(&wgpu::TextureDescriptor {
+                size: wgpu::Extent3d {
+                    width: self.framebuffer_width,
+                    height: self.framebuffer_height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                label: Some("framebuffer_texture"),
+                view_formats: &[],
+            });
+
+            let framebuffer_view = self.framebuffer_texture.create_view(&wgpu::TextureViewDescriptor::default());
+            let sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
+                mag_filter: wgpu::FilterMode::Linear,
+                min_filter: wgpu::FilterMode::Linear,
+                address_mode_u: wgpu::AddressMode::ClampToEdge,
+                address_mode_v: wgpu::AddressMode::ClampToEdge,
+                ..Default::default()
+            });
+
+            self.framebuffer_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &self.bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&framebuffer_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&sampler),
+                    },
+                ],
+                label: Some("framebuffer_bind_group"),
+            });
+
+            // Update uniforms with new framebuffer size
+            let uniforms = Uniforms {
+                window_width: self.config.width as f32,
+                window_height: self.config.height as f32,
+                fb_width: self.framebuffer_width as f32,
+                fb_height: self.framebuffer_height as f32,
+            };
+            self.queue.write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[uniforms]));
         }
 
-        //     log::info!("Render");
-        //     let frame = self.surface.get_current_texture().unwrap();
-        // let view = frame.texture.create_view(&Default::default());
-
-        // let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        //     label: Some("Render Encoder"),
-        // });
-
-        // {
-        //     let _rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-        //         label: Some("Clear Pass"),
-        //         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-        //             view: &view,
-        //             resolve_target: None,
-        //             depth_slice: None,
-        //             ops: wgpu::Operations {
-        //                 load: wgpu::LoadOp::Clear(wgpu::Color::RED), // force bright red
-        //                 store: wgpu::StoreOp::Store,
-        //             },
-        //         })],
-        //         depth_stencil_attachment: None,
-        //         timestamp_writes: None,
-        //         occlusion_query_set: None,
-        //     });
-        // }
-
-        // self.queue.submit(Some(encoder.finish()));
-        // frame.present();
-
-        Ok(())
+        // Write framebuffer data to texture
+        self.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.framebuffer_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            rgba_data,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * self.framebuffer_width),
+                rows_per_image: Some(self.framebuffer_height),
+            },
+            wgpu::Extent3d {
+                width: self.framebuffer_width,
+                height: self.framebuffer_height,
+                depth_or_array_layers: 1,
+            },
+        );
     }
 }
 
-#[derive(Default)]
 struct App {
     state: Option<State>,
     dreamcast: *mut Dreamcast,
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    menu: Option<Menu>,
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    devtools_item: Option<MenuItem>,
+}
+
+impl Default for App {
+    fn default() -> Self {
+        Self {
+            state: None,
+            dreamcast: std::ptr::null_mut(),
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
+            menu: None,
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
+            devtools_item: None,
+        }
+    }
 }
 
 // Import ApplicationHandler trait from winit
@@ -514,6 +483,10 @@ impl AppHandle {
         AppHandle(Rc::new(RefCell::new(App {
             state: None,
             dreamcast: dreamcast,
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
+            menu: None,
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
+            devtools_item: None,
         })))
     }
 }
@@ -560,10 +533,39 @@ impl ApplicationHandler for AppHandle {
 
         let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
 
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(any(target_os = "windows", target_os = "macos"))]
+        {
+            // Create menu
+            let menu = Menu::new();
+            let devtools_item = MenuItem::new("DevTools", true, None);
+
+            menu.append(&devtools_item).unwrap();
+
+            // Initialize menu for the window
+            #[cfg(target_os = "windows")]
+            {
+                use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+                if let Ok(handle) = window.window_handle() {
+                    if let RawWindowHandle::Win32(win32_handle) = handle.as_ref() {
+                        unsafe {
+                            menu.init_for_hwnd(win32_handle.hwnd.get() as _).unwrap();
+                        }
+                    }
+                }
+            }
+
+            let state = pollster::block_on(State::new(window.clone()));
+            let mut app = self.0.borrow_mut();
+            app.state = Some(state);
+            app.menu = Some(menu);
+            app.devtools_item = Some(devtools_item);
+        }
+
+        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "windows"), not(target_os = "macos")))]
         {
             let state = pollster::block_on(State::new(window));
-            self.0.borrow_mut().state = Some(state);
+            let mut app = self.0.borrow_mut();
+            app.state = Some(state);
         }
 
         #[cfg(target_arch = "wasm32")]
@@ -594,88 +596,87 @@ impl ApplicationHandler for AppHandle {
     ) {
         let mut app = self.0.borrow_mut();
 
-        if let Some(state) = app.state.as_mut() {
-            if !state
-                .egui_state
-                .on_window_event(&state.window, &event)
-                .consumed
-            {
-                match event {
-                    WindowEvent::CloseRequested
-                    | WindowEvent::KeyboardInput {
-                        event:
-                            KeyEvent {
-                                state: ElementState::Pressed,
-                                physical_key: PhysicalKey::Code(KeyCode::Escape),
-                                ..
-                            },
-                        ..
-                    } => {
-                        event_loop.exit();
-                    }
-
-                    WindowEvent::Resized(size) => {
-                        if let Some(state) = app.state.as_mut() {
-                            state.resize(size);
-                        }
-                    }
-
-                    WindowEvent::RedrawRequested => {
-                        let mut image: Option<egui::ColorImage> = None;
-
-                        if !app.dreamcast.is_null() {
-                            let dreamcast = app.dreamcast;
-                            run_slice_dreamcast(dreamcast);
-                        }
-
-                        if let Some((rgba, width, height)) = present_for_texture() {
-                            let pixel_count = width.saturating_mul(height);
-                            if pixel_count > 0 && rgba.len() >= pixel_count * 4 {
-                                let mut pixels = Vec::with_capacity(pixel_count);
-                                for chunk in rgba.chunks_exact(4) {
-                                    pixels.push(egui::Color32::from_rgba_unmultiplied(
-                                        chunk[0], chunk[1], chunk[2], chunk[3],
-                                    ));
-                                }
-                                image = Some(egui::ColorImage {
-                                    size: [width, height],
-                                    pixels,
-                                    source_size: egui::vec2(width as f32, height as f32),
-                                });
-                            }
-                        }
-
-                        if let Some(state) = app.state.as_mut() {
-                            // Update framebuffer texture
-                            if let Some(image) = image {
-                                state.framebuffer.set(image, egui::TextureOptions::NEAREST);
-                            }
-                            // Render
-                            match state.render() {
-                                Ok(()) => {}
-                                Err(wgpu::SurfaceError::Lost)
-                                | Err(wgpu::SurfaceError::Outdated) => {
-                                    state.resize(state.size);
-                                }
-                                Err(wgpu::SurfaceError::OutOfMemory) => {
-                                    // event_loop.exit();
-                                }
-                                Err(wgpu::SurfaceError::Timeout) => {
-                                    // skip frame
-                                }
-                                Err(_) => {}
-                            }
-                        }
-                    }
-
-                    _ => {}
+        if let Some(_state) = app.state.as_mut() {
+            match event {
+                WindowEvent::CloseRequested
+                | WindowEvent::KeyboardInput {
+                    event:
+                        KeyEvent {
+                            state: ElementState::Pressed,
+                            physical_key: PhysicalKey::Code(KeyCode::Escape),
+                            ..
+                        },
+                    ..
+                } => {
+                    event_loop.exit();
                 }
+
+                WindowEvent::Resized(size) => {
+                    if let Some(state) = app.state.as_mut() {
+                        state.resize(size);
+                    }
+                }
+
+                WindowEvent::RedrawRequested => {
+                    // Run emulator slice
+                    if !app.dreamcast.is_null() {
+                        let dreamcast = app.dreamcast;
+                        run_slice_dreamcast(dreamcast);
+                    }
+
+                    // Get framebuffer from emulator and update texture
+                    if let Some((rgba, width, height)) = present_for_texture() {
+                        let pixel_count = width.saturating_mul(height);
+                        if pixel_count > 0 && rgba.len() >= pixel_count * 4 {
+                            if let Some(state) = app.state.as_mut() {
+                                state.update_framebuffer(&rgba, width, height);
+                            }
+                        }
+                    }
+
+                    // Render
+                    if let Some(state) = app.state.as_mut() {
+                        match state.render() {
+                            Ok(()) => {}
+                            Err(wgpu::SurfaceError::Lost) | Err(wgpu::SurfaceError::Outdated) => {
+                                state.resize(state.size);
+                            }
+                            Err(wgpu::SurfaceError::OutOfMemory) => {
+                                event_loop.exit();
+                            }
+                            Err(wgpu::SurfaceError::Timeout) => {
+                                // skip frame
+                            }
+                            Err(_) => {}
+                        }
+                    }
+                }
+
+                _ => {}
             }
         }
     }
 
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
         let app = self.0.borrow_mut();
+
+        // Handle menu events (Windows and macOS only)
+        #[cfg(any(target_os = "windows", target_os = "macos"))]
+        {
+            if let Some(ref devtools_item) = app.devtools_item {
+                if let Ok(event) = muda::MenuEvent::receiver().try_recv() {
+                    if event.id == devtools_item.id() {
+                        // Open DevTools URL in default browser
+                        if let Err(e) = open::that("http://127.0.0.1:55543") {
+                            log::error!("Failed to open DevTools URL: {}", e);
+                        } else {
+                            log::info!("Opened DevTools in default browser");
+                        }
+                    }
+                }
+            }
+        }
+
         if let Some(state) = app.state.as_ref() {
             state.window.request_redraw();
         }
@@ -715,6 +716,23 @@ pub async fn wasm_main_with_bios(bios_rom: Vec<u8>, bios_flash: Vec<u8>) {
     // Create and initialize Dreamcast with provided BIOS
     let dc = Box::into_raw(Box::new(Dreamcast::default()));
     dreamcast::init_dreamcast(dc, &bios_rom, &bios_flash);
+    let debug_server = BroadcastDebugServer::new(dc);
+
+    // Start broadcast debug server for WASM
+    match debug_server {
+        Ok(mut server) => {
+            if let Err(e) = server.start() {
+                log::error!("Failed to start broadcast debug server: {:?}", e);
+            } else {
+                log::info!("Broadcast debug server started successfully");
+                // Keep the server alive by forgetting it (leak it intentionally)
+                std::mem::forget(server);
+            }
+        }
+        Err(e) => {
+            log::error!("Failed to create broadcast debug server: {:?}", e);
+        }
+    }
 
     run(Some(dc)).await;
 }

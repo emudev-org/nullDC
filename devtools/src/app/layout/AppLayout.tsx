@@ -47,6 +47,7 @@ import {
   TlbContentsPanel,
 } from "../panels/Sh4CachePanels";
 import { AboutDialog } from "./AboutDialog";
+import { ConnectionModal } from "./ConnectionModal";
 import { useAboutModal } from "./useAboutModal";
 import { TopNav } from "./TopNav";
 import { useThemeMode } from "../../theme/ThemeModeProvider";
@@ -153,11 +154,15 @@ interface AppLayoutProps {
 export const AppLayout = ({ workspaceId }: AppLayoutProps) => {
   const connect = useSessionStore((state) => state.connect);
   const disconnect = useSessionStore((state) => state.disconnect);
+  const startDiscovery = useSessionStore((state) => state.startDiscovery);
+  const stopDiscovery = useSessionStore((state) => state.stopDiscovery);
   const connectionState = useSessionStore((state) => state.connectionState);
   const connectionError = useSessionStore((state) => state.connectionError);
   const endpoint = useSessionStore((state) => state.endpoint);
   const client = useSessionStore((state) => state.client);
   const executionState = useSessionStore((state) => state.executionState);
+  const showConnectionModal = useSessionStore((state) => state.showConnectionModal);
+  const setShowConnectionModal = useSessionStore((state) => state.setShowConnectionModal);
   const initializeData = useDebuggerDataStore((state) => state.initialize);
   const breakpointHit = useDebuggerDataStore((state) => state.breakpointHit);
   const errorMessage = useDebuggerDataStore((state) => state.errorMessage);
@@ -328,6 +333,15 @@ export const AppLayout = ({ workspaceId }: AppLayoutProps) => {
     }
   }, [leftPanelOpen, rightPanelOpen, workspaceId]);
 
+  // Start discovery on mount
+  useEffect(() => {
+    startDiscovery();
+    return () => {
+      stopDiscovery();
+    };
+  }, [startDiscovery, stopDiscovery]);
+
+  // Auto-connect once discovery is ready
   useEffect(() => {
     void connect();
   }, [connect]);
@@ -628,11 +642,25 @@ export const AppLayout = ({ workspaceId }: AppLayoutProps) => {
       >
         <Typography variant="caption">Connection: {connectionState}</Typography>
         <Divider orientation="vertical" flexItem />
-        <Typography variant="caption">Endpoint: {endpoint ?? "-"}</Typography>
+        <Tooltip title="Click to change connection">
+          <Typography
+            variant="caption"
+            sx={{
+              cursor: "pointer",
+              "&:hover": {
+                textDecoration: "underline",
+              },
+            }}
+            onClick={() => setShowConnectionModal(true)}
+          >
+            Endpoint: {endpoint ?? "-"}
+          </Typography>
+        </Tooltip>
         <Box sx={{ flexGrow: 1 }} />
         <Typography variant="caption">nullDC Debugger {DEBUGGER_VERSION}</Typography>
       </Box>
       <AboutDialog open={aboutOpen} onClose={hideAbout} />
+      <ConnectionModal open={showConnectionModal} onClose={() => setShowConnectionModal(false)} />
       <Box
         sx={{
           position: "fixed",

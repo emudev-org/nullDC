@@ -11,7 +11,7 @@ import type {
 import { DebuggerRpcMethodSchemas, RpcMethod } from "../lib/debuggerSchema";
 import { JsonRpcClient } from "./jsonRpcClient";
 import type { JsonRpcClientOptions } from "./jsonRpcClient";
-import type { DebuggerTransport, TransportOptions } from "./transport";
+import type { DebuggerTransport, TransportOptions, TransportState, TransportStateHandler } from "./transport";
 import { createTransport } from "./transport";
 
 export interface DebuggerClientConfig {
@@ -136,6 +136,14 @@ export class DebuggerClient {
   onNotification(handler: (notification: DebuggerNotification) => void): () => void {
     this.notificationHandlers.add(handler);
     return () => this.notificationHandlers.delete(handler);
+  }
+
+  onTransportStateChange(handler: TransportStateHandler): () => void {
+    return this.transport.onStateChange(handler);
+  }
+
+  get transportState(): TransportState {
+    return this.transport.state;
   }
 }
 
