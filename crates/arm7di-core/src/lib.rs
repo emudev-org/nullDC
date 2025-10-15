@@ -1,13 +1,9 @@
-//! Simplified ARM7 (ARMv4) direct interpreter.
+//! ARM7di (ARMv4 without thumb or mul) interpreter
 //!
-//! This is a clean-room Rust translation of the interpreter used by
-//! libswirl's AICA ARM7 core. The goal of this port is functional parity
-//! rather than raw speed; the implementation favours clarity and correctness
-//! over micro-optimisations.
-//!
-//! The interpreter only executes ARM state (no Thumb) because the Dreamcast's
-//! audio ARM never enables the T bit. Coprocessor instructions are treated as
-//! no-ops, which matches the behaviour relied upon by the original project.
+//! This has been transvibed from vba-m's ARM7tdmi interpreter, as used in libswirl.
+//! vba-m is licensed under GPLv2, and so is this file.
+//! 
+//! For clarity note the dreamcast has an arm7di (no thumb, no extenl mul).
 
 #![allow(clippy::too_many_arguments)]
 #![allow(dead_code)]
@@ -1173,76 +1169,6 @@ impl<'a> Arm7Di<'a> {
         1
     }
 
-    fn exec_halfword_transfer(&mut self, opcode: u32) -> u32 {
-        let p = opcode & (1 << 24) != 0;
-        let u = opcode & (1 << 23) != 0;
-        let i = opcode & (1 << 22) != 0;
-        let w = opcode & (1 << 21) != 0;
-        let l = opcode & (1 << 20) != 0;
-        let rn = ((opcode >> 16) & 0xF) as usize;
-        let rd = ((opcode >> 12) & 0xF) as usize;
-        let s = opcode & (1 << 6) != 0;
-        let h = opcode & (1 << 5) != 0;
-
-        let base = self.ctx.regs[rn].get();
-        let offset = if i {
-            ((opcode >> 8) & 0xF) << 4 | (opcode & 0xF)
-        } else {
-            self.ctx.regs[(opcode & 0xF) as usize].get()
-        };
-        let offset = if u {
-            base.wrapping_add(offset)
-        } else {
-            base.wrapping_sub(offset)
-        };
-        let address = if p { offset } else { base };
-
-        if l {
-            let value = if h {
-                // halfword load
-                let data = self.ctx.read32(address & !1);
-                if address & 1 != 0 {
-                    ((data >> 8) & 0xFFFF) as u32
-                } else {
-                    (data & 0xFFFF) as u32
-                }
-            } else if s {
-                // signed byte
-                self.ctx.read8(address) as i8 as i32 as u32
-            } else {
-                // signed halfword
-                let data = self.ctx.read32(address & !1);
-                let half = if address & 1 != 0 {
-                    ((data >> 8) & 0xFFFF) as u32
-                } else {
-                    (data & 0xFFFF) as u32
-                };
-                (half as i16) as i32 as u32
-            };
-            if rd == 15 {
-                self.write_pc(value);
-            } else {
-                self.ctx.regs[rd].set(value);
-            }
-        } else {
-            let value = self.ctx.regs[rd].get();
-            if h {
-                // store halfword
-                self.ctx
-                    .write32(address & !1, (value & 0xFFFF) | ((value & 0xFFFF) << 16));
-            } else {
-                // store double? treat as halfword
-                self.ctx.write8(address, value as u8);
-            }
-        }
-
-        if w || !p {
-            self.ctx.regs[rn].set(offset);
-        }
-
-        1
-    }
-
     fn exec_block_transfer(&mut self, opcode: u32) -> u32 {
         let p = opcode & (1 << 24) != 0;
         let u = opcode & (1 << 23) != 0;
@@ -1439,11 +1365,6 @@ impl<'a> Arm7Di<'a> {
         // Note: bits[15:12] (Rn) must be 0000 for MUL, but can be anything for MLA
         if opcode & 0x0FC0_00F0 == 0x0000_0090 {
             return self.exec_multiply(opcode);
-        }
-
-        // Halfword/signed transfer detection
-        if opcode & 0x0E40_0F0 == 0x0000_090 {
-            return self.exec_halfword_transfer(opcode);
         }
 
         let op_class = (opcode >> 25) & 0x7;
