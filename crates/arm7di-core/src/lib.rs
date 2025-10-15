@@ -1317,15 +1317,12 @@ impl<'a> Arm7Di<'a> {
     fn exec_branch(&mut self, opcode: u32) -> u32 {
         let link = opcode & (1 << 24) != 0;
         let offset = opcode & 0x00FF_FFFF;
-        // Sign-extend the 24-bit offset to 32 bits, then shift left by 2
-        // Use arithmetic shift to sign-extend: shift left 8 to move bit 23 to bit 31,
-        // then arithmetic shift right 8 to sign-extend, then logical shift left 2
-        let offset = (((offset << 8) as i32) >> 8) as u32 << 2;
+        let offset = ((opcode << 10) as i32) >> 8;
         let next = self.ctx.regs[R15_ARM_NEXT].get();
         if link {
             self.ctx.regs[14].set(self.ctx.regs[15].get().wrapping_sub(4));
         }
-        self.write_pc(next.wrapping_add(offset));
+        self.write_pc(next.wrapping_add_signed(offset));
         1
     }
 
