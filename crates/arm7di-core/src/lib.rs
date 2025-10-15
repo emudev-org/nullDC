@@ -880,8 +880,10 @@ impl<'a> Arm7Di<'a> {
     }
 
     fn is_swap(opcode: u32) -> bool {
+        // Per ARM7DI datasheet section 4.9: Cond 00010 B 00 Rn Rd 0000 1001 Rm
+        // bits[27:23]=00010, bits[21:20]=00, bits[11:8]=0000, bits[7:4]=1001
         ((opcode >> 23) & 0x1F) == 0b00010
-            && ((opcode >> 21) & 1) == 0
+            && ((opcode >> 20) & 0x3) == 0  // Check both bits 21 and 20
             && ((opcode >> 8) & 0xF) == 0
             && ((opcode >> 4) & 0xF) == 0x9
     }
@@ -1346,6 +1348,27 @@ impl<'a> Arm7Di<'a> {
         4
     }
 
+    fn exec_undefined_instruction(&mut self, _opcode: u32) -> u32 {
+        // Take undefined instruction trap.
+        // Per ARM7DI datasheet section 3.4.5:
+        // (1) Save PC+4 in R14_und, save CPSR in SPSR_und
+        // (2) Set mode to 0x1B (Undefined), set I bit
+        // (3) Branch to 0x04
+        let mut cpsr = self.ctx.regs[RN_CPSR].get_psr();
+        let return_address = self.ctx.regs[15].get().wrapping_sub(4);
+        cpsr.set_mode(MODE_UND);
+        cpsr.set_irq_mask(true);
+        self.ctx.arm_mode = MODE_UND;
+        self.ctx.regs[RN_SPSR].set_psr(self.ctx.regs[RN_CPSR].get_psr());
+        self.ctx.regs[RN_CPSR].set_psr(cpsr);
+        self.set_flags(cpsr);
+        self.ctx.arm_irq_enable = false;
+        self.ctx.arm_fiq_enable = !cpsr.fiq_masked();
+        self.ctx.regs[14].set(return_address);
+        self.write_pc(0x04);
+        4
+    }
+
     fn exec_single_opcode(&mut self, opcode: u32) -> u32 {
         if !self.condition_passed(opcode) {
             return 1;
@@ -1367,7 +1390,13 @@ impl<'a> Arm7Di<'a> {
             return self.exec_multiply(opcode);
         }
 
+        // Undefined instruction detection (must check before routing to single data transfer)
+        // Per ARM7DI datasheet section 4.14: bits[27:25]=011 AND bit[4]=1 is undefined
         let op_class = (opcode >> 25) & 0x7;
+        if op_class == 0b011 && (opcode & (1 << 4)) != 0 {
+            return self.exec_undefined_instruction(opcode);
+        }
+
         match op_class {
             0b000 | 0b001 => self.exec_data_processing(opcode),
             0b010 | 0b011 => self.exec_single_data_transfer(opcode),
@@ -1405,64 +1434,35 @@ impl<'a> Arm7Di<'a> {
         self.cpu_update_cpsr();
 
         let old_mode = self.ctx.arm_mode;
+
+        // Save old mode's banked registers (including r8-r12 for FIQ)
+        self.save_banked_regs(old_mode);
+
+        // Also save SPSR for non-USR/SYS modes
         match old_mode {
-            MODE_USR | MODE_SYS => {
-                self.ctx.regs[R13_USR].set(self.ctx.regs[13].get());
-                self.ctx.regs[R14_USR].set(self.ctx.regs[14].get());
-                self.ctx.regs[RN_SPSR].set(self.ctx.regs[RN_CPSR].get());
-            }
-            MODE_FIQ => {
-                self.ctx.regs[R8_FIQ].set(self.ctx.regs[8].get());
-                self.ctx.regs[R9_FIQ].set(self.ctx.regs[9].get());
-                self.ctx.regs[R10_FIQ].set(self.ctx.regs[10].get());
-                self.ctx.regs[R11_FIQ].set(self.ctx.regs[11].get());
-                self.ctx.regs[R12_FIQ].set(self.ctx.regs[12].get());
-                self.ctx.regs[R13_FIQ].set(self.ctx.regs[13].get());
-                self.ctx.regs[R14_FIQ].set(self.ctx.regs[14].get());
-                self.ctx.regs[SPSR_FIQ].set(self.ctx.regs[RN_SPSR].get());
-            }
-            MODE_IRQ => {
-                self.ctx.regs[R13_IRQ].set(self.ctx.regs[13].get());
-                self.ctx.regs[R14_IRQ].set(self.ctx.regs[14].get());
-                self.ctx.regs[SPSR_IRQ].set(self.ctx.regs[RN_SPSR].get());
-            }
-            MODE_SVC => {
-                self.ctx.regs[R13_SVC].set(self.ctx.regs[13].get());
-                self.ctx.regs[R14_SVC].set(self.ctx.regs[14].get());
-                self.ctx.regs[SPSR_SVC].set(self.ctx.regs[RN_SPSR].get());
-            }
-            MODE_ABT => {
-                self.ctx.regs[R13_ABT].set(self.ctx.regs[13].get());
-                self.ctx.regs[R14_ABT].set(self.ctx.regs[14].get());
-                self.ctx.regs[SPSR_ABT].set(self.ctx.regs[RN_SPSR].get());
-            }
-            MODE_UND => {
-                self.ctx.regs[R13_UND].set(self.ctx.regs[13].get());
-                self.ctx.regs[R14_UND].set(self.ctx.regs[14].get());
-                self.ctx.regs[SPSR_UND].set(self.ctx.regs[RN_SPSR].get());
-            }
+            MODE_FIQ => self.ctx.regs[SPSR_FIQ].set(self.ctx.regs[RN_SPSR].get()),
+            MODE_IRQ => self.ctx.regs[SPSR_IRQ].set(self.ctx.regs[RN_SPSR].get()),
+            MODE_SVC => self.ctx.regs[SPSR_SVC].set(self.ctx.regs[RN_SPSR].get()),
+            MODE_ABT => self.ctx.regs[SPSR_ABT].set(self.ctx.regs[RN_SPSR].get()),
+            MODE_UND => self.ctx.regs[SPSR_UND].set(self.ctx.regs[RN_SPSR].get()),
             _ => {}
         }
 
+        // Update mode in CPSR
         let mut cpsr = self.ctx.regs[RN_CPSR].get_psr();
         cpsr.set_mode(mode);
         self.ctx.arm_mode = mode;
         self.ctx.regs[RN_CPSR].set_psr(cpsr);
 
+        // Load new mode's banked registers (including r8-r12 for FIQ)
+        self.load_banked_regs(mode);
+
+        // Handle SPSR for new mode
         match mode {
             MODE_USR | MODE_SYS => {
-                self.ctx.regs[13].set(self.ctx.regs[R13_USR].get());
-                self.ctx.regs[14].set(self.ctx.regs[R14_USR].get());
                 self.ctx.regs[RN_SPSR].set(self.ctx.regs[RN_CPSR].get());
             }
             MODE_FIQ => {
-                self.ctx.regs[8].set(self.ctx.regs[R8_FIQ].get());
-                self.ctx.regs[9].set(self.ctx.regs[R9_FIQ].get());
-                self.ctx.regs[10].set(self.ctx.regs[R10_FIQ].get());
-                self.ctx.regs[11].set(self.ctx.regs[R11_FIQ].get());
-                self.ctx.regs[12].set(self.ctx.regs[R12_FIQ].get());
-                self.ctx.regs[13].set(self.ctx.regs[R13_FIQ].get());
-                self.ctx.regs[14].set(self.ctx.regs[R14_FIQ].get());
                 if save_state {
                     self.ctx.regs[RN_SPSR].set(self.ctx.regs[RN_CPSR].get());
                 } else {
@@ -1470,8 +1470,6 @@ impl<'a> Arm7Di<'a> {
                 }
             }
             MODE_IRQ => {
-                self.ctx.regs[13].set(self.ctx.regs[R13_IRQ].get());
-                self.ctx.regs[14].set(self.ctx.regs[R14_IRQ].get());
                 if save_state {
                     self.ctx.regs[RN_SPSR].set(self.ctx.regs[RN_CPSR].get());
                 } else {
@@ -1479,8 +1477,6 @@ impl<'a> Arm7Di<'a> {
                 }
             }
             MODE_SVC => {
-                self.ctx.regs[13].set(self.ctx.regs[R13_SVC].get());
-                self.ctx.regs[14].set(self.ctx.regs[R14_SVC].get());
                 if save_state {
                     self.ctx.regs[RN_SPSR].set(self.ctx.regs[RN_CPSR].get());
                 } else {
@@ -1488,8 +1484,6 @@ impl<'a> Arm7Di<'a> {
                 }
             }
             MODE_ABT => {
-                self.ctx.regs[13].set(self.ctx.regs[R13_ABT].get());
-                self.ctx.regs[14].set(self.ctx.regs[R14_ABT].get());
                 if save_state {
                     self.ctx.regs[RN_SPSR].set(self.ctx.regs[RN_CPSR].get());
                 } else {
@@ -1497,8 +1491,6 @@ impl<'a> Arm7Di<'a> {
                 }
             }
             MODE_UND => {
-                self.ctx.regs[13].set(self.ctx.regs[R13_UND].get());
-                self.ctx.regs[14].set(self.ctx.regs[R14_UND].get());
                 if save_state {
                     self.ctx.regs[RN_SPSR].set(self.ctx.regs[RN_CPSR].get());
                 } else {
