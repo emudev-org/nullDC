@@ -380,11 +380,7 @@ fn append_reg_range(parts: &mut Vec<String>, start: u32, end: u32) {
 
 fn decode_branch(cond: &str, state: Arm7DecoderState, opcode: u32) -> String {
     let link = opcode & (1 << 24) != 0;
-    let mut offset = opcode & 0x00FF_FFFF;
-    if offset & 0x0080_0000 != 0 {
-        offset |= 0xFF00_0000;
-    }
-    let offset = ((offset as i32) << 2) as i32;
+    let offset = ((opcode << 10) as i32) >> 8;
     let target = state.pc.wrapping_add(8).wrapping_add_signed(offset);
     let mnemonic = if link { "bl" } else { "b" };
     format!("{mnemonic}{cond} 0x{target:08X}")

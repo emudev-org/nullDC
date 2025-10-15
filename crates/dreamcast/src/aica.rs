@@ -1,10 +1,8 @@
 use once_cell::sync::Lazy;
 use std::sync::Mutex;
 
-use crate::{
-    arm7di::{Arm7Context, Arm7Di},
-    asic,
-};
+use arm7di_core::{Arm7Context, Arm7Di};
+use crate::asic;
 
 const REG_SPACE_SIZE: usize = 0x8000;
 const REG_MASK: u32 = 0x7FFF;
