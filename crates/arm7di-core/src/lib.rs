@@ -14,6 +14,8 @@
 
 use core::ptr::NonNull;
 
+pub mod arm7di_disasm;
+
 const FLAG_N: u32 = 1 << 31;
 const FLAG_Z: u32 = 1 << 30;
 const FLAG_C: u32 = 1 << 29;
@@ -290,7 +292,7 @@ impl Arm7Context {
     }
 
     #[inline]
-    pub(crate) fn read8(&mut self, addr: u32) -> u8 {
+    pub fn read8(&mut self, addr: u32) -> u8 {
         if let Some(callback) = self.read8 {
             callback(addr, self)
         } else if let Some(ptr) = self.aica_ram {
@@ -302,7 +304,7 @@ impl Arm7Context {
     }
 
     #[inline]
-    pub(crate) fn read32(&mut self, addr: u32) -> u32 {
+    pub fn read32(&mut self, addr: u32) -> u32 {
         if let Some(callback) = self.read32 {
             callback(addr, self)
         } else if let Some(ptr) = self.aica_ram {

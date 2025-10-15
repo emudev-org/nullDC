@@ -22,8 +22,6 @@ mod area0;
 pub use area0::AREA0_HANDLERS;
 
 mod aica;
-mod arm7_disasm;
-pub mod arm7di;
 mod asic;
 mod gdrom;
 mod pvr;
@@ -33,8 +31,10 @@ mod spg;
 mod system_bus;
 pub mod ta;
 
-use arm7_disasm::{format_arm_instruction, Arm7DecoderState};
-use arm7di::{ArmPsr, R13_IRQ, R13_SVC, R15_ARM_NEXT, RN_CPSR, RN_PSR_FLAGS, RN_SPSR};
+use arm7di_core::{
+    arm7di_disasm::{format_arm_instruction, Arm7DecoderState},
+    ArmPsr, R13_IRQ, R13_SVC, R15_ARM_NEXT, RN_CPSR, RN_PSR_FLAGS, RN_SPSR,
+};
 
 pub use pvr::present_for_texture;
 
@@ -70,7 +70,7 @@ fn peripheral_hook(_ctx: *mut sh4_core::Sh4Ctx, cycles: u32) {
 
         while dc.arm_cycle_accumulator >= 20 {
             dc.arm_cycle_accumulator -= 20;
-            let mut arm = arm7di::Arm7Di::new(&mut dc.arm_ctx);
+            let mut arm = arm7di_core::Arm7Di::new(&mut dc.arm_ctx);
             arm.update_interrupts();
             arm.step();
         }
@@ -108,7 +108,7 @@ pub struct Dreamcast {
 
     pub running: bool,
     pub running_mtx: Mutex<()>,
-    pub arm_ctx: arm7di::Arm7Context,
+    pub arm_ctx: arm7di_core::Arm7Context,
     pub arm_enabled: bool,
     pub arm_cycle_accumulator: u32,
 }
@@ -155,7 +155,7 @@ impl Default for Dreamcast {
             oc_ram,
             running: true,
             running_mtx: Mutex::new(()),
-            arm_ctx: arm7di::Arm7Context::new(),
+            arm_ctx: arm7di_core::Arm7Context::new(),
             arm_enabled: false,
             arm_cycle_accumulator: 0,
         }
@@ -163,7 +163,7 @@ impl Default for Dreamcast {
 }
 
 fn reset_arm7(dc: &mut Dreamcast) {
-    let mut arm_ctx = arm7di::Arm7Context::new();
+    let mut arm_ctx = arm7di_core::Arm7Context::new();
     arm_ctx.aica_ram = NonNull::new(dc.audio_ram.as_mut_ptr());
     arm_ctx.aram_mask = AUDIORAM_MASK;
 
@@ -196,7 +196,7 @@ fn reset_arm7(dc: &mut Dreamcast) {
     dc.arm_enabled = true;
     dc.arm_cycle_accumulator = 0;
 
-    let mut arm = arm7di::Arm7Di::new(&mut dc.arm_ctx);
+    let mut arm = arm7di_core::Arm7Di::new(&mut dc.arm_ctx);
     arm.cpu_update_flags();
     arm.update_interrupts();
 }

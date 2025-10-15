@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/sh4-core",
+    "crates/arm7di-core",
     "crates/dreamcast",
     "crates/nulldc-minimal",
     "crates/refsw2-rust",
