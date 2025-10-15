@@ -8,3 +8,6 @@
 [submodule "vendor/arm7di-tests-dreamcast"]
 	path = vendor/arm7di-tests-dreamcast
 	url = https://github.com/emudev-org/arm7di-tests-dreamcast.git
+[submodule "vendor/arm7di-datasheet"]
+	path = vendor/arm7di-datasheet
+	url = https://github.com/emudev-org/arm7di-datasheet.git
