@@ -132,9 +132,12 @@ fn run_test_binary(test_path: &str) -> Result<(), String> {
         cycles += 1;
     }
 
-    // Check result - r1 should be 0 for success
+    // Check result - r1 error bits should be 0 for success
+    // Tests set bit 30 (0x40000000) or bit 31 (0x80000000) as completion markers
     let r1 = ctx.regs[1].get();
-    if r1 == 0 {
+    let error_bits = r1 & 0x3FFFFFFF; // Only check lower bits for errors
+
+    if error_bits == 0 {
         Ok(())
     } else {
         // Decode error flags

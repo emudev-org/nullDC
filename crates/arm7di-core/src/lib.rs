@@ -61,7 +61,12 @@ pub const RN_PSR_FLAGS: usize = 45;
 pub const R15_ARM_NEXT: usize = 46;
 pub const INTR_PEND: usize = 47;
 pub const CYCL_CNT: usize = 48;
-pub const RN_ARM_REG_COUNT: usize = 49;
+pub const R8_USR: usize = 49;
+pub const R9_USR: usize = 50;
+pub const R10_USR: usize = 51;
+pub const R11_USR: usize = 52;
+pub const R12_USR: usize = 53;
+pub const RN_ARM_REG_COUNT: usize = 54;
 
 /// Callback types for memory/device access.
 pub type Read8Fn = fn(addr: u32, ctx: &mut Arm7Context) -> u8;
@@ -519,6 +524,13 @@ impl<'a> Arm7Di<'a> {
                 let amount = (opcode >> 7) & 0x1F;
                 self.barrel_shift(value, shift_type, amount, psr.c())
             } else {
+                // Register-specified shift
+                // When rm is PC, use PC+12 instead of PC+8 for register shifts
+                let value = if rm == 15 {
+                    self.ctx.regs[15].get().wrapping_add(4)
+                } else {
+                    value
+                };
                 let shift_type = (opcode >> 5) & 0x3;
                 let rs = ((opcode >> 8) & 0xF) as usize;
                 let amount = self.ctx.regs[rs].get() & 0xFF;
@@ -818,9 +830,18 @@ impl<'a> Arm7Di<'a> {
         // Detect and handle them before the generic logic runs.
         if opcode & 0x0FBF_0FFF == 0x010F_0000 {
             // MRS Rd, CPSR
+            // Need to sync flags from RN_PSR_FLAGS into RN_CPSR first
+            let psr = self.ctx.regs[RN_PSR_FLAGS].get_psr();
+            let mut cpsr = self.ctx.regs[RN_CPSR].get_psr();
+            // Copy flag bits
+            cpsr.set_n(psr.n());
+            cpsr.set_z(psr.z());
+            cpsr.set_c(psr.c());
+            cpsr.set_v(psr.v());
+            self.ctx.regs[RN_CPSR].set_psr(cpsr);
+
             let rd = ((opcode >> 12) & 0xF) as usize;
-            let cpsr = self.ctx.regs[RN_CPSR].get();
-            self.ctx.regs[rd].set(cpsr);
+            self.ctx.regs[rd].set(cpsr.raw());
             return true;
         }
         if opcode & 0x0FBF_0FFF == 0x014F_0000 {
@@ -832,7 +853,7 @@ impl<'a> Arm7Di<'a> {
         }
 
         let is_immediate = opcode & (1 << 25) != 0;
-        if opcode & 0x0DBF_F000 == 0x0120_F000 {
+        if opcode & 0x0FB0_F000 == 0x0320_F000 || opcode & 0x0FB0_F000 == 0x0120_F000 {
             // MSR (register / immediate) to CPSR
             let field_mask = opcode >> 16 & 0xF;
             let value = if is_immediate {
@@ -845,7 +866,7 @@ impl<'a> Arm7Di<'a> {
             self.write_psr(false, field_mask as u8, value);
             return true;
         }
-        if opcode & 0x0DBF_F000 == 0x0160_F000 {
+        if opcode & 0x0FB0_F000 == 0x0360_F000 || opcode & 0x0FB0_F000 == 0x0160_F000 {
             // MSR ... SPSR
             let field_mask = opcode >> 16 & 0xF;
             let value = if is_immediate {
@@ -911,6 +932,7 @@ impl<'a> Arm7Di<'a> {
             }
             self.ctx.regs[RN_SPSR].set_psr(reg);
         } else {
+            let old_mode = self.ctx.arm_mode;
             let mut cpsr = self.ctx.regs[RN_CPSR].get_psr();
             if mask & 0x8 != 0 {
                 cpsr.set_n((value & FLAG_N) != 0);
@@ -922,14 +944,145 @@ impl<'a> Arm7Di<'a> {
                 cpsr.set_fiq_mask(value & FLAG_F != 0);
                 cpsr.set_irq_mask(value & FLAG_I != 0);
             }
-            if mask & 0x1 != 0 && (self.ctx.arm_mode != MODE_USR && self.ctx.arm_mode != MODE_SYS) {
+            let mode_change = mask & 0x1 != 0 && self.ctx.arm_mode != MODE_USR;
+            if mode_change {
                 cpsr.set_mode(value & MODE_MASK);
-                self.ctx.arm_mode = cpsr.mode();
+                let new_mode = cpsr.mode();
+
+                // Perform full mode switch with register banking
+                // First update CPSR
+                self.ctx.regs[RN_CPSR].set_psr(cpsr);
+                self.set_flags(cpsr);
+                self.ctx.arm_irq_enable = !cpsr.irq_masked();
+                self.ctx.arm_fiq_enable = !cpsr.fiq_masked();
+
+                // Now switch modes if mode changed
+                if old_mode != new_mode {
+                    // Save old mode's banked registers
+                    self.save_banked_regs(old_mode);
+
+                    // Update mode
+                    self.ctx.arm_mode = new_mode;
+
+                    // Load new mode's banked registers
+                    self.load_banked_regs(new_mode);
+                }
+            } else {
+                self.ctx.arm_irq_enable = !cpsr.irq_masked();
+                self.ctx.arm_fiq_enable = !cpsr.fiq_masked();
+                self.ctx.regs[RN_CPSR].set_psr(cpsr);
+                self.set_flags(cpsr);
             }
-            self.ctx.arm_irq_enable = !cpsr.irq_masked();
-            self.ctx.arm_fiq_enable = !cpsr.fiq_masked();
-            self.ctx.regs[RN_CPSR].set_psr(cpsr);
-            self.set_flags(cpsr);
+        }
+    }
+
+    fn save_banked_regs(&mut self, mode: u32) {
+        match mode {
+            MODE_USR | MODE_SYS => {
+                // User/System mode: save r8-r12 (shared across non-FIQ modes) and r13-r14
+                self.ctx.regs[R8_USR].set(self.ctx.regs[8].get());
+                self.ctx.regs[R9_USR].set(self.ctx.regs[9].get());
+                self.ctx.regs[R10_USR].set(self.ctx.regs[10].get());
+                self.ctx.regs[R11_USR].set(self.ctx.regs[11].get());
+                self.ctx.regs[R12_USR].set(self.ctx.regs[12].get());
+                self.ctx.regs[R13_USR].set(self.ctx.regs[13].get());
+                self.ctx.regs[R14_USR].set(self.ctx.regs[14].get());
+            }
+            MODE_FIQ => {
+                // FIQ mode: save all banked registers (r8-r14)
+                self.ctx.regs[R8_FIQ].set(self.ctx.regs[8].get());
+                self.ctx.regs[R9_FIQ].set(self.ctx.regs[9].get());
+                self.ctx.regs[R10_FIQ].set(self.ctx.regs[10].get());
+                self.ctx.regs[R11_FIQ].set(self.ctx.regs[11].get());
+                self.ctx.regs[R12_FIQ].set(self.ctx.regs[12].get());
+                self.ctx.regs[R13_FIQ].set(self.ctx.regs[13].get());
+                self.ctx.regs[R14_FIQ].set(self.ctx.regs[14].get());
+            }
+            MODE_IRQ | MODE_SVC | MODE_ABT | MODE_UND => {
+                // Other privileged modes: save r8-r12 (shared) and r13-r14 (mode-specific)
+                self.ctx.regs[R8_USR].set(self.ctx.regs[8].get());
+                self.ctx.regs[R9_USR].set(self.ctx.regs[9].get());
+                self.ctx.regs[R10_USR].set(self.ctx.regs[10].get());
+                self.ctx.regs[R11_USR].set(self.ctx.regs[11].get());
+                self.ctx.regs[R12_USR].set(self.ctx.regs[12].get());
+
+                // Save mode-specific r13-r14
+                match mode {
+                    MODE_IRQ => {
+                        self.ctx.regs[R13_IRQ].set(self.ctx.regs[13].get());
+                        self.ctx.regs[R14_IRQ].set(self.ctx.regs[14].get());
+                    }
+                    MODE_SVC => {
+                        self.ctx.regs[R13_SVC].set(self.ctx.regs[13].get());
+                        self.ctx.regs[R14_SVC].set(self.ctx.regs[14].get());
+                    }
+                    MODE_ABT => {
+                        self.ctx.regs[R13_ABT].set(self.ctx.regs[13].get());
+                        self.ctx.regs[R14_ABT].set(self.ctx.regs[14].get());
+                    }
+                    MODE_UND => {
+                        self.ctx.regs[R13_UND].set(self.ctx.regs[13].get());
+                        self.ctx.regs[R14_UND].set(self.ctx.regs[14].get());
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn load_banked_regs(&mut self, mode: u32) {
+        match mode {
+            MODE_USR | MODE_SYS => {
+                // User/System mode: load r8-r12 (shared) and r13-r14
+                self.ctx.regs[8].set(self.ctx.regs[R8_USR].get());
+                self.ctx.regs[9].set(self.ctx.regs[R9_USR].get());
+                self.ctx.regs[10].set(self.ctx.regs[R10_USR].get());
+                self.ctx.regs[11].set(self.ctx.regs[R11_USR].get());
+                self.ctx.regs[12].set(self.ctx.regs[R12_USR].get());
+                self.ctx.regs[13].set(self.ctx.regs[R13_USR].get());
+                self.ctx.regs[14].set(self.ctx.regs[R14_USR].get());
+            }
+            MODE_FIQ => {
+                // FIQ mode: load FIQ-banked r8-r14
+                self.ctx.regs[8].set(self.ctx.regs[R8_FIQ].get());
+                self.ctx.regs[9].set(self.ctx.regs[R9_FIQ].get());
+                self.ctx.regs[10].set(self.ctx.regs[R10_FIQ].get());
+                self.ctx.regs[11].set(self.ctx.regs[R11_FIQ].get());
+                self.ctx.regs[12].set(self.ctx.regs[R12_FIQ].get());
+                self.ctx.regs[13].set(self.ctx.regs[R13_FIQ].get());
+                self.ctx.regs[14].set(self.ctx.regs[R14_FIQ].get());
+            }
+            MODE_IRQ | MODE_SVC | MODE_ABT | MODE_UND => {
+                // Other privileged modes: load r8-r12 (shared) and r13-r14 (mode-specific)
+                self.ctx.regs[8].set(self.ctx.regs[R8_USR].get());
+                self.ctx.regs[9].set(self.ctx.regs[R9_USR].get());
+                self.ctx.regs[10].set(self.ctx.regs[R10_USR].get());
+                self.ctx.regs[11].set(self.ctx.regs[R11_USR].get());
+                self.ctx.regs[12].set(self.ctx.regs[R12_USR].get());
+
+                // Load mode-specific r13-r14
+                match mode {
+                    MODE_IRQ => {
+                        self.ctx.regs[13].set(self.ctx.regs[R13_IRQ].get());
+                        self.ctx.regs[14].set(self.ctx.regs[R14_IRQ].get());
+                    }
+                    MODE_SVC => {
+                        self.ctx.regs[13].set(self.ctx.regs[R13_SVC].get());
+                        self.ctx.regs[14].set(self.ctx.regs[R14_SVC].get());
+                    }
+                    MODE_ABT => {
+                        self.ctx.regs[13].set(self.ctx.regs[R13_ABT].get());
+                        self.ctx.regs[14].set(self.ctx.regs[R14_ABT].get());
+                    }
+                    MODE_UND => {
+                        self.ctx.regs[13].set(self.ctx.regs[R13_UND].get());
+                        self.ctx.regs[14].set(self.ctx.regs[R14_UND].get());
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
         }
     }
 
@@ -941,6 +1094,8 @@ impl<'a> Arm7Di<'a> {
         let rs = ((opcode >> 8) & 0xF) as usize;
         let rm = (opcode & 0xF) as usize;
 
+        // MUL{S} Rd, Rm, Rs: Rd = Rm × Rs
+        // MLA{S} Rd, Rm, Rs, Rn: Rd = (Rm × Rs) + Rn
         let mul = self.ctx.regs[rm].get();
         let by = self.ctx.regs[rs].get();
         let mut result = mul.wrapping_mul(by);
@@ -949,6 +1104,7 @@ impl<'a> Arm7Di<'a> {
         }
         self.ctx.regs[rd].set(result);
         if s_bit {
+            // For multiply, C and V are UNPREDICTABLE, we leave them unchanged
             self.update_flags_from_result(result, None, None);
         }
         1
@@ -965,7 +1121,7 @@ impl<'a> Arm7Di<'a> {
         let rd = ((opcode >> 12) & 0xF) as usize;
 
         let base = self.ctx.regs[rn].get();
-        let offset = if i {
+        let offset_val = if i {
             // Register offset with optional shift.
             let (value, _) = self.decode_operand2(opcode & !0x0200_0000);
             value
@@ -973,20 +1129,23 @@ impl<'a> Arm7Di<'a> {
             opcode & 0xFFF
         };
 
-        let offset = if u {
-            base.wrapping_add(offset)
+        let offset_addr = if u {
+            base.wrapping_add(offset_val)
         } else {
-            base.wrapping_sub(offset)
+            base.wrapping_sub(offset_val)
         };
 
-        let address = if p { offset } else { base };
+        let address = if p { offset_addr } else { base };
 
         if l {
             let data;
             if b {
                 data = self.ctx.read8(address) as u32;
             } else {
-                data = self.ctx.read32(address & !3);
+                // For unaligned loads, ARM rotates the data
+                let raw_data = self.ctx.read32(address & !3);
+                let rotate = (address & 3) * 8;
+                data = raw_data.rotate_right(rotate);
             }
             if rd == 15 {
                 self.write_pc(data);
@@ -1006,9 +1165,9 @@ impl<'a> Arm7Di<'a> {
             }
         }
 
-        if w || !p {
-            let new_base = if p { offset } else { offset };
-            self.ctx.regs[rn].set(new_base);
+        // Writeback: skip if rd == rn for loads (loaded value takes precedence)
+        if (w || !p) && !(l && rd == rn) {
+            self.ctx.regs[rn].set(offset_addr);
         }
 
         1
@@ -1098,55 +1257,130 @@ impl<'a> Arm7Di<'a> {
             return 1;
         }
 
-        let step: i32 = if u { 4 } else { -4 };
-        let mut address = if p {
-            base.wrapping_add_signed(step)
-        } else {
+        // Check if base register is in the list
+        let base_in_list = (reg_list & (1 << rn)) != 0;
+
+        // Check for user bank transfer mode
+        // S bit with R15 not in list means transfer user bank registers
+        let user_bank_transfer = s && (reg_list & (1 << 15)) == 0;
+
+        // Note: When using user bank transfer, writeback should not be used
+        // but we still need to handle it for robustness
+
+        // Calculate the starting address for transfers
+        // ARM always stores/loads registers in increasing address order
+        // For decrement modes, we need to calculate the lowest address first
+        let start_address = if u {
+            // Increment: start from base
             base
+        } else {
+            // Decrement: start from (base - count*4), which is the lowest address
+            base.wrapping_sub((reg_count * 4) as u32)
         };
+
+        let mut address = start_address;
+
+        // When we transform decrement to increment addressing, we also need to transform pre/post:
+        // - Increment Before (IB): remains pre-increment
+        // - Increment After (IA): remains post-increment
+        // - Decrement Before (DB): becomes post-increment (we start at lowest address)
+        // - Decrement After (DA): becomes pre-increment (we start at lowest address)
+        let use_pre = if u { p } else { !p };
+
+        // For LDM: do writeback first if enabled (will be overwritten if base is in list during load)
+        // For STM: defer writeback until after all stores
+        if l && w && !base_in_list {
+            let final_base = if u {
+                base.wrapping_add((reg_count * 4) as u32)
+            } else {
+                base.wrapping_sub((reg_count * 4) as u32)
+            };
+            self.ctx.regs[rn].set(final_base);
+        }
 
         for reg in 0..16 {
             if reg_list & (1 << reg) == 0 {
                 continue;
             }
 
+            // Apply +4 before (pre) or after (post) the transfer
+            if use_pre {
+                address = address.wrapping_add(4);
+            }
+
             let effective = address;
 
             if l {
-                let value = if ((opcode >> 21) & 1) != 0 && ((opcode >> 5) & 1) != 0 {
-                    // Rare signed variants: best-effort using existing helpers
-                    self.ctx.read32(effective & !3)
-                } else {
-                    self.ctx.read32(effective & !3)
-                };
+                let value = self.ctx.read32(effective & !3);
 
                 if reg == 15 {
                     self.write_pc(value);
+                } else if user_bank_transfer {
+                    // User bank transfer: load to user mode registers
+                    match reg {
+                        13 => {
+                            // Load to user mode R13
+                            self.ctx.regs[R13_USR].set(value);
+                        }
+                        14 => {
+                            // Load to user mode R14
+                            self.ctx.regs[R14_USR].set(value);
+                        }
+                        _ => {
+                            // Other registers are not banked, load normally
+                            self.ctx.regs[reg as usize].set(value);
+                        }
+                    }
                 } else {
                     self.ctx.regs[reg as usize].set(value);
                 }
             } else {
                 let value = if reg == 15 {
                     self.ctx.regs[15].get().wrapping_add(4)
+                } else if reg == rn {
+                    // When storing the base register, use the OLD value (before writeback)
+                    base
+                } else if user_bank_transfer {
+                    // User bank transfer: store from user mode registers
+                    match reg {
+                        13 => {
+                            // Store from user mode R13
+                            self.ctx.regs[R13_USR].get()
+                        }
+                        14 => {
+                            // Store from user mode R14
+                            self.ctx.regs[R14_USR].get()
+                        }
+                        _ => {
+                            // Other registers are not banked, store normally
+                            self.ctx.regs[reg as usize].get()
+                        }
+                    }
                 } else {
                     self.ctx.regs[reg as usize].get()
                 };
                 self.ctx.write32(effective & !3, value);
             }
 
-            address = address.wrapping_add_signed(step);
+            if !use_pre {
+                address = address.wrapping_add(4);
+            }
+        }
+
+        // STM: do writeback after all stores are complete
+        if !l && w {
+            let final_base = if u {
+                base.wrapping_add((reg_count * 4) as u32)
+            } else {
+                base.wrapping_sub((reg_count * 4) as u32)
+            };
+            self.ctx.regs[rn].set(final_base);
         }
 
         if s {
             if l && reg_list & (1 << 15) != 0 {
                 self.restore_cpsr_from_spsr();
             }
-        }
-
-        if w {
-            let offset = (reg_count as i32) * step;
-            let final_base = base.wrapping_add_signed(offset);
-            self.ctx.regs[rn].set(final_base);
         }
 
         1
@@ -1200,7 +1434,10 @@ impl<'a> Arm7Di<'a> {
         }
 
         // Multiply / multiply-accumulate detection
-        if opcode & 0x0FC0_FFF0 == 0x0000_0090 {
+        // Mask ignores: condition, Rd, Rn (accumulator), Rs, Rm, A-bit, S-bit
+        // Checks: bits[27:22]=000000, bits[7:4]=1001
+        // Note: bits[15:12] (Rn) must be 0000 for MUL, but can be anything for MLA
+        if opcode & 0x0FC0_00F0 == 0x0000_0090 {
             return self.exec_multiply(opcode);
         }
 
