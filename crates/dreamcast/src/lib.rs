@@ -773,6 +773,9 @@ pub fn init_dreamcast_with_elf(dc: *mut Dreamcast, elf_bytes: &[u8]) -> Result<(
             }
         }
 
+        DREAMCAST_PTR.store(dc, Ordering::SeqCst);
+        
+
         // Set PC to entry point if valid
         if elf.entry > 0 {
             let entry = elf.entry as u32;
@@ -781,7 +784,6 @@ pub fn init_dreamcast_with_elf(dc: *mut Dreamcast, elf_bytes: &[u8]) -> Result<(
             dc_ref.ctx.pc1 = entry + 2;
             dc_ref.ctx.pc2 = entry + 4;
         }
-
         Ok(())
     }
 }
