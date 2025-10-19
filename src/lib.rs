@@ -744,10 +744,9 @@ pub async fn wasm_main_with_elf(elf_data: Vec<u8>) {
     console_error_panic_hook::set_once();
     wasm_logger::init(wasm_logger::Config::default());
 
-    log::info!("Received BIOS ROM: {} bytes, BIOS Flash: {} bytes, ELF: {} bytes",
-               bios_rom.len(), bios_flash.len(), elf_data.len());
+    log::info!("Received ELF: {} bytes", elf_data.len());
 
-    // Create and initialize Dreamcast with provided BIOS
+    // Create and initialize Dreamcast
     let dc = Box::into_raw(Box::new(Dreamcast::default()));
 
     // Load ELF
