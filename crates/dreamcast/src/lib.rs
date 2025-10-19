@@ -17,6 +17,7 @@ use std::path::Path;
 use std::ptr::{self, NonNull};
 use std::sync::atomic::{AtomicPtr, Ordering};
 use std::sync::Mutex;
+use goblin::elf::Elf;
 
 mod area0;
 pub use area0::AREA0_HANDLERS;
@@ -230,23 +231,9 @@ fn load_file_into_slice<P: AsRef<Path>>(path: P, buf: &mut [u8]) -> io::Result<(
 // pub static HELLO_BIN: &[u8] = include_bytes!("../../../data/hello.elf.bin");
 // pub static ARM7W_BIN: &[u8] = include_bytes!("../../../data/arm7wrestler.bin");
 
-pub fn init_dreamcast(dc_: *mut Dreamcast, bios_rom: &[u8], bios_flash: &[u8]) {
-    let dc: &mut Dreamcast;
-    unsafe {
-        dc = &mut *dc_;
-    }
-
-    DREAMCAST_PTR.store(dc as *mut Dreamcast, Ordering::SeqCst);
-
+fn reset_dreamcast_to_defaults(dc: &mut Dreamcast) {
     // Zero entire struct (like memset). In Rust, usually you'd implement Default.
     *dc = Dreamcast::default();
-
-    // Copy BIOS ROM and Flash from provided slices
-    assert_eq!(bios_rom.len(), BIOS_ROM_SIZE as usize, "BIOS ROM must be exactly 2MB");
-    assert_eq!(bios_flash.len(), BIOS_FLASH_SIZE as usize, "BIOS Flash must be exactly 128KB");
-
-    dc.bios_rom[..].copy_from_slice(bios_rom);
-    dc.bios_flash[..].copy_from_slice(bios_flash);
 
     sh4_init_ctx(&mut dc.ctx);
 
@@ -409,6 +396,25 @@ pub fn init_dreamcast(dc_: *mut Dreamcast, bios_rom: &[u8], bios_flash: &[u8]) {
     dc.ctx.sr_t = 1;
 
     dc.ctx.fpscr.0 = 0x00040001;
+}
+
+pub fn init_dreamcast(dc_: *mut Dreamcast, bios_rom: &[u8], bios_flash: &[u8]) {
+    let dc: &mut Dreamcast;
+    unsafe {
+        dc = &mut *dc_;
+    }
+
+    DREAMCAST_PTR.store(dc as *mut Dreamcast, Ordering::SeqCst);
+
+    reset_dreamcast_to_defaults(dc);
+
+    
+    // Copy BIOS ROM and Flash from provided slices
+    assert_eq!(bios_rom.len(), BIOS_ROM_SIZE as usize, "BIOS ROM must be exactly 2MB");
+    assert_eq!(bios_flash.len(), BIOS_FLASH_SIZE as usize, "BIOS Flash must be exactly 128KB");
+
+    dc.bios_rom[..].copy_from_slice(bios_rom);
+    dc.bios_flash[..].copy_from_slice(bios_flash);
 
     // ROTO test program at 0x8C010000
     // dc.ctx.pc0 = 0x8C01_0000;
@@ -668,5 +674,114 @@ pub fn get_arm_register(dc: *mut Dreamcast, register_name: &str) -> Option<u32> 
                 None
             }
         }
+    }
+}
+
+pub fn init_dreamcast_with_elf(dc: *mut Dreamcast, elf_bytes: &[u8]) -> Result<(), String> {
+    // Parse the ELF file
+    let elf = Elf::parse(elf_bytes)
+        .map_err(|e| format!("Failed to parse ELF file: {}", e))?;
+
+    unsafe {
+        let dc_ref = &mut *dc;
+
+        reset_dreamcast_to_defaults(dc_ref);
+
+        // Iterate through program headers and load PT_LOAD segments
+        for ph in &elf.program_headers {
+            // Only load PT_LOAD segments
+            if ph.p_type != goblin::elf::program_header::PT_LOAD {
+                continue;
+            }
+
+            let vaddr = ph.p_vaddr as u32;
+            let memsz = ph.p_memsz as usize;
+            let filesz = ph.p_filesz as usize;
+            let offset = ph.p_offset as usize;
+
+            println!("Loading ELF segment: vaddr=0x{:08X}, memsz=0x{:X}, filesz=0x{:X}",
+                     vaddr, memsz, filesz);
+
+            // Determine which memory region this address belongs to
+            let (dest_ptr, mask) = match vaddr {
+                // System RAM (mirrored across different regions)
+                0x0C00_0000..=0x0FFF_FFFF |
+                0x8C00_0000..=0x8FFF_FFFF |
+                0xAC00_0000..=0xAFFF_FFFF => {
+                    (dc_ref.sys_ram.as_mut_ptr(), SYSRAM_MASK)
+                }
+                // Video RAM
+                0x0400_0000..=0x04FF_FFFF |
+                0xA400_0000..=0xA4FF_FFFF |
+                0x0500_0000..=0x05FF_FFFF |
+                0xA500_0000..=0xA5FF_FFFF |
+                0x0600_0000..=0x06FF_FFFF |
+                0xA600_0000..=0xA6FF_FFFF |
+                0x0700_0000..=0x07FF_FFFF |
+                0xA700_0000..=0xA7FF_FFFF => {
+                    (dc_ref.video_ram.as_mut_ptr(), VIDEORAM_MASK)
+                }
+                // Audio RAM
+                0x0080_0000..=0x009F_FFFF |
+                0x8080_0000..=0x809F_FFFF |
+                0xA080_0000..=0xA09F_FFFF => {
+                    (dc_ref.audio_ram.as_mut_ptr(), AUDIORAM_MASK)
+                }
+                // On-chip RAM
+                0x7C00_0000..=0x7FFF_FFFF => {
+                    (dc_ref.oc_ram.as_mut_ptr(), OCRAM_MASK)
+                }
+                _ => {
+                    return Err(format!("ELF segment virtual address 0x{:08X} is not in a valid memory region", vaddr));
+                }
+            };
+
+            // Calculate the offset into the destination memory
+            let dest_offset = (vaddr & mask) as usize;
+
+            // Check if the segment fits in the memory region
+            if dest_offset + memsz > (mask as usize + 1) {
+                return Err(format!("ELF segment at 0x{:08X} with size 0x{:X} exceeds memory bounds",
+                                   vaddr, memsz));
+            }
+
+            // Copy the file data
+            if filesz > 0 {
+                // Validate that we have enough data in the ELF file
+                if offset + filesz > elf_bytes.len() {
+                    return Err(format!("ELF segment data at offset 0x{:X} with size 0x{:X} exceeds file bounds",
+                                       offset, filesz));
+                }
+
+                let src_slice = &elf_bytes[offset..offset + filesz];
+
+                ptr::copy_nonoverlapping(
+                    src_slice.as_ptr(),
+                    dest_ptr.add(dest_offset),
+                    filesz
+                );
+            }
+
+            // Zero out remaining bytes (BSS sections)
+            if memsz > filesz {
+                let bss_size = memsz - filesz;
+                ptr::write_bytes(
+                    dest_ptr.add(dest_offset + filesz),
+                    0,
+                    bss_size
+                );
+            }
+        }
+
+        // Set PC to entry point if valid
+        if elf.entry > 0 {
+            let entry = elf.entry as u32;
+            println!("Setting entry point to 0x{:08X}", entry);
+            dc_ref.ctx.pc0 = entry;
+            dc_ref.ctx.pc1 = entry + 2;
+            dc_ref.ctx.pc2 = entry + 4;
+        }
+
+        Ok(())
     }
 }
