@@ -2858,6 +2858,7 @@ version = "0.1.0"
 dependencies = [
  "bitfield",
  "paste",
+ "reios",
  "seq-macro",
  "serde",
  "serde_json",
