@@ -708,6 +708,7 @@ dependencies = [
  "once_cell",
  "refsw2-cpp",
  "refsw2-rust",
+ "reios",
  "sh4-core",
 ]
 
@@ -2614,6 +2615,13 @@ name = "regex-syntax"
 version = "0.8.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "caf4aa5b0f434c91fe5c7f1ecb6a5ece2130b02ad2a590589dda5146df959001"
+
+[[package]]
+name = "reios"
+version = "0.1.0"
+dependencies = [
+ "once_cell",
+]
 
 [[package]]
 name = "renderdoc-sys"

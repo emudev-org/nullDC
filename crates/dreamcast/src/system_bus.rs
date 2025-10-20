@@ -394,6 +394,11 @@ impl SystemBus {
         );
     }
 
+    fn sbio_read_gdrom_unlock_2(_ctx: *mut u32, _addr: u32) -> u32 {
+        println!("sbio_read_gdrom_unlock_2: read");
+        0
+    }
+
     #[inline(always)]
     fn sbio_writeonly(ctx: *mut u32, _addr: u32, data: u32) {
         unsafe {
@@ -789,6 +794,15 @@ impl SystemBus {
             RIO_WO_FUNC,
             None,
             Some(Self::sbio_write_gdrom_unlock),
+        );
+
+        let reg_ptr = self.regn32(SB_PDAPRO_ADDR);
+        self.register_rio(
+            reg_ptr,
+            0x005f74ec,
+            RIO_RO_FUNC,
+            Some(Self::sbio_read_gdrom_unlock_2),
+            None
         );
 
         for &a in &[

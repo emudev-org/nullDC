@@ -18,6 +18,7 @@ sh4-core = { path = "../sh4-core" }
 arm7di-core = { path = "../arm7di-core" }
 refsw2-rust = { path = "../refsw2-rust", optional = true }
 refsw2-cpp = { path = "../refsw2-cpp", optional = true }
+reios = { path = "../devcast/reios" }
 
 [build-dependencies]
 cc = "1.1"

@@ -1,0 +1,8 @@
+[package]
+name = "reios"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# For lazy static initialization
+once_cell = "1.19"

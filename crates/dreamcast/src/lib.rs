@@ -27,6 +27,7 @@ mod asic;
 mod gdrom;
 mod pvr;
 pub mod refsw2;
+mod reios_impl;
 mod sgc;
 mod spg;
 mod system_bus;
@@ -347,6 +348,14 @@ fn reset_dreamcast_to_defaults(dc: &mut Dreamcast) {
     );
 
     // AREA 0 (BIOS, Flash, System Bus)
+    sh4_core::sh4_register_mem_handler(
+        &mut dc.ctx,
+        0x0000_0000,
+        0x03FF_FFFF,
+        0xFFFF_FFFF,
+        AREA0_HANDLERS,
+        dc as *mut _ as *mut u8,
+    );
     sh4_core::sh4_register_mem_handler(
         &mut dc.ctx,
         0x8000_0000,
@@ -784,6 +793,53 @@ pub fn init_dreamcast_with_elf(dc: *mut Dreamcast, elf_bytes: &[u8]) -> Result<(
             dc_ref.ctx.pc1 = entry + 2;
             dc_ref.ctx.pc2 = entry + 4;
         }
+
+        // Initialize REIOS for syscall support
+        init_reios_for_elf(dc_ref);
+
         Ok(())
     }
+}
+
+/// Initialize REIOS for ELF execution (provides syscall support)
+fn init_reios_for_elf(dc: &mut Dreamcast) {
+    use crate::reios_impl::{Sh4ContextWrapper, DUMMY_DISC_INSTANCE};
+
+    // Use unsafe to split borrows for REIOS boot and create context pointers
+    let dc_ptr = dc as *mut Dreamcast;
+    let mut reios_ctx = unsafe {
+        // Allocate ctx_wrapper on heap so pointers remain valid
+        let ctx_wrapper = Box::new(Sh4ContextWrapper {
+            ctx: &mut (*dc_ptr).ctx,
+            running: &mut (*dc_ptr).running,
+            dreamcast: &mut *dc_ptr,
+        });
+
+        // Leak the box to get a stable pointer with 'static lifetime
+        let wrapper_ptr = Box::leak(ctx_wrapper) as *mut Sh4ContextWrapper;
+
+        // Create trait object pointers from wrapper
+        let mem_ptr: *mut dyn reios::ReiosSh4Memory = wrapper_ptr;
+        let ctx_ptr: *mut dyn reios::ReiosSh4Context = wrapper_ptr;
+        let disc_ptr: *const dyn reios::ReiosDisc = &DUMMY_DISC_INSTANCE;
+
+        // Initialize REIOS with pointers
+        let mut reios_ctx = reios::ReiosContext::new(mem_ptr, ctx_ptr, disc_ptr);
+
+        let mem = &mut *dc_ptr;
+        reios_ctx.init(mem);
+
+        // Boot REIOS (this sets up syscalls but doesn't change PC)
+        let mem_ref = &mut *wrapper_ptr as &mut dyn reios::ReiosSh4Memory;
+        let ctx_ref = &mut *wrapper_ptr as &mut dyn reios::ReiosSh4Context;
+
+        reios_ctx.boot(mem_ref, ctx_ref, &DUMMY_DISC_INSTANCE);
+
+        reios_ctx
+    };
+
+    // Store REIOS context in SH4 context for trap handling
+    dc.ctx.reios_ctx = Some(reios_ctx);
+
+    println!("REIOS initialized for ELF execution");
 }
