@@ -1,7 +1,7 @@
 use once_cell::sync::Lazy;
 use std::sync::Mutex;
 
-use arm7di_core::{Arm7Context, Arm7Di};
+use arm7di_core::{Arm7Context, Arm7Di, reset_arm7_ctx};
 use crate::asic;
 
 const REG_SPACE_SIZE: usize = 0x8000;
@@ -45,7 +45,7 @@ impl Default for AicaState {
             mcieb: 0,
             mcipd: 0,
             vreg: 0,
-            arm_reset: 0,
+            arm_reset: 1,
         }
     }
 }
@@ -58,7 +58,7 @@ impl AicaState {
         self.mcieb = 0;
         self.mcipd = 0;
         self.vreg = 0;
-        self.arm_reset = 0;
+        self.arm_reset = 1;
     }
 
     fn read_u8(&self, offset: usize) -> u8 {
@@ -263,7 +263,11 @@ fn write_internal(ctx: &mut Arm7Context, offset: usize, size: usize, value: u32,
     match size {
         1 => match offset {
             0x2C00 => {
-                state.arm_reset = value as u8;
+                state.arm_reset = (value & 1) as u8;
+                if state.arm_reset != 0 {
+                    reset_arm7_ctx(ctx);
+                }
+                ctx.is_running = state.arm_reset == 0;
             }
             0x2C01 => {
                 state.vreg = value as u8;
@@ -313,7 +317,12 @@ fn write_internal(ctx: &mut Arm7Context, offset: usize, size: usize, value: u32,
         2 => match offset {
             0x2C00 => {
                 let bytes = (value as u16).to_le_bytes();
-                state.arm_reset = bytes[0];
+                state.arm_reset = (bytes[0] & 1) as u8;
+                if state.arm_reset != 0 {
+                    reset_arm7_ctx(ctx);
+                }
+
+                ctx.is_running = state.arm_reset == 0;
                 state.vreg = bytes[1];
             }
             REG_L_ADDR => { /* read-only */ }
@@ -362,6 +371,18 @@ fn write_internal(ctx: &mut Arm7Context, offset: usize, size: usize, value: u32,
         },
         4 => {
             match offset {
+                0x2C00 => {
+                    {
+                        let bytes = (value as u16).to_le_bytes();
+                        state.arm_reset = (bytes[0] & 1) as u8;
+                        if state.arm_reset != 0 {
+                            reset_arm7_ctx(ctx);
+                        }
+
+                        ctx.is_running = state.arm_reset == 0;
+                        state.vreg = bytes[1];
+                    }
+                }
                 SCIEB_ADDR => {
                     state.write_u32(offset, mask_value(value, size));
                     state.scieb = state.read_u32(SCIEB_ADDR);

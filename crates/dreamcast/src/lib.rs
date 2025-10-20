@@ -60,11 +60,8 @@ fn peripheral_hook(_ctx: *mut sh4_core::Sh4Ctx, cycles: u32) {
 
     unsafe {
         let dc = &mut *dc_ptr;
-        if !dc.arm_enabled {
-            return;
-        }
 
-        if !dc.arm_ctx.enabled {
+        if !dc.arm_ctx.is_running {
             return;
         }
 
@@ -166,33 +163,16 @@ impl Default for Dreamcast {
 
 fn reset_arm7(dc: &mut Dreamcast) {
     let mut arm_ctx = arm7di_core::Arm7Context::new();
+    
     arm_ctx.aica_ram = NonNull::new(dc.audio_ram.as_mut_ptr());
     arm_ctx.aram_mask = AUDIORAM_MASK;
 
-    arm_ctx.arm_mode = 0x13; // SVC
-    arm_ctx.arm_irq_enable = true;
-    arm_ctx.arm_fiq_enable = false;
-    arm_ctx.enabled = true;
     arm_ctx.read8 = Some(aica::arm_read8);
     arm_ctx.read32 = Some(aica::arm_read32);
     arm_ctx.write8 = Some(aica::arm_write8);
     arm_ctx.write32 = Some(aica::arm_write32);
 
-    // Initialise general-purpose registers and banked stacks
-    arm_ctx.regs[13].set(0x0300_7F00);
-    arm_ctx.regs[R13_IRQ].set(0x0300_7FA0);
-    arm_ctx.regs[R13_SVC].set(0x0300_7FE0);
-    arm_ctx.regs[R15_ARM_NEXT].set(0);
-
-    let mut cpsr = ArmPsr::new(0);
-    cpsr.set_mode(0x13);
-    cpsr.set_fiq_mask(true);
-    arm_ctx.regs[RN_CPSR].set_psr(cpsr);
-    arm_ctx.regs[RN_SPSR].set_psr(cpsr);
-    arm_ctx.regs[RN_PSR_FLAGS].set_psr(cpsr);
-
-    // ARM pipeline prefetch: PC visible as PC+8
-    arm_ctx.regs[15].set(4);
+    arm7di_core::reset_arm7_ctx(&mut arm_ctx);
 
     dc.arm_ctx = arm_ctx;
     dc.arm_enabled = true;
@@ -498,10 +478,6 @@ pub fn read_arm_memory_slice(dc: *mut Dreamcast, base_address: u64, length: usiz
     let mut result = Vec::with_capacity(length);
     unsafe {
         let ctx = &mut (*dc).arm_ctx;
-        if !ctx.enabled {
-            result.resize(length, 0);
-            return result;
-        }
 
         let mut cached_aligned = u32::MAX;
         let mut cached_word = 0u32;
