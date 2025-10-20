@@ -1734,14 +1734,14 @@ pub fn p4_read<T: crate::sh4mem::MemoryData>(_ctx: *mut u8, addr: u32) -> T {
         0xFF => {
             let handler = area7_router(addr);
             if handler.size as usize != std::mem::size_of::<T>() {
-                panic!(
+                println!(
                     "p4_read::<u{}> {:x} size mismatch, handler size = {}",
                     std::mem::size_of::<T>(),
                     addr,
                     handler.size
                 );
             }
-            let raw_value = (handler.read)(handler.ctx, addr);
+            let raw_value = (handler.read)(handler.ctx, addr & !(handler.size as u32 -1));
             T::from_u32(raw_value)
         }
 

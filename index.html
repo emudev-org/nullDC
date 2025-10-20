@@ -93,12 +93,15 @@
 
   <!-- File Drop Zone -->
   <div id="bios-drop-zone">
-    <h2>Drop Dreamcast BIOS Files Here</h2>
+    <h2>Drop Files to Start Emulator</h2>
     <p>Click to browse or drag and drop files</p>
-    <p style="font-size: 0.9em; color: #999;">Required: dc_boot.bin (2MB) and dc_flash.bin (128KB)</p>
+    <p style="font-size: 1em; color: #333; font-weight: bold; margin: 15px 0;">Choose ONE option:</p>
+    <p style="font-size: 0.9em; color: #666;"><strong>Option 1:</strong> BIOS Files - dc_boot.bin (2MB) + dc_flash.bin (128KB)</p>
+    <p style="font-size: 0.9em; color: #666;"><strong>Option 2:</strong> ELF File - Any .elf executable file</p>
     <div id="bios-rom-status" class="file-status pending">BIOS ROM (2MB): Pending</div>
     <div id="bios-flash-status" class="file-status pending">BIOS Flash (128KB): Pending</div>
-    <input type="file" id="file-input" accept=".bin" multiple>
+    <div id="elf-status" class="file-status pending">ELF File: Pending</div>
+    <input type="file" id="file-input" accept=".bin,.elf" multiple>
   </div>
 
   <canvas id="egui_canvas" width="1024" height="1024" class="hidden"></canvas>
@@ -107,6 +110,7 @@
     // Store references to be used when WASM loads
     let biosRom = null;
     let biosFlash = null;
+    let elfData = null;
     let wasmReady = false;
     let wasmModule = null;
 
@@ -115,6 +119,7 @@
     const canvas = document.getElementById('egui_canvas');
     const biosRomStatus = document.getElementById('bios-rom-status');
     const biosFlashStatus = document.getElementById('bios-flash-status');
+    const elfStatus = document.getElementById('elf-status');
 
     // Listen for WASM module to be ready (Trunk will inject it)
     window.addEventListener('load', async () => {
@@ -136,28 +141,58 @@
         const data = new Uint8Array(e.target.result);
         const size = data.length;
 
-        if (size === 2 * 1024 * 1024) {
+        if (file.name.endsWith('.elf')) {
+          // ELF file
+          elfData = data;
+          const sizeKB = (size / 1024).toFixed(2);
+          updateStatus(elfStatus, 'loaded', `ELF File: ${file.name} (${sizeKB}KB) ✓`);
+
+          // Clear BIOS status and start with ELF
+          updateStatus(biosRomStatus, 'pending', 'BIOS ROM: Not needed (using ELF)');
+          updateStatus(biosFlashStatus, 'pending', 'BIOS Flash: Not needed (using ELF)');
+          biosRom = null;
+          biosFlash = null;
+
+          startEmulatorWithElf();
+        } else if (size === 2 * 1024 * 1024) {
           // 2MB - BIOS ROM
           biosRom = data;
           updateStatus(biosRomStatus, 'loaded', `BIOS ROM: ${file.name} (2MB) ✓`);
+
+          // Clear ELF if switching to BIOS mode
+          if (elfData) {
+            elfData = null;
+            updateStatus(elfStatus, 'pending', 'ELF File: Pending');
+          }
+
+          // If both BIOS files are loaded, start the emulator
+          if (biosRom && biosFlash) {
+            startEmulatorWithBios();
+          }
         } else if (size === 128 * 1024) {
           // 128KB - BIOS Flash
           biosFlash = data;
           updateStatus(biosFlashStatus, 'loaded', `BIOS Flash: ${file.name} (128KB) ✓`);
+
+          // Clear ELF if switching to BIOS mode
+          if (elfData) {
+            elfData = null;
+            updateStatus(elfStatus, 'pending', 'ELF File: Pending');
+          }
+
+          // If both BIOS files are loaded, start the emulator
+          if (biosRom && biosFlash) {
+            startEmulatorWithBios();
+          }
         } else {
           const sizeKB = (size / 1024).toFixed(2);
-          alert(`Invalid file size: ${file.name} (${sizeKB}KB)\nExpected: 2MB or 128KB`);
+          alert(`Invalid file size: ${file.name} (${sizeKB}KB)\nExpected: 2MB (BIOS ROM), 128KB (BIOS Flash), or .elf file`);
           updateStatus(
             size > 512 * 1024 ? biosRomStatus : biosFlashStatus,
             'error',
             `Invalid size: ${sizeKB}KB`
           );
           return;
-        }
-
-        // If both files are loaded, start the emulator
-        if (biosRom && biosFlash) {
-          startEmulator();
         }
       };
 
@@ -170,10 +205,10 @@
 
     function handleFiles(files) {
       for (const file of files) {
-        if (file.name.endsWith('.bin')) {
+        if (file.name.endsWith('.bin') || file.name.endsWith('.elf')) {
           validateAndProcessFile(file);
         } else {
-          alert(`Invalid file type: ${file.name}\nOnly .bin files are accepted`);
+          alert(`Invalid file type: ${file.name}\nOnly .bin and .elf files are accepted`);
         }
       }
     }
@@ -201,7 +236,7 @@
       handleFiles(e.dataTransfer.files);
     });
 
-    async function startEmulator() {
+    async function startEmulatorWithBios() {
       console.log('Starting emulator with BIOS files...');
 
       if (!wasmReady) {
@@ -212,6 +247,7 @@
       // Store BIOS data globally so Trunk-injected script can access it
       window.__nulldc_bios_rom = biosRom;
       window.__nulldc_bios_flash = biosFlash;
+      window.__nulldc_boot_mode = 'bios';
 
       // Hide drop zone, show canvas
       dropZone.classList.add('hidden');
@@ -222,8 +258,30 @@
       window.__nulldc_start_requested = true;
     }
 
-    // Make startEmulator available globally for debugging
-    window.startEmulatorDebug = startEmulator;
+    async function startEmulatorWithElf() {
+      console.log('Starting emulator with ELF file...');
+
+      if (!wasmReady) {
+        alert('WASM module not ready yet. Please wait a moment and try again.');
+        return;
+      }
+
+      // Store ELF data globally so Trunk-injected script can access it
+      window.__nulldc_elf_data = elfData;
+      window.__nulldc_boot_mode = 'elf';
+
+      // Hide drop zone, show canvas
+      dropZone.classList.add('hidden');
+      canvas.classList.remove('hidden');
+
+      // Signal that ELF file is ready
+      console.log('ELF file ready, waiting for WASM module...');
+      window.__nulldc_start_requested = true;
+    }
+
+    // Make start functions available globally for debugging
+    window.startEmulatorWithBiosDebug = startEmulatorWithBios;
+    window.startEmulatorWithElfDebug = startEmulatorWithElf;
   </script>
 
   <!-- Trunk will inject the WASM module script here -->
@@ -231,9 +289,9 @@
 
   <script type="module">
     // This script runs AFTER Trunk's injection
-    // Wait for the WASM module and start with BIOS files
-    async function initWasmWithBios() {
-      // Wait for both WASM and BIOS files
+    // Wait for the WASM module and start with appropriate boot mode
+    async function initWasm() {
+      // Wait for both WASM and files
       while (!window.__nulldc_start_requested) {
         await new Promise(resolve => setTimeout(resolve, 100));
       }
@@ -264,12 +322,19 @@
         // Initialize WASM
         await wasmModule.default();
 
-        // Call with BIOS data
-        console.log('Calling wasm_main_with_bios...');
-        await wasmModule.wasm_main_with_bios(
-          window.__nulldc_bios_rom,
-          window.__nulldc_bios_flash
-        );
+        // Call appropriate init function based on boot mode
+        if (window.__nulldc_boot_mode === 'elf') {
+          console.log('Calling wasm_main_with_elf...');
+          await wasmModule.wasm_main_with_elf(window.__nulldc_elf_data);
+        } else if (window.__nulldc_boot_mode === 'bios') {
+          console.log('Calling wasm_main_with_bios...');
+          await wasmModule.wasm_main_with_bios(
+            window.__nulldc_bios_rom,
+            window.__nulldc_bios_flash
+          );
+        } else {
+          throw new Error('Unknown boot mode: ' + window.__nulldc_boot_mode);
+        }
       } catch (error) {
         console.error('Failed to initialize WASM:', error);
         alert(`Failed to start emulator: ${error.message}\n\nCheck console for details.`);
@@ -280,7 +345,7 @@
       }
     }
 
-    initWasmWithBios();
+    initWasm();
   </script>
   <div>
     <h2 align="center">Updated 2025.09.29 - ZeZu is no longer a member of the nullDC team</h2>

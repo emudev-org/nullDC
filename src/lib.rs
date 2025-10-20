@@ -737,6 +737,51 @@ pub async fn wasm_main_with_bios(bios_rom: Vec<u8>, bios_flash: Vec<u8>) {
     run(Some(dc)).await;
 }
 
+// WASM entry point to boot with an ELF file (no BIOS required)
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub async fn wasm_main_with_elf(elf_data: Vec<u8>) {
+    console_error_panic_hook::set_once();
+    wasm_logger::init(wasm_logger::Config::default());
+
+    log::info!("Received ELF: {} bytes", elf_data.len());
+
+    // Create and initialize Dreamcast
+    let dc = Box::into_raw(Box::new(Dreamcast::default()));
+
+    // Load ELF
+    log::info!("Loading ELF file: {} bytes", elf_data.len());
+    match dreamcast::init_dreamcast_with_elf(dc, &elf_data) {
+        Ok(()) => {
+            log::info!("ELF file loaded successfully");
+        }
+        Err(e) => {
+            log::error!("Failed to load ELF: {}", e);
+            return;
+        }
+    }
+
+    let debug_server = BroadcastDebugServer::new(dc);
+
+    // Start broadcast debug server for WASM
+    match debug_server {
+        Ok(mut server) => {
+            if let Err(e) = server.start() {
+                log::error!("Failed to start broadcast debug server: {:?}", e);
+            } else {
+                log::info!("Broadcast debug server started successfully");
+                // Keep the server alive by forgetting it (leak it intentionally)
+                std::mem::forget(server);
+            }
+        }
+        Err(e) => {
+            log::error!("Failed to create broadcast debug server: {:?}", e);
+        }
+    }
+
+    run(Some(dc)).await;
+}
+
 // Main run function that works for both native and WASM
 pub async fn run(dreamcast: Option<*mut Dreamcast>) {
     // Setup logging and panic hooks for wasm

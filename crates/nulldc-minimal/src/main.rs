@@ -25,6 +25,8 @@ fn load_bios_files() -> (Vec<u8>, Vec<u8>) {
 }
 
 fn main() {
+    let args: Vec<String> = std::env::args().collect();
+
     let (bios_rom, bios_flash) = load_bios_files();
 
     // Create window
@@ -44,6 +46,20 @@ fn main() {
     // Initialize Dreamcast
     let dc = Box::into_raw(Box::new(dreamcast::Dreamcast::default()));
     dreamcast::init_dreamcast(dc, &bios_rom, &bios_flash);
+
+    // Load ELF if provided as command line argument
+    if args.len() > 1 {
+        let elf_path = &args[1];
+        println!("Loading ELF file: {}", elf_path);
+
+        let elf_data = fs::read(elf_path)
+            .unwrap_or_else(|e| panic!("Failed to load ELF file from {}: {}", elf_path, e));
+
+        dreamcast::init_dreamcast_with_elf(dc, &elf_data)
+            .unwrap_or_else(|e| panic!("Failed to load ELF: {}", e));
+
+        println!("ELF file loaded successfully");
+    }
 
     // Framebuffer for minifb (ARGB format)
     let mut buffer: Vec<u32> = vec![0; WIDTH * HEIGHT];
