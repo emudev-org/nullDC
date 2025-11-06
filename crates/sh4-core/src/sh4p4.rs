@@ -2005,7 +2005,6 @@ fn scif_write_transmit(ctx: *mut u8, _addr: u32, data: u32) {
     unsafe {
         *(ctx as *mut u8) = byte;
     }
-    #[cfg(debug_assertions)]
     eprint!("{}", byte as char);
 }
 
