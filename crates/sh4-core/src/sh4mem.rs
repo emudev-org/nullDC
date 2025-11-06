@@ -146,6 +146,8 @@ pub fn write_mem_sq(ctx: *mut Sh4Ctx, addr: u32, data: *const u32) {
                 (handler.write32)(context, (offset + 20) as u32, *data.add(5));
                 (handler.write32)(context, (offset + 24) as u32, *data.add(6));
                 (handler.write32)(context, (offset + 28) as u32, *data.add(7));
+            } else {
+                (handler.write256)(context, offset as u32, data);
             }
         } else {
             let ptr = base.add(offset) as *mut u32;
