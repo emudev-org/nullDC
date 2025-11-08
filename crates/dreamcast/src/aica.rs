@@ -18,6 +18,10 @@ const MCIEB_ADDR: usize = 0x28B4;
 const MCIPD_ADDR: usize = 0x28B4 + 4;
 const MCIRE_ADDR: usize = 0x28B4 + 8;
 
+const TIMER_A_ADDR: usize = 0x2890;
+const TIMER_B_ADDR: usize = 0x2890 + 4;
+const TIMER_C_ADDR: usize = 0x2890 + 8;
+
 const SCIEB_ADDR_HIGH: usize = SCIEB_ADDR + 2;
 const MCIEB_ADDR_HIGH: usize = MCIEB_ADDR + 2;
 
@@ -25,6 +29,48 @@ const REG_L_ADDR: usize = 0x2D00;
 const REG_M_ADDR: usize = 0x2D04;
 
 const SPU_IRQ_EXT_BIT: u8 = 1;
+
+// Timer interrupt bits
+const TIMER_A_BIT: u32 = 1 << 6;
+const TIMER_B_BIT: u32 = 1 << 7;
+const TIMER_C_BIT: u32 = 1 << 8;
+
+struct AicaTimer {
+    c_step: i32,
+    m_step: u32,
+}
+
+impl AicaTimer {
+    fn new() -> Self {
+        Self {
+            c_step: 1,
+            m_step: 1,
+        }
+    }
+
+    fn register_write(&mut self, md: u32) {
+        let n_step = 1 << md;
+        if n_step != self.m_step {
+            self.m_step = n_step;
+            self.c_step = n_step as i32;
+        }
+    }
+
+    fn step(&mut self, samples: u32, count: &mut u8) -> bool {
+        let mut triggered = false;
+        for _ in 0..samples {
+            self.c_step -= 1;
+            if self.c_step == 0 {
+                self.c_step = self.m_step as i32;
+                *count = count.wrapping_add(1);
+                if *count == 0 {
+                    triggered = true;
+                }
+            }
+        }
+        triggered
+    }
+}
 
 struct AicaState {
     regs: [u8; REG_SPACE_SIZE],
@@ -34,6 +80,9 @@ struct AicaState {
     mcipd: u32,
     vreg: u8,
     arm_reset: u8,
+    timer_a: AicaTimer,
+    timer_b: AicaTimer,
+    timer_c: AicaTimer,
 }
 
 impl Default for AicaState {
@@ -46,6 +95,9 @@ impl Default for AicaState {
             mcipd: 0,
             vreg: 0,
             arm_reset: 1,
+            timer_a: AicaTimer::new(),
+            timer_b: AicaTimer::new(),
+            timer_c: AicaTimer::new(),
         }
     }
 }
@@ -59,6 +111,9 @@ impl AicaState {
         self.mcipd = 0;
         self.vreg = 0;
         self.arm_reset = 1;
+        self.timer_a = AicaTimer::new();
+        self.timer_b = AicaTimer::new();
+        self.timer_c = AicaTimer::new();
     }
 
     fn read_u8(&self, offset: usize) -> u8 {
@@ -143,6 +198,46 @@ impl AicaState {
             level |= 4;
         }
         level
+    }
+
+    fn read_timer_count(&self, offset: usize) -> u8 {
+        self.read_u8(offset) & 0xFF
+    }
+
+    fn write_timer_count(&mut self, offset: usize, value: u8) {
+        let current = self.read_u32(offset);
+        let new_val = (current & !0xFF) | (value as u32);
+        self.write_u32(offset, new_val);
+    }
+
+    fn read_timer_md(&self, offset: usize) -> u32 {
+        (self.read_u32(offset) >> 8) & 0x7
+    }
+
+    fn step_timers(&mut self, samples: u32) {
+        // Timer A
+        let mut count_a = self.read_timer_count(TIMER_A_ADDR);
+        if self.timer_a.step(samples, &mut count_a) {
+            self.scipd |= TIMER_A_BIT;
+            self.mcipd |= TIMER_A_BIT;
+        }
+        self.write_timer_count(TIMER_A_ADDR, count_a);
+
+        // Timer B
+        let mut count_b = self.read_timer_count(TIMER_B_ADDR);
+        if self.timer_b.step(samples, &mut count_b) {
+            self.scipd |= TIMER_B_BIT;
+            self.mcipd |= TIMER_B_BIT;
+        }
+        self.write_timer_count(TIMER_B_ADDR, count_b);
+
+        // Timer C
+        let mut count_c = self.read_timer_count(TIMER_C_ADDR);
+        if self.timer_c.step(samples, &mut count_c) {
+            self.scipd |= TIMER_C_BIT;
+            self.mcipd |= TIMER_C_BIT;
+        }
+        self.write_timer_count(TIMER_C_ADDR, count_c);
     }
 }
 
@@ -312,6 +407,9 @@ fn write_internal(ctx: &mut Arm7Context, offset: usize, size: usize, value: u32,
                     return;
                 }
             }
+            TIMER_A_ADDR | TIMER_B_ADDR | TIMER_C_ADDR => {
+                state.write_u8(offset, value as u8);
+            }
             _ => state.write_u8(offset, value as u8),
         },
         2 => match offset {
@@ -366,6 +464,16 @@ fn write_internal(ctx: &mut Arm7Context, offset: usize, size: usize, value: u32,
             SCIEB_ADDR | SCIEB_ADDR_HIGH | MCIEB_ADDR | MCIEB_ADDR_HIGH => {
                 let masked_value = mask_value(value, size) as u16;
                 state.write_u16(offset, masked_value);
+            }
+            TIMER_A_ADDR | TIMER_B_ADDR | TIMER_C_ADDR => {
+                state.write_u16(offset, mask_value(value, size) as u16);
+                let md = state.read_timer_md(offset);
+                match offset {
+                    TIMER_A_ADDR => state.timer_a.register_write(md),
+                    TIMER_B_ADDR => state.timer_b.register_write(md),
+                    TIMER_C_ADDR => state.timer_c.register_write(md),
+                    _ => {}
+                }
             }
             _ => state.write_u16(offset, mask_value(value, size) as u16),
         },
@@ -431,6 +539,16 @@ fn write_internal(ctx: &mut Arm7Context, offset: usize, size: usize, value: u32,
                         drop(state);
                         accept_e68k(ctx);
                         return;
+                    }
+                }
+                TIMER_A_ADDR | TIMER_B_ADDR | TIMER_C_ADDR => {
+                    state.write_u32(offset, mask_value(value, size));
+                    let md = state.read_timer_md(offset);
+                    match offset {
+                        TIMER_A_ADDR => state.timer_a.register_write(md),
+                        TIMER_B_ADDR => state.timer_b.register_write(md),
+                        TIMER_C_ADDR => state.timer_c.register_write(md),
+                        _ => {}
                     }
                 }
                 _ => {
@@ -545,5 +663,15 @@ pub fn arm_write32(addr: u32, value: u32, ctx: &mut Arm7Context) {
         }
     } else {
         write_from_arm(ctx, addr, 4, value);
+    }
+}
+
+pub fn step(ctx: &mut Arm7Context, samples: u32) {
+    if let Ok(mut state) = AICA.lock() {
+        state.step_timers(samples);
+        state.sync_scipd();
+        state.sync_mcipd();
+        update_arm_interrupts(ctx, &state);
+        update_sh4_interrupts(&state);
     }
 }

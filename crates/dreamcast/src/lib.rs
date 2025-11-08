@@ -76,9 +76,11 @@ fn peripheral_hook(_ctx: *mut sh4_core::Sh4Ctx, cycles: u32) {
             arm.step();
         }
 
-        dc.sgc_cycle_accumulator = dc.arm_cycle_accumulator.wrapping_add(cycles);
+        dc.sgc_cycle_accumulator = dc.sgc_cycle_accumulator.wrapping_add(cycles);
         while dc.sgc_cycle_accumulator > (200 * 1000 * 1000 / 44100) {
             dc.sgc_cycle_accumulator -= 200 * 1000 * 1000 / 44100;
+            // Step AICA timers before processing audio sample
+            aica::step(&mut dc.arm_ctx, 1);
 
             dc.sgc.aica_sample();
         }
