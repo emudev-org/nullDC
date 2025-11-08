@@ -40,6 +40,8 @@ use arm7di_core::{
 
 pub use pvr::present_for_texture;
 
+use crate::sgc::Sgc;
+
 static DREAMCAST_PTR: AtomicPtr<Dreamcast> = AtomicPtr::new(std::ptr::null_mut());
 
 pub(crate) fn dreamcast_ptr() -> *mut Dreamcast {
@@ -72,6 +74,13 @@ fn peripheral_hook(_ctx: *mut sh4_core::Sh4Ctx, cycles: u32) {
             let mut arm = arm7di_core::Arm7Di::new(&mut dc.arm_ctx);
             arm.update_interrupts();
             arm.step();
+        }
+
+        dc.sgc_cycle_accumulator = dc.arm_cycle_accumulator.wrapping_add(cycles);
+        while dc.sgc_cycle_accumulator > (200 * 1000 * 1000 / 44100) {
+            dc.sgc_cycle_accumulator -= 200 * 1000 * 1000 / 44100;
+
+            dc.sgc.aica_sample();
         }
     }
 }
@@ -110,6 +119,13 @@ pub struct Dreamcast {
     pub arm_ctx: arm7di_core::Arm7Context,
     pub arm_enabled: bool,
     pub arm_cycle_accumulator: u32,
+    pub sgc_cycle_accumulator: u32,
+
+    // AICA/SGC state
+    pub aica_reg: Box<[u8; 0x8000]>,
+    pub dsp: Box<sgc::DspContext>,
+
+    pub sgc: sgc::Sgc,
 }
 
 impl Default for Dreamcast {
@@ -132,7 +148,7 @@ impl Default for Dreamcast {
             let v = vec![0u8; VIDEORAM_SIZE as usize];
             v.into_boxed_slice().try_into().expect("len matches")
         };
-        let audio_ram = {
+        let mut audio_ram: Box<[u8; AUDIORAM_SIZE as usize]> = {
             let v = vec![0u8; AUDIORAM_SIZE as usize];
             v.into_boxed_slice().try_into().expect("len matches")
         };
@@ -141,6 +157,21 @@ impl Default for Dreamcast {
             let v = vec![0u8; OCRAM_SIZE as usize];
             v.into_boxed_slice().try_into().expect("len matches")
         };
+
+        let mut aica_reg: Box<[u8; 0x8000]> = {
+            let v = vec![0u8; 0x8000];
+            v.into_boxed_slice().try_into().expect("len matches")
+        };
+
+        let dsp = Box::new(sgc::DspContext::default());
+
+        // Create SGC with proper references
+        let audio_stream = Box::new(sgc::NilAudioStream);
+        let aica_reg_ptr = std::ptr::NonNull::new(aica_reg.as_mut_ptr()).unwrap();
+        let dsp_ptr = Box::new(sgc::DspContext::default());
+        let audio_ram_ptr = std::ptr::NonNull::new(audio_ram.as_mut_ptr()).unwrap();
+
+        let sgc = sgc::Sgc::new(audio_stream, aica_reg_ptr, dsp_ptr, audio_ram_ptr, AUDIORAM_SIZE);
 
         Self {
             ctx: Sh4Ctx::default(),
@@ -157,6 +188,10 @@ impl Default for Dreamcast {
             arm_ctx: arm7di_core::Arm7Context::new(),
             arm_enabled: false,
             arm_cycle_accumulator: 0,
+            sgc_cycle_accumulator: 0,
+            aica_reg,
+            dsp,
+            sgc,
         }
     }
 }

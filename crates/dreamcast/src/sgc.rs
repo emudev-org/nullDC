@@ -48,6 +48,15 @@ pub trait AudioStream {
     fn write_sample(&mut self, right: i16, left: i16);
 }
 
+/// A null audio stream that ignores all written samples
+pub struct NilAudioStream;
+
+impl AudioStream for NilAudioStream {
+    fn write_sample(&mut self, _right: i16, _left: i16) {
+        // Intentionally ignore the samples
+    }
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct AicaSettings {
     pub no_batch: bool,
