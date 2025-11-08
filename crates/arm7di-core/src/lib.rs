@@ -1319,7 +1319,7 @@ impl<'a> Arm7Di<'a> {
         // Sign-extend the 24-bit offset: shift left 10 to move bit 23 to bit 31,
         // then arithmetic shift right 8 to sign-extend and multiply by 4
         let offset = ((opcode << 10) as i32) >> 8;
-        let next = self.ctx.regs[R15_ARM_NEXT].get();
+        let next = self.ctx.regs[15].get();
         if link {
             self.ctx.regs[14].set(self.ctx.regs[15].get().wrapping_sub(4));
         }
