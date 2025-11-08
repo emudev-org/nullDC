@@ -101,8 +101,9 @@ fn run_test_binary(test_path: &str) -> Result<(), String> {
     ctx.read32 = Some(test_read32);
     ctx.write8 = Some(test_write8);
     ctx.write32 = Some(test_write32);
-    ctx.enabled = true;
 
+    ctx.is_running = true;
+    
     // Initialize CPU state - PC starts at 0x0
     ctx.regs[R15_ARM_NEXT].set(0);
     ctx.regs[15].set(8); // ARM mode: visible PC = actual PC + 8
