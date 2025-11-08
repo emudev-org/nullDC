@@ -4,6 +4,11 @@
     Ported from reference/devcast/libswirl/reios/gdrom_hle.cpp
 */
 
+const ENABLE_LOG_GDROM_HLE: bool = false;
+
+macro_rules! println_gdhle {
+    ($($arg:tt)*) => { if ENABLE_LOG_GDROM_HLE { println!($($arg)*); } };
+}
 use crate::traits::{ReiosSh4Memory, ReiosSh4Context, ReiosDisc};
 
 // GD-ROM syscall constants
@@ -87,7 +92,7 @@ impl GdromHleState {
         let ba = mem.read_mem32(addr + 8);
         let bb = mem.read_mem32(addr + 12);
 
-        println!("GDROM_HLE_ReadSES: doing nothing w/ {}, {}, {}, {}", s, b, ba, bb);
+        println_gdhle!("GDROM_HLE_ReadSES: doing nothing w/ {}, {}, {}, {}", s, b, ba, bb);
     }
 
     /// Read TOC (Table of Contents) from disc
@@ -95,7 +100,7 @@ impl GdromHleState {
         let s = mem.read_mem32(addr + 0);
         let b = mem.read_mem32(addr + 4);
 
-        println!("GDROM READ TOC : {:X} {:X}", s, b);
+        println_gdhle!("GDROM READ TOC : {:X} {:X}", s, b);
 
         // Get TOC buffer (102 u32 values)
         let mut toc_buffer = vec![0u32; 102];
@@ -151,7 +156,7 @@ impl GdromHleState {
         let b = mem.read_mem32(addr + 0x08); // Buffer address
         let u = mem.read_mem32(addr + 0x0C); // Unknown parameter
 
-        println!("GDROM:\tDMA READ Sector={}, Num={}, Buffer=0x{:08X}, Unk01=0x{:08X}", s, n, b, u);
+        println_gdhle!("GDROM:\tDMA READ Sector={}, Num={}, Buffer=0x{:08X}, Unk01=0x{:08X}", s, n, b, u);
         self.read_sectors_to(mem, disc, b, s, n);
     }
 
@@ -167,7 +172,7 @@ impl GdromHleState {
         let b = mem.read_mem32(addr + 0x08);
         let u = mem.read_mem32(addr + 0x0C);
 
-        println!("GDROM:\tPIO READ Sector={}, Num={}, Buffer=0x{:08X}, Unk01=0x{:08X}", s, n, b, u);
+        println_gdhle!("GDROM:\tPIO READ Sector={}, Num={}, Buffer=0x{:08X}, Unk01=0x{:08X}", s, n, b, u);
         self.read_sectors_to(mem, disc, b, s, n);
     }
 
@@ -259,7 +264,7 @@ impl GdromHleState {
                     // SEND GDROM COMMAND
                     let r4 = ctx.get_r(4);
                     let r5 = ctx.get_r(5);
-                    println!("\nGDROM:\tHLE SEND COMMAND CC:{:X}  param ptr: {:X}", r4, r5);
+                    println_gdhle!("GDROM:\tHLE SEND COMMAND CC:{:X}  param ptr: {:X}", r4, r5);
 
                     self.gd_hle_command(mem, ctx, disc, r4, r5);
                     self.last_cmd = self.dw_req_id;
@@ -271,24 +276,24 @@ impl GdromHleState {
                     let r4 = ctx.get_r(4);
                     let r5 = ctx.get_r(5);
                     let result = if self.last_cmd == r4 { 2 } else { 0 }; // Finished : Invalid
-                    println!("\nGDROM:\tHLE CHECK COMMAND REQID:{:X}  param ptr: {:X} -> {:X}", r4, r5, result);
+                    println_gdhle!("GDROM:\tHLE CHECK COMMAND REQID:{:X}  param ptr: {:X} -> {:X}", r4, r5, result);
 
                     ctx.set_r(0, result);
                     self.last_cmd = 0xFFFFFFFF; // INVALIDATE CHECK CMD
                 }
                 GDROM_MAIN => {
-                    println!("\nGDROM:\tHLE GDROM_MAIN");
+                    println_gdhle!("GDROM:\tHLE GDROM_MAIN");
                     // No operation
                 }
                 GDROM_INIT => {
-                    println!("\nGDROM:\tHLE GDROM_INIT");
+                    println_gdhle!("GDROM:\tHLE GDROM_INIT");
                 }
                 GDROM_RESET => {
-                    println!("\nGDROM:\tHLE GDROM_RESET");
+                    println_gdhle!("GDROM:\tHLE GDROM_RESET");
                 }
                 GDROM_CHECK_DRIVE => {
                     let r4 = ctx.get_r(4);
-                    println!("\nGDROM:\tHLE GDROM_CHECK_DRIVE r4:{:X}", r4);
+                    println_gdhle!("GDROM:\tHLE GDROM_CHECK_DRIVE r4:{:X}", r4);
 
                     mem.write_mem32(r4 + 0, 0x02); // STANDBY
                     mem.write_mem32(r4 + 4, disc.get_disc_type());
@@ -296,21 +301,16 @@ impl GdromHleState {
                 }
                 GDROM_ABORT_COMMAND => {
                     let r4 = ctx.get_r(4);
-                    println!("\nGDROM:\tHLE GDROM_ABORT_COMMAND r4:{:X}", r4);
+                    println_gdhle!("GDROM:\tHLE GDROM_ABORT_COMMAND r4:{:X}", r4);
                     ctx.set_r(0, 0xFFFFFFFF); // RET FAILURE (-1)
                 }
                 GDROM_SECTOR_MODE => {
                     let r4 = ctx.get_r(4);
-                    println!("GDROM:\tHLE GDROM_SECTOR_MODE PTR_r4:{:X}", r4);
+                    println_gdhle!("GDROM:\tHLE GDROM_SECTOR_MODE PTR_r4:{:X}", r4);
 
                     for i in 0..4 {
                         self.sec_mode[i] = mem.read_mem32(r4 + (i as u32 * 4));
-                        print!("{:08X}", self.sec_mode[i]);
-                        if i == 3 {
-                            println!();
-                        } else {
-                            print!("\t");
-                        }
+                        println_gdhle!(" {:08X}", self.sec_mode[i]);
                     }
                     ctx.set_r(0, 0); // RET SUCCESS
                 }
