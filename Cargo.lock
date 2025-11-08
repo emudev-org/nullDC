@@ -703,7 +703,6 @@ version = "0.1.0"
 dependencies = [
  "arm7di-core",
  "bitfield",
- "cc",
  "goblin",
  "once_cell",
  "refsw2-cpp",
