@@ -133,14 +133,8 @@ export const SgcWaveformCanvas = memo(forwardRef<SgcWaveformCanvasHandle, SgcWav
   }, [channelIndex, sgcBinaryData, viewMode, queueGraphRerender]);
 
 
-  // Create/update cached vertex buffers when waveform data or canvas size changes
+  // Create/update cached vertex buffers when waveform data changes
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const { width, height } = canvas;
-    if (width === 0 || height === 0) return;
-
     const numFrames = 1024;
     const waveform = waveformDataRef.current;
     if (waveform.length === 0) return;
@@ -162,10 +156,11 @@ export const SgcWaveformCanvas = memo(forwardRef<SgcWaveformCanvasHandle, SgcWav
     // Create waveform buffer
     if (viewMode === 'post-volpan') {
       // Post-volpan mode - 3 waveforms (left, right, DSP)
-      const topCenterY = height / 6;
-      const middleCenterY = height / 2;
-      const bottomCenterY = (height * 5) / 6;
-      const waveHeight = height * 0.12;
+      // Normalized Y positions: top at 1/6, middle at 1/2, bottom at 5/6
+      const topCenterY = 1.0 / 6.0;
+      const middleCenterY = 0.5;
+      const bottomCenterY = 5.0 / 6.0;
+      const waveHeightScale = 0.12; // 12% of canvas height
 
       // Pre-allocate Float32Array: 3 channels * numFrames * 6 vertices/bar * 6 floats/vertex
       const vertices = new Float32Array(numFrames * 3 * 6 * 6);
@@ -175,49 +170,54 @@ export const SgcWaveformCanvas = memo(forwardRef<SgcWaveformCanvasHandle, SgcWav
         const frameData = new SgcFrameData(sgcBinaryData, i);
         const frameChannelData = frameData.getChannel(channelIndex);
 
-        const x = (i / numFrames) * width;
-        const nextX = ((i + 1) / numFrames) * width;
+        // X: sample index [0-1024)
+        const sampleIdx = i;
+        const nextSampleIdx = i + 1;
 
+        // Normalize amplitudes from int16 to [-1, 1]
         const leftAmp = frameChannelData.sample_left / 32768.0;
         const rightAmp = frameChannelData.sample_right / 32768.0;
         const dspAmp = frameChannelData.sample_dsp / 32768.0;
 
-        // Left channel (blue)
-        const leftHeight = Math.abs(leftAmp * waveHeight);
-        const leftY = leftAmp >= 0 ? topCenterY - leftHeight : topCenterY;
+        // Left channel (blue) - Y normalized [0, 1]
+        const leftYHeight = Math.abs(leftAmp * waveHeightScale);
+        const leftY1 = leftAmp >= 0 ? topCenterY - leftYHeight : topCenterY;
+        const leftY2 = leftAmp >= 0 ? topCenterY : topCenterY + leftYHeight;
         vertices.set([
-          x, leftY, 0.098, 0.463, 0.824, 0.8,
-          nextX, leftY, 0.098, 0.463, 0.824, 0.8,
-          x, leftY + leftHeight, 0.098, 0.463, 0.824, 0.8,
-          nextX, leftY, 0.098, 0.463, 0.824, 0.8,
-          nextX, leftY + leftHeight, 0.098, 0.463, 0.824, 0.8,
-          x, leftY + leftHeight, 0.098, 0.463, 0.824, 0.8
+          sampleIdx, leftY1, 0.098, 0.463, 0.824, 0.8,
+          nextSampleIdx, leftY1, 0.098, 0.463, 0.824, 0.8,
+          sampleIdx, leftY2, 0.098, 0.463, 0.824, 0.8,
+          nextSampleIdx, leftY1, 0.098, 0.463, 0.824, 0.8,
+          nextSampleIdx, leftY2, 0.098, 0.463, 0.824, 0.8,
+          sampleIdx, leftY2, 0.098, 0.463, 0.824, 0.8
         ], offset);
         offset += 36;
 
         // Right channel (pink)
-        const rightHeight = Math.abs(rightAmp * waveHeight);
-        const rightY = rightAmp >= 0 ? middleCenterY - rightHeight : middleCenterY;
+        const rightYHeight = Math.abs(rightAmp * waveHeightScale);
+        const rightY1 = rightAmp >= 0 ? middleCenterY - rightYHeight : middleCenterY;
+        const rightY2 = rightAmp >= 0 ? middleCenterY : middleCenterY + rightYHeight;
         vertices.set([
-          x, rightY, 0.824, 0.098, 0.463, 0.8,
-          nextX, rightY, 0.824, 0.098, 0.463, 0.8,
-          x, rightY + rightHeight, 0.824, 0.098, 0.463, 0.8,
-          nextX, rightY, 0.824, 0.098, 0.463, 0.8,
-          nextX, rightY + rightHeight, 0.824, 0.098, 0.463, 0.8,
-          x, rightY + rightHeight, 0.824, 0.098, 0.463, 0.8
+          sampleIdx, rightY1, 0.824, 0.098, 0.463, 0.8,
+          nextSampleIdx, rightY1, 0.824, 0.098, 0.463, 0.8,
+          sampleIdx, rightY2, 0.824, 0.098, 0.463, 0.8,
+          nextSampleIdx, rightY1, 0.824, 0.098, 0.463, 0.8,
+          nextSampleIdx, rightY2, 0.824, 0.098, 0.463, 0.8,
+          sampleIdx, rightY2, 0.824, 0.098, 0.463, 0.8
         ], offset);
         offset += 36;
 
         // DSP channel (orange)
-        const dspHeight = Math.abs(dspAmp * waveHeight);
-        const dspY = dspAmp >= 0 ? bottomCenterY - dspHeight : bottomCenterY;
+        const dspYHeight = Math.abs(dspAmp * waveHeightScale);
+        const dspY1 = dspAmp >= 0 ? bottomCenterY - dspYHeight : bottomCenterY;
+        const dspY2 = dspAmp >= 0 ? bottomCenterY : bottomCenterY + dspYHeight;
         vertices.set([
-          x, dspY, 1.0, 0.596, 0.0, 0.8,
-          nextX, dspY, 1.0, 0.596, 0.0, 0.8,
-          x, dspY + dspHeight, 1.0, 0.596, 0.0, 0.8,
-          nextX, dspY, 1.0, 0.596, 0.0, 0.8,
-          nextX, dspY + dspHeight, 1.0, 0.596, 0.0, 0.8,
-          x, dspY + dspHeight, 1.0, 0.596, 0.0, 0.8
+          sampleIdx, dspY1, 1.0, 0.596, 0.0, 0.8,
+          nextSampleIdx, dspY1, 1.0, 0.596, 0.0, 0.8,
+          sampleIdx, dspY2, 1.0, 0.596, 0.0, 0.8,
+          nextSampleIdx, dspY1, 1.0, 0.596, 0.0, 0.8,
+          nextSampleIdx, dspY2, 1.0, 0.596, 0.0, 0.8,
+          sampleIdx, dspY2, 1.0, 0.596, 0.0, 0.8
         ], offset);
         offset += 36;
       }
@@ -225,8 +225,6 @@ export const SgcWaveformCanvas = memo(forwardRef<SgcWaveformCanvasHandle, SgcWav
       waveformBufferRef.current = renderer.createVertexBuffer(vertices);
     } else {
       // Pre-volpan or Input mode - single centered waveform
-      const centerY = height / 2;
-      const waveHeight = height * 0.4;
       const [r, g, b, a] = viewMode === 'input' ? [0.612, 0.153, 0.690, 0.8] : [0.098, 0.463, 0.824, 0.8];
 
       // Pre-allocate Float32Array: numFrames * 6 vertices/bar * 6 floats/vertex
@@ -234,18 +232,24 @@ export const SgcWaveformCanvas = memo(forwardRef<SgcWaveformCanvasHandle, SgcWav
       let offset = 0;
 
       waveform.forEach((amplitude, i) => {
-        const x = (i / numFrames) * width;
-        const nextX = ((i + 1) / numFrames) * width;
-        const barHeight = Math.abs(amplitude * waveHeight);
-        const barY = amplitude >= 0 ? centerY - barHeight : centerY;
+        // X: sample index [0-1024)
+        const sampleIdx = i;
+        const nextSampleIdx = i + 1;
+
+        // Y: normalized [0, 1] where 0.5 is center
+        // amplitude is in [-1, 1], scale by 0.4 (40% of height)
+        const centerY = 0.5;
+        const scaleY = 0.4;
+        const y1 = amplitude >= 0 ? centerY - (amplitude * scaleY) : centerY;
+        const y2 = amplitude >= 0 ? centerY : centerY - (amplitude * scaleY);
 
         vertices.set([
-          x, barY, r, g, b, a,
-          nextX, barY, r, g, b, a,
-          x, barY + barHeight, r, g, b, a,
-          nextX, barY, r, g, b, a,
-          nextX, barY + barHeight, r, g, b, a,
-          x, barY + barHeight, r, g, b, a
+          sampleIdx, y1, r, g, b, a,
+          nextSampleIdx, y1, r, g, b, a,
+          sampleIdx, y2, r, g, b, a,
+          nextSampleIdx, y1, r, g, b, a,
+          nextSampleIdx, y2, r, g, b, a,
+          sampleIdx, y2, r, g, b, a
         ], offset);
         offset += 36;
       });
@@ -254,10 +258,12 @@ export const SgcWaveformCanvas = memo(forwardRef<SgcWaveformCanvasHandle, SgcWav
     }
 
     // Create envelope buffers
-    const centerY = height / 2;
-    const envelopeHeight = height * 0.3;
+    // Normalized Y: center at 0.5, envelopes span 30% of height
+    const centerY = 0.5;
+    const envelopeHeightScale = 0.3;
+    const lineThickness = 1.5 / 1024; // 1.5 pixels in normalized space (assuming height ~= 1024)
 
-    // AEG envelope (green)
+    // AEG envelope (green) - positioned above center
     const aegVertices = new Float32Array((numFrames - 1) * 6 * 6);
     let aegOffset = 0;
 
@@ -267,24 +273,28 @@ export const SgcWaveformCanvas = memo(forwardRef<SgcWaveformCanvasHandle, SgcWav
       const channelData1 = frameData1.getChannel(channelIndex);
       const channelData2 = frameData2.getChannel(channelIndex);
 
-      const x1 = (i / (numFrames - 1)) * width;
-      const x2 = ((i + 1) / (numFrames - 1)) * width;
-      const y1 = centerY - height * 0.15 - ((channelData1.aeg_value / 0x3FF) * envelopeHeight);
-      const y2 = centerY - height * 0.15 - ((channelData2.aeg_value / 0x3FF) * envelopeHeight);
+      // X: sample indices
+      const sampleIdx1 = i;
+      const sampleIdx2 = i + 1;
+
+      // Y: normalized [0, 1], AEG above center
+      const aegBaseY = centerY - 0.15; // 15% above center
+      const y1 = aegBaseY - ((channelData1.aeg_value / 0x3FF) * envelopeHeightScale);
+      const y2 = aegBaseY - ((channelData2.aeg_value / 0x3FF) * envelopeHeightScale);
 
       aegVertices.set([
-        x1, y1 - 0.75, 0.298, 0.686, 0.314, 0.7,
-        x2, y2 - 0.75, 0.298, 0.686, 0.314, 0.7,
-        x1, y1 + 0.75, 0.298, 0.686, 0.314, 0.7,
-        x2, y2 - 0.75, 0.298, 0.686, 0.314, 0.7,
-        x2, y2 + 0.75, 0.298, 0.686, 0.314, 0.7,
-        x1, y1 + 0.75, 0.298, 0.686, 0.314, 0.7
+        sampleIdx1, y1 - lineThickness, 0.298, 0.686, 0.314, 0.7,
+        sampleIdx2, y2 - lineThickness, 0.298, 0.686, 0.314, 0.7,
+        sampleIdx1, y1 + lineThickness, 0.298, 0.686, 0.314, 0.7,
+        sampleIdx2, y2 - lineThickness, 0.298, 0.686, 0.314, 0.7,
+        sampleIdx2, y2 + lineThickness, 0.298, 0.686, 0.314, 0.7,
+        sampleIdx1, y1 + lineThickness, 0.298, 0.686, 0.314, 0.7
       ], aegOffset);
       aegOffset += 36;
     }
     aegBufferRef.current = renderer.createVertexBuffer(aegVertices);
 
-    // FEG envelope (orange)
+    // FEG envelope (orange) - positioned below center
     const fegVertices = new Float32Array((numFrames - 1) * 6 * 6);
     let fegOffset = 0;
 
@@ -294,18 +304,22 @@ export const SgcWaveformCanvas = memo(forwardRef<SgcWaveformCanvasHandle, SgcWav
       const channelData1 = frameData1.getChannel(channelIndex);
       const channelData2 = frameData2.getChannel(channelIndex);
 
-      const x1 = (i / (numFrames - 1)) * width;
-      const x2 = ((i + 1) / (numFrames - 1)) * width;
-      const y1 = centerY + height * 0.15 - ((channelData1.feg_value / 0x1FF8) * envelopeHeight);
-      const y2 = centerY + height * 0.15 - ((channelData2.feg_value / 0x1FF8) * envelopeHeight);
+      // X: sample indices
+      const sampleIdx1 = i;
+      const sampleIdx2 = i + 1;
+
+      // Y: normalized [0, 1], FEG below center
+      const fegBaseY = centerY + 0.15; // 15% below center
+      const y1 = fegBaseY - ((channelData1.feg_value / 0x1FF8) * envelopeHeightScale);
+      const y2 = fegBaseY - ((channelData2.feg_value / 0x1FF8) * envelopeHeightScale);
 
       fegVertices.set([
-        x1, y1 - 0.75, 1.0, 0.596, 0.0, 0.7,
-        x2, y2 - 0.75, 1.0, 0.596, 0.0, 0.7,
-        x1, y1 + 0.75, 1.0, 0.596, 0.0, 0.7,
-        x2, y2 - 0.75, 1.0, 0.596, 0.0, 0.7,
-        x2, y2 + 0.75, 1.0, 0.596, 0.0, 0.7,
-        x1, y1 + 0.75, 1.0, 0.596, 0.0, 0.7
+        sampleIdx1, y1 - lineThickness, 1.0, 0.596, 0.0, 0.7,
+        sampleIdx2, y2 - lineThickness, 1.0, 0.596, 0.0, 0.7,
+        sampleIdx1, y1 + lineThickness, 1.0, 0.596, 0.0, 0.7,
+        sampleIdx2, y2 - lineThickness, 1.0, 0.596, 0.0, 0.7,
+        sampleIdx2, y2 + lineThickness, 1.0, 0.596, 0.0, 0.7,
+        sampleIdx1, y1 + lineThickness, 1.0, 0.596, 0.0, 0.7
       ], fegOffset);
       fegOffset += 36;
     }
@@ -345,8 +359,8 @@ export const SgcWaveformCanvas = memo(forwardRef<SgcWaveformCanvasHandle, SgcWav
       // Get current pan/zoom values
       const { scrollOffsetX, zoomLevel } = panZoomRef.current;
 
-      // Clear offscreen canvas
-      renderer.clear();
+      // Clear offscreen canvas (renderer will auto-resize to match canvas dimensions)
+      renderer.clear(width, height);
 
       // Render waveform (cached)
       if (waveformBufferRef.current) {
@@ -370,28 +384,31 @@ export const SgcWaveformCanvas = memo(forwardRef<SgcWaveformCanvasHandle, SgcWav
 
       // Render position indicators (not cached, recreated each frame)
       if (hoverPosition !== null) {
-        const hoverX = (hoverPosition / (numFrames - 1)) * width;
+        // Use sample index for X, normalized Y for full height
+        const hoverSampleIdx = hoverPosition;
+        const lineWidth = 1; // 1 sample wide
         const hoverVertices = new Float32Array([
-          hoverX - 1, 0, 1, 1, 1, 0.4,
-          hoverX + 1, 0, 1, 1, 1, 0.4,
-          hoverX - 1, height, 1, 1, 1, 0.4,
-          hoverX + 1, 0, 1, 1, 1, 0.4,
-          hoverX + 1, height, 1, 1, 1, 0.4,
-          hoverX - 1, height, 1, 1, 1, 0.4
+          hoverSampleIdx - lineWidth, 0, 1, 1, 1, 0.4,
+          hoverSampleIdx + lineWidth, 0, 1, 1, 1, 0.4,
+          hoverSampleIdx - lineWidth, 1, 1, 1, 1, 0.4,
+          hoverSampleIdx + lineWidth, 0, 1, 1, 1, 0.4,
+          hoverSampleIdx + lineWidth, 1, 1, 1, 1, 0.4,
+          hoverSampleIdx - lineWidth, 1, 1, 1, 1, 0.4
         ]);
         const hoverBuffer = renderer.createVertexBuffer(hoverVertices);
         positionBuffersRef.current.push(hoverBuffer);
         renderer.render(hoverBuffer, 6, 0, 1); // No pan/zoom for indicators
       }
 
-      const playbackX = (playbackPosition / (numFrames - 1)) * width;
+      const playbackSampleIdx = playbackPosition;
+      const lineWidth = 1; // 1 sample wide
       const playbackVertices = new Float32Array([
-        playbackX - 1, 0, 1, 0.596, 0, 0.9,
-        playbackX + 1, 0, 1, 0.596, 0, 0.9,
-        playbackX - 1, height, 1, 0.596, 0, 0.9,
-        playbackX + 1, 0, 1, 0.596, 0, 0.9,
-        playbackX + 1, height, 1, 0.596, 0, 0.9,
-        playbackX - 1, height, 1, 0.596, 0, 0.9
+        playbackSampleIdx - lineWidth, 0, 1, 0.596, 0, 0.9,
+        playbackSampleIdx + lineWidth, 0, 1, 0.596, 0, 0.9,
+        playbackSampleIdx - lineWidth, 1, 1, 0.596, 0, 0.9,
+        playbackSampleIdx + lineWidth, 0, 1, 0.596, 0, 0.9,
+        playbackSampleIdx + lineWidth, 1, 1, 0.596, 0, 0.9,
+        playbackSampleIdx - lineWidth, 1, 1, 0.596, 0, 0.9
       ]);
       const playbackBuffer = renderer.createVertexBuffer(playbackVertices);
       positionBuffersRef.current.push(playbackBuffer);
@@ -429,15 +446,18 @@ export const SgcWaveformCanvas = memo(forwardRef<SgcWaveformCanvasHandle, SgcWav
 
     const updateCanvasSize = () => {
       const rect = container.getBoundingClientRect();
-      canvas.width = rect.width;
-      canvas.height = rect.height;
-      queueGraphRerender();
+      const newWidth = rect.width;
+      const newHeight = rect.height;
+
+      if (newWidth > 0 && newHeight > 0) {
+        canvas.width = newWidth;
+        canvas.height = newHeight;
+        // Trigger a render after canvas is resized
+        queueGraphRerender();
+      }
     };
 
-    // Initial size
-    updateCanvasSize();
-
-    // Use ResizeObserver to detect container size changes
+    // Use ResizeObserver to detect container size changes (fires initially when observed)
     const resizeObserver = new ResizeObserver(() => {
       updateCanvasSize();
     });

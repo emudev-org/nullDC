@@ -6,15 +6,12 @@ export class SgcWaveformRenderer {
   private offscreenCanvas: OffscreenCanvas;
   private gl: WebGLRenderingContext;
   private program: WebGLProgram;
-  private width: number;
-  private height: number;
+  private width: number = 0;
+  private height: number = 0;
 
-  constructor(width: number, height: number) {
-    this.width = width;
-    this.height = height;
-
-    // Create offscreen canvas
-    this.offscreenCanvas = new OffscreenCanvas(width, height);
+  constructor() {
+    // Create offscreen canvas with initial size of 1x1
+    this.offscreenCanvas = new OffscreenCanvas(1, 1);
 
     // Get WebGL context
     const glContext = this.offscreenCanvas.getContext('webgl');
@@ -35,17 +32,24 @@ export class SgcWaveformRenderer {
     const gl = this.gl;
 
     const vertexShaderSource = `
-      attribute vec2 a_position;
+      attribute vec2 a_position; // x: sample index [0-1024), y: normalized Y [0, 1]
       attribute vec4 a_color;
       uniform vec2 u_resolution;
       uniform vec2 u_transform; // x: scrollOffsetX, y: zoomLevel
       varying vec4 v_color;
 
       void main() {
-        // Apply pan and zoom
+        // Convert sample index to normalized X [0, 1]
+        float normalizedX = a_position.x / 1024.0;
+
+        // Convert to pixel coordinates
+        float pixelX = normalizedX * u_resolution.x;
+        float pixelY = a_position.y * u_resolution.y;
+
+        // Apply pan and zoom (only to X)
         vec2 transformed = vec2(
-          (a_position.x * u_transform.y) - u_transform.x,
-          a_position.y
+          (pixelX * u_transform.y) - u_transform.x,
+          pixelY
         );
 
         // Convert from pixel coordinates to clip space (-1 to 1)
@@ -136,8 +140,17 @@ export class SgcWaveformRenderer {
 
   /**
    * Clear the offscreen canvas
+   * Automatically resizes to match destination canvas if needed
    */
-  clear(): void {
+  clear(width: number, height: number): void {
+    // Resize if dimensions don't match
+    if (this.width !== width || this.height !== height) {
+      this.width = width;
+      this.height = height;
+      this.offscreenCanvas.width = width;
+      this.offscreenCanvas.height = height;
+    }
+
     const gl = this.gl;
     gl.viewport(0, 0, this.width, this.height);
     gl.clearColor(0, 0, 0, 0);

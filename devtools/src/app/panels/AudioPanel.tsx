@@ -13,7 +13,7 @@ export const AudioPanel = () => {
   // Channel states: 0 = normal, 1 = muted, 2 = soloed
   const [channelStates, setChannelStates] = useState<ChannelState[]>(Array(64).fill(0));
   const [isPlaying, setIsPlaying] = useState(false);
-  const [showFilter, setShowFilter] = useState<'all' | 'active'>('all');
+  const [showFilter, setShowFilter] = useState<'all' | 'active'>('active');
   const [hoverPosition, setHoverPosition] = useState<number | null>(null); // Sample index [0, 1024)
   const [playbackPosition, setPlaybackPosition] = useState<number>(0); // Sample index [0, 1024)
   const [zoomLevel, setZoomLevel] = useState<number>(1); // 1 = 100%, 2 = 200%, etc.
@@ -48,14 +48,8 @@ export const AudioPanel = () => {
 
   // Initialize WebGL renderer
   useEffect(() => {
-    const container = channelListRef.current;
-    if (!container) return;
-
-    const canvasWidth = container.clientWidth - 16; // Account for padding
-    const canvasHeight = 100; // Initial height per channel
-
     try {
-      const newRenderer = new SgcWaveformRenderer(canvasWidth, canvasHeight);
+      const newRenderer = new SgcWaveformRenderer();
       setRenderer(newRenderer);
       setWebglError(null);
 
@@ -68,29 +62,6 @@ export const AudioPanel = () => {
       setWebglError(error instanceof Error ? error.message : "Failed to initialize WebGL");
     }
   }, []);
-
-  // Handle resize of renderer when container resizes
-  useEffect(() => {
-    const container = channelListRef.current;
-    if (!container || !renderer) return;
-
-    const updateRendererSize = () => {
-      const canvasWidth = container.clientWidth - 16; // Account for padding
-      const canvasHeight = 100; // Height per channel
-      renderer.resize(canvasWidth, canvasHeight);
-    };
-
-    // Use ResizeObserver to detect container size changes
-    const resizeObserver = new ResizeObserver(() => {
-      updateRendererSize();
-    });
-
-    resizeObserver.observe(container);
-
-    return () => {
-      resizeObserver.disconnect();
-    };
-  }, [renderer]);
 
   // Mock active channels (for demo purposes, channels 0-7 are "active")
   const activeChannels = useMemo(() => new Set([0, 1, 2, 3, 4, 5, 6, 7]), []);
