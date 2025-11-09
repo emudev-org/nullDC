@@ -1,6 +1,7 @@
 import { Panel } from "../layout/Panel";
 import { Box, Stack, IconButton, Tooltip, ToggleButton, ToggleButtonGroup } from "@mui/material";
 import { SgcChannelView, type ChannelState, type SgcChannelViewHandle } from "../components/SgcChannelView";
+import { SgcWaveformRenderer } from "../components/SgcWaveformRenderer";
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import FastRewindIcon from '@mui/icons-material/FastRewind';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
@@ -20,6 +21,8 @@ export const AudioPanel = () => {
 
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const [sgcBinaryData, setSgcBinaryData] = useState<ArrayBuffer | null>(null);
+  const [renderer, setRenderer] = useState<SgcWaveformRenderer | null>(null);
+  const [webglError, setWebglError] = useState<string | null>(null);
 
   const client = useSessionStore((state) => state.client);
   const initialized = useDebuggerDataStore((state) => state.initialized);
@@ -42,6 +45,52 @@ export const AudioPanel = () => {
     };
     fetchData();
   }, [client, initialized]);
+
+  // Initialize WebGL renderer
+  useEffect(() => {
+    const container = channelListRef.current;
+    if (!container) return;
+
+    const canvasWidth = container.clientWidth - 16; // Account for padding
+    const canvasHeight = 100; // Initial height per channel
+
+    try {
+      const newRenderer = new SgcWaveformRenderer(canvasWidth, canvasHeight);
+      setRenderer(newRenderer);
+      setWebglError(null);
+
+      // Cleanup on unmount
+      return () => {
+        newRenderer.destroy();
+      };
+    } catch (error) {
+      console.error("Failed to initialize WebGL renderer:", error);
+      setWebglError(error instanceof Error ? error.message : "Failed to initialize WebGL");
+    }
+  }, []);
+
+  // Handle resize of renderer when container resizes
+  useEffect(() => {
+    const container = channelListRef.current;
+    if (!container || !renderer) return;
+
+    const updateRendererSize = () => {
+      const canvasWidth = container.clientWidth - 16; // Account for padding
+      const canvasHeight = 100; // Height per channel
+      renderer.resize(canvasWidth, canvasHeight);
+    };
+
+    // Use ResizeObserver to detect container size changes
+    const resizeObserver = new ResizeObserver(() => {
+      updateRendererSize();
+    });
+
+    resizeObserver.observe(container);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, [renderer]);
 
   // Mock active channels (for demo purposes, channels 0-7 are "active")
   const activeChannels = useMemo(() => new Set([0, 1, 2, 3, 4, 5, 6, 7]), []);
@@ -353,7 +402,23 @@ export const AudioPanel = () => {
             cursor: isDragging ? 'grabbing' : (zoomLevel > 1 ? 'grab' : 'crosshair'),
           }}
         >
-          {sgcBinaryData ? (
+          {webglError ? (
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                height: '100%',
+                color: 'error.main',
+                fontSize: '1.2rem',
+                flexDirection: 'column',
+                gap: 1,
+              }}
+            >
+              <div>WebGL Initialization Failed</div>
+              <div style={{ fontSize: '0.9rem', color: 'text.secondary' }}>{webglError}</div>
+            </Box>
+          ) : sgcBinaryData && renderer ? (
             <Stack
               direction="column"
               spacing={0.5}
@@ -370,6 +435,7 @@ export const AudioPanel = () => {
                   onMuteToggle={handleMuteToggle}
                   onSoloToggle={handleSoloToggle}
                   sgcBinaryData={sgcBinaryData}
+                  renderer={renderer}
                 />
               ))}
             </Stack>
@@ -384,7 +450,7 @@ export const AudioPanel = () => {
                 fontSize: '1.2rem',
               }}
             >
-              Loading Data...
+              Loading...
             </Box>
           )}
         </Box>
