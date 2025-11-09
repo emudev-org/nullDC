@@ -129,6 +129,22 @@ export class DebuggerClient {
     return this.rpc.call(RpcMethod.STATE_GET_DISASSEMBLY, params);
   }
 
+  async fetchSgcFrameData(): Promise<ArrayBuffer> {
+    // Set up a promise to wait for the binary data
+    const binaryDataPromise = new Promise<ArrayBuffer>((resolve) => {
+      const unsubscribe = this.transport.subscribeBinary((data) => {
+        unsubscribe();
+        resolve(data);
+      });
+    });
+
+    // Make the RPC call (which triggers the server to send binary data)
+    await this.rpc.call("state.getSgcFrameData" as keyof DebuggerRpcSchema, {});
+
+    // Wait for and return the binary data
+    return binaryDataPromise;
+  }
+
   async sendNotification(method: keyof DebuggerRpcSchema, params: unknown) {
     this.rpc.notify(method, params as never);
   }

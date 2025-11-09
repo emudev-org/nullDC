@@ -5,72 +5,43 @@ import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import FastRewindIcon from '@mui/icons-material/FastRewind';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import StopIcon from '@mui/icons-material/Stop';
-
-// Mock data generator for SGC channel data
-const generateMockChannelData = (channelIndex: number) => {
-  // Use channel index as seed for consistent but varied data
-  const seed = channelIndex * 7919; // Prime number for better distribution
-
-  // Simple seeded random function
-  const seededRandom = (min: number, max: number, offset: number = 0) => {
-    const x = Math.sin(seed + offset) * 10000;
-    const normalized = x - Math.floor(x);
-    return Math.floor(normalized * (max - min + 1)) + min;
-  };
-
-  const formats = ['PCM8', 'PCM16', 'ADPCM', 'ADPCM-L'] as const;
-
-  return {
-    sampleBase: seededRandom(0, 0x7FFFFF, 1),
-    format: formats[seededRandom(0, 3, 2)],
-    loopStart: seededRandom(0, 30000, 3),
-    loopEnd: seededRandom(30000, 65535, 4),
-    looped: seededRandom(0, 1, 5) === 1,
-    playhead: seededRandom(0, 65535, 6),
-    octave: seededRandom(-8, 7, 7),
-    fns: seededRandom(0, 1023, 8),
-    volume: seededRandom(0, 15, 9),
-    panL: seededRandom(0, 15, 10),
-    panR: seededRandom(0, 15, 11),
-    dspVolume: seededRandom(0, 15, 12),
-    dspChannel: seededRandom(0, 15, 13),
-    // AEG (Amplitude Envelope Generator)
-    aegAttack: seededRandom(0, 31, 14),
-    aegDecay1: seededRandom(0, 31, 15),
-    aegDecay2: seededRandom(0, 31, 16),
-    aegRelease: seededRandom(0, 31, 17),
-    aegDecayLevel: seededRandom(0, 31, 18),
-    // FEG (Filter Envelope Generator)
-    fegAttack: seededRandom(0, 31, 19),
-    fegDecay1: seededRandom(0, 31, 20),
-    fegDecay2: seededRandom(0, 31, 21),
-    fegRelease: seededRandom(0, 31, 22),
-    fegDecayLevel: seededRandom(0, 31, 23),
-  };
-};
+import { useSessionStore } from "../../state/sessionStore";
+import { useDebuggerDataStore } from "../../state/debuggerDataStore";
 
 export const AudioPanel = () => {
   // Channel states: 0 = normal, 1 = muted, 2 = soloed
   const [channelStates, setChannelStates] = useState<ChannelState[]>(Array(64).fill(0));
   const [isPlaying, setIsPlaying] = useState(false);
   const [showFilter, setShowFilter] = useState<'all' | 'active'>('all');
-  const [hoverPlayheadX, setHoverPlayheadX] = useState<number | null>(null);
-  const [stickyPlayheadX, setStickyPlayheadX] = useState<number>(0); // Position in normalized space (0-1)
+  const [hoverPosition, setHoverPosition] = useState<number | null>(null); // Sample index [0, 1024)
+  const [playbackPosition, setPlaybackPosition] = useState<number>(0); // Sample index [0, 1024)
   const [zoomLevel, setZoomLevel] = useState<number>(1); // 1 = 100%, 2 = 200%, etc.
   const [scrollOffsetX, setScrollOffsetX] = useState<number>(0); // Horizontal scroll offset when zoomed
 
   const [isDragging, setIsDragging] = useState<boolean>(false);
+  const [sgcBinaryData, setSgcBinaryData] = useState<ArrayBuffer | null>(null);
 
+  const client = useSessionStore((state) => state.client);
+  const initialized = useDebuggerDataStore((state) => state.initialized);
   const channelListRef = useRef<HTMLDivElement>(null);
   const animationFrameRef = useRef<number | undefined>(undefined);
   const dragStartXRef = useRef<number>(0);
   const dragStartScrollRef = useRef<number>(0);
   const channelRefsRef = useRef<Map<number, SgcChannelViewHandle>>(new Map());
 
-  // Generate mock data for all 64 channels (memoized)
-  const channelData = useMemo(() => {
-    return Array.from({ length: 64 }, (_, i) => generateMockChannelData(i));
-  }, []);
+  // Fetch SGC frame data when debugger is initialized
+  useEffect(() => {
+    const fetchData = async () => {
+      if (!client || !initialized) return;
+      try {
+        const arrayBuffer = await client.fetchSgcFrameData();
+        setSgcBinaryData(arrayBuffer);
+      } catch (error) {
+        console.error("Failed to fetch SGC frame data:", error);
+      }
+    };
+    fetchData();
+  }, [client, initialized]);
 
   // Mock active channels (for demo purposes, channels 0-7 are "active")
   const activeChannels = useMemo(() => new Set([0, 1, 2, 3, 4, 5, 6, 7]), []);
@@ -112,7 +83,7 @@ export const AudioPanel = () => {
   }, []);
 
   const handleRewind = useCallback(() => {
-    setStickyPlayheadX(0); // Set to normalized position 0
+    setPlaybackPosition(0); // Set to sample index 0
   }, []);
 
   const handlePlayStop = useCallback(() => {
@@ -152,7 +123,7 @@ export const AudioPanel = () => {
     e.preventDefault();
   }, [zoomLevel, scrollOffsetX]);
 
-  // Handle mouse move for both hover playhead and dragging
+  // Handle mouse move for both hover position and dragging
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const container = channelListRef.current;
     if (!container) return;
@@ -167,7 +138,7 @@ export const AudioPanel = () => {
       return;
     }
 
-    // Handle hover playhead
+    // Handle hover position - convert to sample index [0, 1024)
     const rect = container.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const canvasWidth = getCanvasWidth();
@@ -176,9 +147,10 @@ export const AudioPanel = () => {
     const normalizedX = (x + scrollOffsetX - 8) / (canvasWidth * zoomLevel);
     const constrainedNormalized = Math.max(0, Math.min(normalizedX, 1));
 
-    // Convert back to screen space for display
-    const displayX = constrainedNormalized * canvasWidth * zoomLevel - scrollOffsetX + 8;
-    setHoverPlayheadX(displayX);
+    // Convert to sample index [0, 1024)
+    const sampleIndex = Math.floor(constrainedNormalized * 1024);
+    const constrainedIndex = Math.max(0, Math.min(sampleIndex, 1023));
+    setHoverPosition(constrainedIndex);
   }, [getCanvasWidth, getMaxScrollOffset, zoomLevel, scrollOffsetX, isDragging]);
 
   // Handle mouse up to end drag
@@ -186,15 +158,15 @@ export const AudioPanel = () => {
     setIsDragging(false);
   }, []);
 
-  // Handle mouse leave to hide hover playhead and end drag
+  // Handle mouse leave to hide hover position and end drag
   const handleMouseLeave = useCallback(() => {
-    setHoverPlayheadX(null);
+    setHoverPosition(null);
     setIsDragging(false);
   }, []);
 
-  // Handle click to set sticky playhead
+  // Handle click to set playback position
   const handleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (isDragging) return; // Don't set playhead if we were dragging
+    if (isDragging) return; // Don't set position if we were dragging
 
     const container = channelListRef.current;
     if (!container) return;
@@ -206,7 +178,11 @@ export const AudioPanel = () => {
     // Convert to normalized position (0-1)
     const normalizedX = (x + scrollOffsetX - 8) / (canvasWidth * zoomLevel);
     const constrainedNormalized = Math.max(0, Math.min(normalizedX, 1));
-    setStickyPlayheadX(constrainedNormalized);
+
+    // Convert to sample index [0, 1024)
+    const sampleIndex = Math.floor(constrainedNormalized * 1024);
+    const constrainedIndex = Math.max(0, Math.min(sampleIndex, 1023));
+    setPlaybackPosition(constrainedIndex);
   }, [getCanvasWidth, zoomLevel, scrollOffsetX, isDragging]);
 
   // Handle wheel event for shift+scroll zoom
@@ -248,29 +224,14 @@ export const AudioPanel = () => {
     });
   }, [scrollOffsetX, zoomLevel]);
 
-  // Update all channels when playhead positions change
+  // Update all channels when positions change
   useEffect(() => {
-    const container = channelListRef.current;
-    if (!container) return;
-
-    const canvasWidth = getCanvasWidth();
-
-    // Convert hover playhead from screen space to normalized (0-1)
-    let hoverNormalized: number | null = null;
-    if (hoverPlayheadX !== null) {
-      hoverNormalized = (hoverPlayheadX + scrollOffsetX - 8) / (canvasWidth * zoomLevel);
-      hoverNormalized = Math.max(0, Math.min(hoverNormalized, 1));
-    }
-
-    // stickyPlayheadX is already normalized (0-1)
-    const stickyNormalized = stickyPlayheadX;
-
     channelRefsRef.current.forEach((channelHandle) => {
-      channelHandle.setPlayheads(hoverNormalized, stickyNormalized);
+      channelHandle.setPositions(hoverPosition, playbackPosition);
     });
-  }, [hoverPlayheadX, stickyPlayheadX, scrollOffsetX, zoomLevel, getCanvasWidth]);
+  }, [hoverPosition, playbackPosition]);
 
-  // Animate sticky playhead when playing (in normalized space 0-1)
+  // Animate playback position when playing (in sample indices [0, 1024))
   useEffect(() => {
     if (!isPlaying) {
       if (animationFrameRef.current) {
@@ -280,17 +241,17 @@ export const AudioPanel = () => {
     }
 
     const startTime = Date.now();
-    const startPos = stickyPlayheadX;
-    const speed = 0.1; // 10% per second (normalized speed)
+    const startPos = playbackPosition;
+    const speed = 102.4; // 102.4 samples per second (10% per second for 1024 samples)
 
     const animate = () => {
       const elapsed = (Date.now() - startTime) / 1000;
       const newPos = startPos + elapsed * speed;
 
-      // Loop within normalized bounds (0-1)
-      const loopedPos = newPos % 1.0;
+      // Loop within sample bounds [0, 1024)
+      const loopedPos = Math.floor(newPos) % 1024;
 
-      setStickyPlayheadX(loopedPos);
+      setPlaybackPosition(loopedPos);
       animationFrameRef.current = requestAnimationFrame(animate);
     };
 
@@ -301,7 +262,7 @@ export const AudioPanel = () => {
         cancelAnimationFrame(animationFrameRef.current);
       }
     };
-  }, [isPlaying, stickyPlayheadX]);
+  }, [isPlaying, playbackPosition]);
 
   return (
     <Panel>
@@ -365,7 +326,7 @@ export const AudioPanel = () => {
               }}
             >
               <ToggleButton value="all" sx={{ px: 1.5, fontSize: '0.75rem' }}>
-                All ({channelData.length})
+                All (64)
               </ToggleButton>
               <ToggleButton value="active" sx={{ px: 1.5, fontSize: '0.75rem' }}>
                 Active ({activeChannels.size})
@@ -392,25 +353,40 @@ export const AudioPanel = () => {
             cursor: isDragging ? 'grabbing' : (zoomLevel > 1 ? 'grab' : 'crosshair'),
           }}
         >
-          <Stack
-            direction="column"
-            spacing={0.5}
-            sx={{
-              p: 1,
-            }}
-          >
-            {visibleChannels.map((i) => (
-              <SgcChannelView
-                key={i}
-                ref={setChannelRef(i)}
-                channelIndex={i}
-                channelState={channelStates[i]}
-                onMuteToggle={handleMuteToggle}
-                onSoloToggle={handleSoloToggle}
-                data={channelData[i]}
-              />
-            ))}
-          </Stack>
+          {sgcBinaryData ? (
+            <Stack
+              direction="column"
+              spacing={0.5}
+              sx={{
+                p: 1,
+              }}
+            >
+              {visibleChannels.map((i) => (
+                <SgcChannelView
+                  key={i}
+                  ref={setChannelRef(i)}
+                  channelIndex={i}
+                  channelState={channelStates[i]}
+                  onMuteToggle={handleMuteToggle}
+                  onSoloToggle={handleSoloToggle}
+                  sgcBinaryData={sgcBinaryData}
+                />
+              ))}
+            </Stack>
+          ) : (
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                height: '100%',
+                color: 'text.secondary',
+                fontSize: '1.2rem',
+              }}
+            >
+              Loading Data...
+            </Box>
+          )}
         </Box>
       </Box>
     </Panel>
