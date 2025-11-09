@@ -1,5 +1,5 @@
 import { Panel } from "../layout/Panel";
-import { Box, Stack, IconButton, Tooltip, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
+import { Box, Stack, IconButton, Tooltip, ToggleButton, ToggleButtonGroup } from "@mui/material";
 import { SgcChannelView, type ChannelState, type SgcChannelViewHandle } from "../components/SgcChannelView";
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import FastRewindIcon from '@mui/icons-material/FastRewind';
@@ -62,7 +62,7 @@ export const AudioPanel = () => {
   const [isDragging, setIsDragging] = useState<boolean>(false);
 
   const channelListRef = useRef<HTMLDivElement>(null);
-  const animationFrameRef = useRef<number>();
+  const animationFrameRef = useRef<number | undefined>(undefined);
   const dragStartXRef = useRef<number>(0);
   const dragStartScrollRef = useRef<number>(0);
   const channelRefsRef = useRef<Map<number, SgcChannelViewHandle>>(new Map());
@@ -248,6 +248,28 @@ export const AudioPanel = () => {
     });
   }, [scrollOffsetX, zoomLevel]);
 
+  // Update all channels when playhead positions change
+  useEffect(() => {
+    const container = channelListRef.current;
+    if (!container) return;
+
+    const canvasWidth = getCanvasWidth();
+
+    // Convert hover playhead from screen space to normalized (0-1)
+    let hoverNormalized: number | null = null;
+    if (hoverPlayheadX !== null) {
+      hoverNormalized = (hoverPlayheadX + scrollOffsetX - 8) / (canvasWidth * zoomLevel);
+      hoverNormalized = Math.max(0, Math.min(hoverNormalized, 1));
+    }
+
+    // stickyPlayheadX is already normalized (0-1)
+    const stickyNormalized = stickyPlayheadX;
+
+    channelRefsRef.current.forEach((channelHandle) => {
+      channelHandle.setPlayheads(hoverNormalized, stickyNormalized);
+    });
+  }, [hoverPlayheadX, stickyPlayheadX, scrollOffsetX, zoomLevel, getCanvasWidth]);
+
   // Animate sticky playhead when playing (in normalized space 0-1)
   useEffect(() => {
     if (!isPlaying) {
@@ -370,36 +392,6 @@ export const AudioPanel = () => {
             cursor: isDragging ? 'grabbing' : (zoomLevel > 1 ? 'grab' : 'crosshair'),
           }}
         >
-          {/* Hover Playhead - semi-transparent */}
-          {hoverPlayheadX !== null && (
-            <Box
-              sx={{
-                position: 'absolute',
-                top: 0,
-                bottom: 0,
-                left: `${hoverPlayheadX}px`,
-                width: '2px',
-                borderLeft: '2px dotted rgba(255, 255, 255, 0.4)',
-                pointerEvents: 'none',
-                zIndex: 10,
-              }}
-            />
-          )}
-
-          {/* Sticky Playhead - solid and bright */}
-          <Box
-            sx={{
-              position: 'absolute',
-              top: 0,
-              bottom: 0,
-              left: `${stickyPlayheadX * getCanvasWidth() * zoomLevel - scrollOffsetX + 8}px`,
-              width: '2px',
-              borderLeft: '2px dotted rgba(255, 152, 0, 0.9)',
-              pointerEvents: 'none',
-              zIndex: 11,
-            }}
-          />
-
           <Stack
             direction="column"
             spacing={0.5}

@@ -1,14 +1,18 @@
-import { Box, IconButton, Tooltip, Typography } from "@mui/material";
+import { Box, IconButton, Typography } from "@mui/material";
 import VolumeUpIcon from '@mui/icons-material/VolumeUp';
 import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
-import CallSplitIcon from '@mui/icons-material/CallSplit';
+import GraphicEqIcon from '@mui/icons-material/GraphicEq';
+import TuneIcon from '@mui/icons-material/Tune';
+import InputIcon from '@mui/icons-material/Input';
 import { useRef, useEffect, memo, useImperativeHandle, forwardRef, useState } from "react";
+import { HideOnHoverTooltip } from "./HideOnHoverTooltip";
 
 // Channel state type: 0 = normal, 1 = muted, 2 = soloed
 export type ChannelState = 0 | 1 | 2;
 
 export interface SgcChannelViewHandle {
   setPanZoom: (scrollOffsetX: number, zoomLevel: number) => void;
+  setPlayheads: (hoverPos: number | null, stickyPos: number) => void;
 }
 
 interface SgcChannelData {
@@ -57,7 +61,8 @@ export const SgcChannelView = memo(forwardRef<SgcChannelViewHandle, SgcChannelVi
   const containerRef = useRef<HTMLDivElement>(null);
   const waveformDataRef = useRef<number[]>([]);
   const panZoomRef = useRef<{ scrollOffsetX: number; zoomLevel: number }>({ scrollOffsetX: 0, zoomLevel: 1 });
-  const [isStereoSplit, setIsStereoSplit] = useState(false);
+  const playheadRef = useRef<{ hover: number | null; sticky: number }>({ hover: null, sticky: 0 });
+  const [viewMode, setViewMode] = useState<'pre-volpan' | 'post-volpan' | 'input'>('pre-volpan');
 
   // Generate semi-random waveform data (SoundCloud style)
   useEffect(() => {
@@ -70,7 +75,6 @@ export const SgcChannelView = memo(forwardRef<SgcChannelViewHandle, SgcChannelVi
 
     for (let i = 0; i < numPoints; i++) {
       // Combine multiple sine waves for organic look
-      const t = i / numPoints;
       phase += 0.1 + Math.sin(seed + i * 0.5) * 0.05;
       const amplitude =
         Math.sin(phase) * 0.5 +
@@ -163,21 +167,20 @@ export const SgcChannelView = memo(forwardRef<SgcChannelViewHandle, SgcChannelVi
     // Draw waveform (SoundCloud style - filled from center)
     const waveform = waveformDataRef.current;
 
-    if (isStereoSplit) {
-      // Split mode - left channel on top half, right channel on bottom half
-      const topCenterY = height / 4;
-      const bottomCenterY = (height * 3) / 4;
-      const waveHeight = height * 0.2;
+    if (viewMode === 'post-volpan') {
+      // Post-volpan mode - 3 waveforms (left, right, DSP)
+      const topCenterY = height / 6;
+      const middleCenterY = height / 2;
+      const bottomCenterY = (height * 5) / 6;
+      const waveHeight = height * 0.12;
 
-      // Draw left channel (top half)
+      // Draw left channel
       ctx.fillStyle = '#1976d2';
       ctx.globalAlpha = 0.8;
-
       waveform.forEach((amplitude, i) => {
         const x = (i / (waveform.length - 1)) * zoomedWidth;
         const barWidth = Math.max(1, zoomedWidth / waveform.length);
         const barHeight = Math.abs(amplitude * waveHeight);
-
         if (amplitude >= 0) {
           ctx.fillRect(x, topCenterY - barHeight, barWidth, barHeight);
         } else {
@@ -185,15 +188,27 @@ export const SgcChannelView = memo(forwardRef<SgcChannelViewHandle, SgcChannelVi
         }
       });
 
-      // Draw right channel (bottom half)
+      // Draw right channel
       ctx.fillStyle = '#d21976';
       ctx.globalAlpha = 0.8;
-
       waveform.forEach((amplitude, i) => {
         const x = (i / (waveform.length - 1)) * zoomedWidth;
         const barWidth = Math.max(1, zoomedWidth / waveform.length);
         const barHeight = Math.abs(amplitude * waveHeight);
+        if (amplitude >= 0) {
+          ctx.fillRect(x, middleCenterY - barHeight, barWidth, barHeight);
+        } else {
+          ctx.fillRect(x, middleCenterY, barWidth, barHeight);
+        }
+      });
 
+      // Draw DSP mix
+      ctx.fillStyle = '#ff9800';
+      ctx.globalAlpha = 0.8;
+      waveform.forEach((amplitude, i) => {
+        const x = (i / (waveform.length - 1)) * zoomedWidth;
+        const barWidth = Math.max(1, zoomedWidth / waveform.length);
+        const barHeight = Math.abs(amplitude * waveHeight);
         if (amplitude >= 0) {
           ctx.fillRect(x, bottomCenterY - barHeight, barWidth, barHeight);
         } else {
@@ -201,11 +216,11 @@ export const SgcChannelView = memo(forwardRef<SgcChannelViewHandle, SgcChannelVi
         }
       });
     } else {
-      // Mono mode - centered waveform
+      // Pre-volpan or Input mode - single centered waveform
       const centerY = height / 2;
       const waveHeight = height * 0.4;
 
-      ctx.fillStyle = '#1976d2';
+      ctx.fillStyle = viewMode === 'input' ? '#9c27b0' : '#1976d2';
       ctx.globalAlpha = 0.8;
 
       waveform.forEach((amplitude, i) => {
@@ -253,12 +268,38 @@ export const SgcChannelView = memo(forwardRef<SgcChannelViewHandle, SgcChannelVi
 
     // Restore context state
     ctx.restore();
+
+    // Draw playheads (after restore so they're not affected by pan/zoom transform)
+    const { hover, sticky } = playheadRef.current;
+
+    if (hover !== null) {
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+      ctx.setLineDash([4, 4]);
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(hover * width, 0);
+      ctx.lineTo(hover * width, height);
+      ctx.stroke();
+    }
+
+    ctx.strokeStyle = 'rgba(255, 152, 0, 0.9)';
+    ctx.setLineDash([4, 4]);
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(sticky * width, 0);
+    ctx.lineTo(sticky * width, height);
+    ctx.stroke();
+    ctx.setLineDash([]);
   };
 
-  // Expose setPanZoom method to parent
+  // Expose setPanZoom and setPlayheads methods to parent
   useImperativeHandle(ref, () => ({
     setPanZoom: (scrollOffsetX: number, zoomLevel: number) => {
       panZoomRef.current = { scrollOffsetX, zoomLevel };
+      renderCanvas();
+    },
+    setPlayheads: (hoverPos: number | null, stickyPos: number) => {
+      playheadRef.current = { hover: hoverPos, sticky: stickyPos };
       renderCanvas();
     }
   }), []);
@@ -291,10 +332,10 @@ export const SgcChannelView = memo(forwardRef<SgcChannelViewHandle, SgcChannelVi
     };
   }, []);
 
-  // Re-render canvas when stereo split mode changes
+  // Re-render canvas when view mode changes
   useEffect(() => {
     renderCanvas();
-  }, [isStereoSplit]);
+  }, [viewMode]);
 
   // Compute button states declaratively
   const isMuted = channelState === 1;
@@ -305,13 +346,11 @@ export const SgcChannelView = memo(forwardRef<SgcChannelViewHandle, SgcChannelVi
 
   return (
     <Box
-      ref={containerRef}
       sx={{
         border: '1px solid',
         borderColor: 'divider',
         borderRadius: 1,
         p: 0.5,
-        height: '7em',
         display: 'flex',
         flexDirection: 'column',
         filter: isMutedOrNotSoloed ? 'grayscale(100%)' : 'none',
@@ -319,7 +358,7 @@ export const SgcChannelView = memo(forwardRef<SgcChannelViewHandle, SgcChannelVi
         transition: 'filter 0.2s, opacity 0.2s',
       }}
     >
-      {/* Action Line */}
+      {/* Top bar - Channel number and info */}
       <Box sx={{
         display: 'flex',
         alignItems: 'center',
@@ -328,34 +367,216 @@ export const SgcChannelView = memo(forwardRef<SgcChannelViewHandle, SgcChannelVi
         flexWrap: 'wrap',
         minHeight: '20px',
       }}>
-        {/* Channel name and controls */}
         <Typography
           variant="caption"
           color="text.secondary"
-          sx={{ fontFamily: 'monospace', fontWeight: 'bold' }}
+          sx={{ fontFamily: 'monospace', fontWeight: 'bold', fontSize: '0.75rem', minWidth: '16px', textAlign: 'center' }}
         >
           {channelLabel}
         </Typography>
 
-        {/* Mute/Solo buttons */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
-          <Tooltip title="Stereo Split">
+        {/* Channel state indicators */}
+        <HideOnHoverTooltip title="Start Address in Audio Ram">
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ fontFamily: 'monospace', fontSize: '0.65rem' }}
+          >
+            {data.sampleBase.toString(16).toUpperCase().padStart(6, '0')}
+          </Typography>
+        </HideOnHoverTooltip>
+
+        <HideOnHoverTooltip title="Channel Format">
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ fontFamily: 'monospace', fontSize: '0.65rem' }}
+          >
+            {data.format.padStart(7, '\u00A0')}
+          </Typography>
+        </HideOnHoverTooltip>
+        |
+        <HideOnHoverTooltip title="Looped Indicator">
+          <Box
+            sx={{
+              width: 8,
+              height: 8,
+              borderRadius: '50%',
+              bgcolor: data.looped ? 'warning.main' : 'transparent',
+              border: data.looped ? 'none' : '1px solid',
+              borderColor: 'text.secondary',
+            }}
+          />
+        </HideOnHoverTooltip>
+        
+        <HideOnHoverTooltip title="Play Position">
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ fontFamily: 'monospace', fontSize: '0.65rem' }}
+          >
+            HEAD: {data.playhead.toString().padStart(5, '\u00A0')}:1023
+          </Typography>
+        </HideOnHoverTooltip>
+
+        <HideOnHoverTooltip title="Loop Parameters">
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ fontFamily: 'monospace', fontSize: '0.65rem' }}
+          >
+          [{data.loopStart.toString().padStart(5, '\u00A0')}-{data.loopEnd.toString().padStart(5, '\u00A0')}]
+          </Typography>
+        </HideOnHoverTooltip>
+        |
+        <HideOnHoverTooltip title="Current Sample: Filtered (Prev, Next)">
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ fontFamily: 'monospace', fontSize: '0.65rem' }}
+          >
+            S: 32678 (32678, 32678)
+          </Typography>
+        </HideOnHoverTooltip>
+        
+          |
+        <HideOnHoverTooltip title="44100 hz / 1024">
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ fontFamily: 'monospace', fontSize: '0.65rem' }}
+          >
+           PITCH: {data.octave >= 0 ? '+' : ''}{data.octave}/{data.fns.toString().padEnd(4, '\u00A0')}
+          </Typography>
+        </HideOnHoverTooltip>
+          |
+        <HideOnHoverTooltip title="Volume(TL) Send Level(DISDL) PAN(DIPAN)">
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ fontFamily: 'monospace', fontSize: '0.65rem' }}
+          >
+            VOL: TL{data.volume.toString().padStart(3, '0')} S{data.volume.toString(16).toUpperCase()} L{data.panL.toString(16).toUpperCase()}/R{data.panR.toString(16).toUpperCase()}
+          </Typography>
+        </HideOnHoverTooltip>
+          |
+        <HideOnHoverTooltip title="DSP Channel / Volume">
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ fontFamily: 'monospace', fontSize: '0.65rem' }}
+          >
+            DSP: {data.dspChannel.toString().padStart(2, '0')}/{data.dspVolume.toString(16).toUpperCase()}
+          </Typography>
+        </HideOnHoverTooltip>
+          |
+        <HideOnHoverTooltip title="Amplitude & Filter Envelope">
+          <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ fontFamily: 'monospace', fontSize: '0.65rem' }}
+            >
+            ENV: 
+          </Typography>
+        </HideOnHoverTooltip>
+        <HideOnHoverTooltip title="AEG">
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ fontFamily: 'monospace', fontSize: '0.65rem' }}
+          >
+            3FF
+          </Typography>
+        </HideOnHoverTooltip>
+
+        <HideOnHoverTooltip title="FEG">
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ fontFamily: 'monospace', fontSize: '0.65rem' }}
+          >
+            1FFF8
+          </Typography>
+        </HideOnHoverTooltip>
+        |
+        <HideOnHoverTooltip title="Derived from OCT/FNS">
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ fontFamily: 'monospace', fontSize: '0.65rem' }}
+          >
+            44100.0hz
+          </Typography>
+        </HideOnHoverTooltip>
+      </Box>
+
+      {/* Bottom section - Action buttons and waveform */}
+      <Box sx={{ display: 'flex', flexDirection: 'row', height: '8em', gap: 0.5 }}>
+        {/* Left - Action buttons */}
+        <Box sx={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: 0.25,
+          flexShrink: 0,
+        }}>
+          {/* View mode toggle buttons */}
+          <HideOnHoverTooltip title="Pre-VolPan" placement="right">
             <IconButton
               size="small"
-              onClick={() => setIsStereoSplit(!isStereoSplit)}
+              onClick={() => setViewMode('pre-volpan')}
               sx={{
-                width: 16,
-                height: 16,
-                minWidth: 16,
-                minHeight: 16,
-                p: 0.25,
-                color: isStereoSplit ? 'success.main' : 'inherit',
+                width: 20,
+                height: 20,
+                minWidth: 20,
+                minHeight: 20,
+                p: 0,
+                color: viewMode === 'pre-volpan' ? 'primary.main' : 'inherit',
+                bgcolor: viewMode === 'pre-volpan' ? 'action.selected' : 'transparent',
               }}
             >
-              <CallSplitIcon sx={{ fontSize: 12 }} />
+              <GraphicEqIcon sx={{ fontSize: 14 }} />
             </IconButton>
-          </Tooltip>
-          <Tooltip title="Mute/Unmute">
+          </HideOnHoverTooltip>
+
+          <HideOnHoverTooltip title="Post-VolPan (L/R/DSP)" placement="right">
+            <IconButton
+              size="small"
+              onClick={() => setViewMode('post-volpan')}
+              sx={{
+                width: 20,
+                height: 20,
+                minWidth: 20,
+                minHeight: 20,
+                p: 0,
+                color: viewMode === 'post-volpan' ? 'primary.main' : 'inherit',
+                bgcolor: viewMode === 'post-volpan' ? 'action.selected' : 'transparent',
+              }}
+            >
+              <TuneIcon sx={{ fontSize: 14 }} />
+            </IconButton>
+          </HideOnHoverTooltip>
+
+          <HideOnHoverTooltip title="Input Waveform" placement="right">
+            <IconButton
+              size="small"
+              onClick={() => setViewMode('input')}
+              sx={{
+                width: 20,
+                height: 20,
+                minWidth: 20,
+                minHeight: 20,
+                p: 0,
+                mb: 0.5,
+                color: viewMode === 'input' ? 'primary.main' : 'inherit',
+                bgcolor: viewMode === 'input' ? 'action.selected' : 'transparent',
+              }}
+            >
+              <InputIcon sx={{ fontSize: 14 }} />
+            </IconButton>
+          </HideOnHoverTooltip>
+
+          <HideOnHoverTooltip title="Mute/Unmute" placement="right">
             <IconButton
               size="small"
               onClick={() => onMuteToggle(channelIndex)}
@@ -370,8 +591,9 @@ export const SgcChannelView = memo(forwardRef<SgcChannelViewHandle, SgcChannelVi
             >
               <VolumeUpIcon sx={{ fontSize: 12 }} />
             </IconButton>
-          </Tooltip>
-          <Tooltip title="Solo">
+          </HideOnHoverTooltip>
+
+          <HideOnHoverTooltip title="Solo" placement="right">
             <IconButton
               size="small"
               onClick={() => onSoloToggle(channelIndex)}
@@ -386,134 +608,20 @@ export const SgcChannelView = memo(forwardRef<SgcChannelViewHandle, SgcChannelVi
             >
               <RadioButtonUncheckedIcon sx={{ fontSize: 12 }} />
             </IconButton>
-          </Tooltip>
+          </HideOnHoverTooltip>
         </Box>
 
-        {/* Channel state indicators */}
-        <Tooltip title="Start Address in Audio Ram">
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{ fontFamily: 'monospace', fontSize: '0.65rem' }}
-          >
-            {data.sampleBase.toString(16).toUpperCase().padStart(6, '0')}
-          </Typography>
-        </Tooltip>
-
-        <Tooltip title="Channel Format">
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{ fontFamily: 'monospace', fontSize: '0.65rem' }}
-          >
-            {data.format.padStart(7, '\u00A0')}
-          </Typography>
-        </Tooltip>
-        |
-        <Tooltip title="Play Position">
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{ fontFamily: 'monospace', fontSize: '0.65rem' }}
-          >
-            Head: {data.playhead.toString().padStart(5, '\u00A0')}
-          </Typography>
-        </Tooltip>
-
-
-        <Tooltip title="Loop Parameters">
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{ fontFamily: 'monospace', fontSize: '0.65rem' }}
-          >
-          [{data.loopStart.toString().padStart(5, '\u00A0')}-{data.loopEnd.toString().padStart(5, '\u00A0')}]
-          </Typography>
-        </Tooltip>
-        
-        <Tooltip title="Looped Indicator">
-          <Box
-            sx={{
-              width: 8,
-              height: 8,
-              borderRadius: '50%',
-              bgcolor: data.looped ? 'warning.main' : 'transparent',
-              border: data.looped ? 'none' : '1px solid',
-              borderColor: 'text.secondary',
+        {/* Right - Waveform canvas */}
+        <Box ref={containerRef} sx={{ flex: 1, position: 'relative', minHeight: 0, overflow: 'hidden' }}>
+          <canvas
+            ref={canvasRef}
+            style={{
+              width: '100%',
+              height: '100%',
+              display: 'block',
             }}
           />
-        </Tooltip>
-          |
-        <Tooltip title="44100 hz / 0x1000">
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{ fontFamily: 'monospace', fontSize: '0.65rem' }}
-          >
-           PITCH: {data.octave >= 0 ? '+' : ''}{data.octave}/{data.fns.toString().padEnd(4, '\u00A0')}
-          </Typography>
-        </Tooltip>
-          |
-        <Tooltip title="Volume(TL) Send Level(DISDL) PAN(DIPAN)">
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{ fontFamily: 'monospace', fontSize: '0.65rem' }}
-          >
-            VOL: TL{data.volume.toString().padStart(3, '0')} S{data.volume.toString(16).toUpperCase()} L{data.panL.toString(16).toUpperCase()}/R{data.panR.toString(16).toUpperCase()}
-          </Typography>
-        </Tooltip>
-          |
-        <Tooltip title="DSP Channel / Volume">
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{ fontFamily: 'monospace', fontSize: '0.65rem' }}
-          >
-            DSP: {data.dspChannel.toString().padStart(2, '0')}/{data.dspVolume.toString(16).toUpperCase()}
-          </Typography>
-        </Tooltip>
-          |
-        <Tooltip title="Amplitude & Filter Envelope">
-          <Typography
-              variant="caption"
-              color="text.secondary"
-              sx={{ fontFamily: 'monospace', fontSize: '0.65rem' }}
-            >
-            ENV: 
-          </Typography>
-        </Tooltip>
-        <Tooltip title="AEG">
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{ fontFamily: 'monospace', fontSize: '0.65rem' }}
-          >
-            3FF
-          </Typography>
-        </Tooltip>
-
-        <Tooltip title="FEG">
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{ fontFamily: 'monospace', fontSize: '0.65rem' }}
-          >
-            1FFF8
-          </Typography>
-        </Tooltip>
-      </Box>
-
-      {/* Canvas */}
-      <Box sx={{ flex: 1, position: 'relative', minHeight: 0, overflow: 'hidden' }}>
-        <canvas
-          ref={canvasRef}
-          style={{
-            width: '100%',
-            height: '100%',
-            display: 'block',
-          }}
-        />
+        </Box>
       </Box>
     </Box>
   );
