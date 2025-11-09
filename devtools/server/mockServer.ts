@@ -1446,10 +1446,10 @@ const generateSgcFrameData = (): Buffer => {
         const aegEnvelope = Math.max(0, Math.sin(aegPhase)); // 0.0 to 1.0
         aeg_value = Math.floor(aegEnvelope * 0x3FF);
 
-        // Generate ADSR envelope for FEG (0 to 0x1FF8)
+        // Generate ADSR envelope for FEG (0 to 0x1FFF)
         const fegPhase = (frame / NUM_FRAMES) * Math.PI * 4 + channel * 0.1;
         const fegEnvelope = Math.max(0, Math.cos(fegPhase)); // 0.0 to 1.0
-        feg_value = Math.floor(fegEnvelope * 0x1FF8);
+        feg_value = Math.floor(fegEnvelope * 0x1FFF);
       }
 
       buffer.writeInt16LE(sample_current, channelOffset + 72);
@@ -1462,7 +1462,7 @@ const generateSgcFrameData = (): Buffer => {
       buffer.writeInt16LE(sample_post_aeg, channelOffset + 78);
 
       // Sample after FEG (apply filter envelope - affects brightness)
-      const fegEnvelopeNorm = feg_value / 0x1FF8; // Normalize back to 0.0-1.0
+      const fegEnvelopeNorm = feg_value / 0x1FFF; // Normalize back to 0.0-1.0
       const filterAmount = fegEnvelopeNorm * 0.5 + 0.5; // 0.5 to 1.0
       const sample_post_feg = Math.floor(sample_post_aeg * filterAmount);
       buffer.writeInt16LE(sample_post_feg, channelOffset + 80);

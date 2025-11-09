@@ -32,15 +32,16 @@ export class SgcWaveformRenderer {
     const gl = this.gl;
 
     const vertexShaderSource = `
-      attribute vec2 a_position; // x: sample index [0-1024), y: normalized Y [0, 1]
+      attribute vec2 a_position; // x: sample index [0-numFrames), y: normalized Y [0, 1]
       attribute vec4 a_color;
       uniform vec2 u_resolution;
       uniform vec2 u_transform; // x: scrollOffsetX, y: zoomLevel
+      uniform float u_numFrames; // Number of frames in the data
       varying vec4 v_color;
 
       void main() {
         // Convert sample index to normalized X [0, 1]
-        float normalizedX = a_position.x / 1024.0;
+        float normalizedX = a_position.x / u_numFrames;
 
         // Convert to pixel coordinates
         float pixelX = normalizedX * u_resolution.x;
@@ -164,7 +165,8 @@ export class SgcWaveformRenderer {
     vertexBuffer: WebGLBuffer,
     vertexCount: number,
     scrollOffsetX: number = 0,
-    zoomLevel: number = 1
+    zoomLevel: number = 1,
+    numFrames: number = 1024
   ): void {
     const gl = this.gl;
     const program = this.program;
@@ -178,8 +180,10 @@ export class SgcWaveformRenderer {
     // Set uniforms
     const u_resolution = gl.getUniformLocation(program, 'u_resolution');
     const u_transform = gl.getUniformLocation(program, 'u_transform');
+    const u_numFrames = gl.getUniformLocation(program, 'u_numFrames');
     gl.uniform2f(u_resolution, this.width, this.height);
     gl.uniform2f(u_transform, scrollOffsetX, zoomLevel);
+    gl.uniform1f(u_numFrames, numFrames);
 
     // Bind buffer and set up attributes
     const a_position = gl.getAttribLocation(program, 'a_position');
