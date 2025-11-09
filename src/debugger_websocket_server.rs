@@ -25,7 +25,7 @@ async fn send_binary(
     sender: &mut futures::stream::SplitSink<WebSocket, Message>,
     data: Vec<u8>,
 ) -> Result<(), axum::Error> {
-    sender.send(Message::Binary(data)).await
+    sender.send(Message::Binary(data.into())).await
 }
 
 /// Start the debugger UI HTTP server on port 55543
