@@ -201,9 +201,9 @@ export const AudioPanel = () => {
   // Filter channels based on showFilter setting
   const visibleChannels = useMemo(() => {
     if (showFilter === 'active') {
-      return Array.from({ length: 64 }, (_, i) => i).filter((i) => activeChannels.has(i));
+      return Array.from({ length: 1 }, (_, i) => i).filter((i) => activeChannels.has(i));
     }
-    return Array.from({ length: 64 }, (_, i) => i);
+    return Array.from({ length: 1 }, (_, i) => i);
   }, [showFilter, activeChannels]);
 
   // Create stable ref callback
