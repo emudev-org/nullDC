@@ -1500,7 +1500,7 @@ const start = async () => {
   });
 
   if (IS_PRODUCTION) {
-    const distDir = resolve(process.cwd(), "dist");
+    const distDir = resolve(process.cwd(), "dist-native");
     app.use(express.static(distDir));
     app.use(async (req, res, next) => {
       if (req.method !== "GET") {
