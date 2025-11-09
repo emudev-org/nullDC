@@ -5,6 +5,7 @@ import type {
   CallstackFrame,
   DebuggerNotification,
   DebuggerRpcSchema,
+  RpcError,
   TargetProcessor,
   WatchId,
 } from "../lib/debuggerSchema";
@@ -142,8 +143,11 @@ export class DebuggerClient {
     const result = await this.rpc.call("state.getSgcFrameData" as keyof DebuggerRpcSchema, {});
 
     // Check if the result contains an error
-    if (result && typeof result === 'object' && 'error' in result && result.error) {
-      throw new Error(result.error.message || 'Failed to fetch SGC frame data');
+    if (result && typeof result === 'object' && 'error' in result) {
+      const rpcError = result as RpcError;
+      if (rpcError.error) {
+        throw new Error(rpcError.error.message || 'Failed to fetch SGC frame data');
+      }
     }
 
     // Wait for and return the binary data
