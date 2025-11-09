@@ -1282,6 +1282,15 @@ const generateSgcFrameData = (): Buffer => {
     return Math.floor(normalized * (max - min + 1)) + min;
   };
 
+  // Select 8 random channels to be active (deterministic based on seed)
+  const activeChannels = new Set<number>();
+  const channelSelectionSeed = 12345;
+  while (activeChannels.size < 8) {
+    const channelIdx = seededRandom(channelSelectionSeed + activeChannels.size, 0, CHANNELS_PER_FRAME - 1);
+    activeChannels.add(channelIdx);
+  }
+  console.log(`Active channels: ${Array.from(activeChannels).sort((a, b) => a - b).join(', ')}`);
+
   for (let frame = 0; frame < NUM_FRAMES; frame++) {
     const frameOffset = frame * BYTES_PER_FRAME;
 
@@ -1289,6 +1298,7 @@ const generateSgcFrameData = (): Buffer => {
       const channelOffset = frameOffset + (channel * BYTES_PER_CHANNEL);
       const seed = frame * 1000 + channel;
       const channelSeed = channel; // For values that should be constant per channel
+      const isActive = activeChannels.has(channel);
 
       // ChannelCommonData struct (72 bytes of actual data, rest is padding)
 
@@ -1397,41 +1407,68 @@ const generateSgcFrameData = (): Buffer => {
 
       // Sample data (72-89: 9 x int16)
       // Generate realistic audio sample values (-32768 to 32767)
-      const sampleSeed = seed + frame;
+      let sample_current = 0;
+      let sample_previous = 0;
+      let sample_filtered = 0;
+      let aeg_value = 0;
+      let feg_value = 0;
 
-      // Current sample (simulated waveform)
-      const sample_current = Math.floor(Math.sin(sampleSeed * 0.1) * 16000);
+      if (isActive) {
+        // Each channel gets a different waveform type based on channel number
+        const waveformType = channel % 4; // 4 different waveform types
+        const frequency = 0.05 + (channel * 0.01); // Different frequency per channel
+        const amplitude = 12000 + seededRandom(channelSeed + 50, 0, 8000);
+        const phaseOffset = channelSeed * 0.5;
+
+        let waveValue = 0;
+        switch (waveformType) {
+          case 0: // Sine wave
+            waveValue = Math.sin(frame * frequency + phaseOffset);
+            break;
+          case 1: // Square wave
+            waveValue = Math.sin(frame * frequency + phaseOffset) > 0 ? 1 : -1;
+            break;
+          case 2: // Sawtooth wave
+            waveValue = 2 * ((frame * frequency + phaseOffset) % 1) - 1;
+            break;
+          case 3: // Triangle wave
+            const sawValue = ((frame * frequency + phaseOffset) % 1);
+            waveValue = sawValue < 0.5 ? sawValue * 4 - 1 : 3 - sawValue * 4;
+            break;
+        }
+
+        sample_current = Math.floor(waveValue * amplitude);
+        sample_previous = Math.floor(Math.sin((frame - 1) * frequency + phaseOffset) * amplitude);
+        sample_filtered = Math.floor((sample_current * 0.7 + sample_previous * 0.3));
+
+        // Generate ADSR envelope for AEG (0 to 0x3FF)
+        const aegPhase = (frame / NUM_FRAMES) * Math.PI * 2 + channelSeed * 0.3;
+        const aegEnvelope = Math.max(0, Math.sin(aegPhase)); // 0.0 to 1.0
+        aeg_value = Math.floor(aegEnvelope * 0x3FF);
+
+        // Generate ADSR envelope for FEG (0 to 0x1FF8)
+        const fegPhase = (frame / NUM_FRAMES) * Math.PI * 4 + channel * 0.1;
+        const fegEnvelope = Math.max(0, Math.cos(fegPhase)); // 0.0 to 1.0
+        feg_value = Math.floor(fegEnvelope * 0x1FF8);
+      }
+
       buffer.writeInt16LE(sample_current, channelOffset + 72);
-
-      // Previous sample (slightly phase-shifted)
-      const sample_previous = Math.floor(Math.sin((sampleSeed - 1) * 0.1) * 16000);
       buffer.writeInt16LE(sample_previous, channelOffset + 74);
-
-      // Filtered sample (softer/smoother)
-      const sample_filtered = Math.floor((sample_current * 0.7 + sample_previous * 0.3));
       buffer.writeInt16LE(sample_filtered, channelOffset + 76);
 
-      // Generate ADSR envelope for AEG (0 to 0x3FF)
-      const aegPhase = (frame / NUM_FRAMES) * Math.PI * 2; // Full cycle over all frames
-      const aegEnvelope = Math.max(0, Math.sin(aegPhase)); // 0.0 to 1.0
-      const aeg_value = Math.floor(aegEnvelope * 0x3FF);
-
       // Sample after AEG (apply amplitude envelope)
-      const sample_post_aeg = Math.floor(sample_filtered * aegEnvelope);
+      const aegEnvelopeNorm = aeg_value / 0x3FF; // Normalize back to 0.0-1.0
+      const sample_post_aeg = Math.floor(sample_filtered * aegEnvelopeNorm);
       buffer.writeInt16LE(sample_post_aeg, channelOffset + 78);
 
-      // Generate ADSR envelope for FEG (0 to 0x1FF8)
-      const fegPhase = (frame / NUM_FRAMES) * Math.PI * 4 + channel * 0.1; // Faster cycle, per-channel offset
-      const fegEnvelope = Math.max(0, Math.cos(fegPhase)); // 0.0 to 1.0, different shape
-      const feg_value = Math.floor(fegEnvelope * 0x1FF8);
-
       // Sample after FEG (apply filter envelope - affects brightness)
-      const filterAmount = fegEnvelope * 0.5 + 0.5; // 0.5 to 1.0
+      const fegEnvelopeNorm = feg_value / 0x1FF8; // Normalize back to 0.0-1.0
+      const filterAmount = fegEnvelopeNorm * 0.5 + 0.5; // 0.5 to 1.0
       const sample_post_feg = Math.floor(sample_post_aeg * filterAmount);
       buffer.writeInt16LE(sample_post_feg, channelOffset + 80);
 
       // Sample after TL (apply total level attenuation)
-      const tlAttenuation = (255 - seededRandom(seed + 29, 0, 255)) / 255; // 0.0 to 1.0
+      const tlAttenuation = isActive ? (255 - seededRandom(seed + 29, 0, 255)) / 255 : 0;
       const sample_post_tl = Math.floor(sample_post_feg * tlAttenuation);
       buffer.writeInt16LE(sample_post_tl, channelOffset + 82);
 

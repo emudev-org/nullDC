@@ -8,6 +8,7 @@ import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import StopIcon from '@mui/icons-material/Stop';
 import { useSessionStore } from "../../state/sessionStore";
 import { useDebuggerDataStore } from "../../state/debuggerDataStore";
+import { SgcFrameData } from "../../lib/sgcChannelData";
 
 export const AudioPanel = () => {
   // Channel states: 0 = normal, 1 = muted, 2 = soloed
@@ -23,6 +24,7 @@ export const AudioPanel = () => {
   const [sgcBinaryData, setSgcBinaryData] = useState<ArrayBuffer | null>(null);
   const [renderer, setRenderer] = useState<SgcWaveformRenderer | null>(null);
   const [webglError, setWebglError] = useState<string | null>(null);
+  const [activeChannels, setActiveChannels] = useState<Set<number>>(new Set());
 
   const client = useSessionStore((state) => state.client);
   const initialized = useDebuggerDataStore((state) => state.initialized);
@@ -39,6 +41,25 @@ export const AudioPanel = () => {
       try {
         const arrayBuffer = await client.fetchSgcFrameData();
         setSgcBinaryData(arrayBuffer);
+
+        // Detect active channels by scanning for non-zero AEG values
+        const detectedActiveChannels = new Set<number>();
+        for (let channel = 0; channel < 64; channel++) {
+          let hasNonZeroAeg = false;
+          for (let frame = 0; frame < 1024; frame++) {
+            const frameData = new SgcFrameData(arrayBuffer, frame);
+            const channelData = frameData.getChannel(channel);
+            if (channelData.aeg_value !== 0) {
+              hasNonZeroAeg = true;
+              break;
+            }
+          }
+          if (hasNonZeroAeg) {
+            detectedActiveChannels.add(channel);
+          }
+        }
+        setActiveChannels(detectedActiveChannels);
+        console.log(`Detected active channels: ${Array.from(detectedActiveChannels).sort((a, b) => a - b).join(', ')}`);
       } catch (error) {
         console.error("Failed to fetch SGC frame data:", error);
       }
@@ -62,9 +83,6 @@ export const AudioPanel = () => {
       setWebglError(error instanceof Error ? error.message : "Failed to initialize WebGL");
     }
   }, []);
-
-  // Mock active channels (for demo purposes, channels 0-7 are "active")
-  const activeChannels = useMemo(() => new Set([0, 1, 2, 3, 4, 5, 6, 7]), []);
 
   const handleMuteToggle = useCallback((channelIndex: number) => {
     setChannelStates((prevStates) => {
