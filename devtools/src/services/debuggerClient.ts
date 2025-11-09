@@ -139,10 +139,20 @@ export class DebuggerClient {
     });
 
     // Make the RPC call (which triggers the server to send binary data)
-    await this.rpc.call("state.getSgcFrameData" as keyof DebuggerRpcSchema, {});
+    const result = await this.rpc.call("state.getSgcFrameData" as keyof DebuggerRpcSchema, {});
+
+    // Check if the result contains an error
+    if (result && typeof result === 'object' && 'error' in result && result.error) {
+      throw new Error(result.error.message || 'Failed to fetch SGC frame data');
+    }
 
     // Wait for and return the binary data
     return binaryDataPromise;
+  }
+
+  async recordSgcFrames(): Promise<void> {
+    // Request the server to record 1024 frames
+    await this.rpc.call("state.recordSgcFrames" as keyof DebuggerRpcSchema, {});
   }
 
   async sendNotification(method: keyof DebuggerRpcSchema, params: unknown) {

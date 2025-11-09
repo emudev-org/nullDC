@@ -3,9 +3,7 @@ import { Box, Stack, IconButton, Tooltip, ToggleButton, ToggleButtonGroup } from
 import { SgcChannelView, type ChannelState, type SgcChannelViewHandle } from "../components/SgcChannelView";
 import { SgcWaveformRenderer } from "../components/SgcWaveformRenderer";
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
-import FastRewindIcon from '@mui/icons-material/FastRewind';
-import PlayArrowIcon from '@mui/icons-material/PlayArrow';
-import StopIcon from '@mui/icons-material/Stop';
+import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
 import { useSessionStore } from "../../state/sessionStore";
 import { useDebuggerDataStore } from "../../state/debuggerDataStore";
 import { SgcFrameData } from "../../lib/sgcChannelData";
@@ -13,7 +11,6 @@ import { SgcFrameData } from "../../lib/sgcChannelData";
 export const AudioPanel = () => {
   // Channel states: 0 = normal, 1 = muted, 2 = soloed
   const [channelStates, setChannelStates] = useState<ChannelState[]>(Array(64).fill(0));
-  const [isPlaying, setIsPlaying] = useState(false);
   const [showFilter, setShowFilter] = useState<'all' | 'active'>('active');
   const [hoverPosition, setHoverPosition] = useState<number | null>(null); // Sample index [0, 1024)
   const [playbackPosition, setPlaybackPosition] = useState<number>(0); // Sample index [0, 1024)
@@ -25,11 +22,11 @@ export const AudioPanel = () => {
   const [renderer, setRenderer] = useState<SgcWaveformRenderer | null>(null);
   const [webglError, setWebglError] = useState<string | null>(null);
   const [activeChannels, setActiveChannels] = useState<Set<number>>(new Set());
+  const [noDataAvailable, setNoDataAvailable] = useState<boolean>(false);
 
   const client = useSessionStore((state) => state.client);
   const initialized = useDebuggerDataStore((state) => state.initialized);
   const channelListRef = useRef<HTMLDivElement>(null);
-  const animationFrameRef = useRef<number | undefined>(undefined);
   const dragStartXRef = useRef<number>(0);
   const dragStartScrollRef = useRef<number>(0);
   const channelRefsRef = useRef<Map<number, SgcChannelViewHandle>>(new Map());
@@ -41,6 +38,7 @@ export const AudioPanel = () => {
       try {
         const arrayBuffer = await client.fetchSgcFrameData();
         setSgcBinaryData(arrayBuffer);
+        setNoDataAvailable(false);
 
         // Detect active channels by scanning for non-zero AEG values
         const detectedActiveChannels = new Set<number>();
@@ -62,6 +60,8 @@ export const AudioPanel = () => {
         console.log(`Detected active channels: ${Array.from(detectedActiveChannels).sort((a, b) => a - b).join(', ')}`);
       } catch (error) {
         console.error("Failed to fetch SGC frame data:", error);
+        setNoDataAvailable(true);
+        setSgcBinaryData(null);
       }
     };
     fetchData();
@@ -120,13 +120,42 @@ export const AudioPanel = () => {
     });
   }, []);
 
-  const handleRewind = useCallback(() => {
-    setPlaybackPosition(0); // Set to sample index 0
-  }, []);
+  const handleRecord = useCallback(async () => {
+    if (!client) return;
 
-  const handlePlayStop = useCallback(() => {
-    setIsPlaying((prev) => !prev);
-  }, []);
+    try {
+      // Request recording from server
+      await client.recordSgcFrames();
+
+      // Fetch the new data
+      const arrayBuffer = await client.fetchSgcFrameData();
+      setSgcBinaryData(arrayBuffer);
+      setNoDataAvailable(false);
+
+      // Detect active channels by scanning for non-zero AEG values
+      const BYTES_PER_FRAME = 8192;
+      const numFrames = arrayBuffer.byteLength / BYTES_PER_FRAME;
+      const detectedActiveChannels = new Set<number>();
+      for (let channel = 0; channel < 64; channel++) {
+        let hasNonZeroAeg = false;
+        for (let frame = 0; frame < numFrames; frame++) {
+          const frameData = new SgcFrameData(arrayBuffer, frame);
+          const channelData = frameData.getChannel(channel);
+          if (channelData.aeg_value !== 0) {
+            hasNonZeroAeg = true;
+            break;
+          }
+        }
+        if (hasNonZeroAeg) {
+          detectedActiveChannels.add(channel);
+        }
+      }
+      setActiveChannels(detectedActiveChannels);
+      console.log(`Detected active channels: ${Array.from(detectedActiveChannels).sort((a, b) => a - b).join(', ')}`);
+    } catch (error) {
+      console.error("Failed to record SGC frame data:", error);
+    }
+  }, [client]);
 
   const handleFilterChange = useCallback(
     (_event: React.MouseEvent<HTMLElement>, newFilter: 'all' | 'active' | null) => {
@@ -242,39 +271,6 @@ export const AudioPanel = () => {
     });
   }, [hoverPosition, playbackPosition]);
 
-  // Animate playback position when playing (in sample indices [0, 1024))
-  useEffect(() => {
-    if (!isPlaying) {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-      }
-      return;
-    }
-
-    const startTime = Date.now();
-    const startPos = playbackPosition;
-    const speed = 102.4; // 102.4 samples per second (10% per second for 1024 samples)
-
-    const animate = () => {
-      const elapsed = (Date.now() - startTime) / 1000;
-      const newPos = startPos + elapsed * speed;
-
-      // Loop within sample bounds [0, 1024)
-      const loopedPos = Math.floor(newPos) % 1024;
-
-      setPlaybackPosition(loopedPos);
-      animationFrameRef.current = requestAnimationFrame(animate);
-    };
-
-    animationFrameRef.current = requestAnimationFrame(animate);
-
-    return () => {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-      }
-    };
-  }, [isPlaying, playbackPosition]);
-
   return (
     <Panel>
       <Box
@@ -296,28 +292,19 @@ export const AudioPanel = () => {
             flexShrink: 0,
           }}
         >
-          {/* Transport Controls */}
+          {/* Record Control */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-            <Tooltip title="Rewind">
+            <Tooltip title="Run the emulator and record 1024 frames">
               <IconButton
                 size="small"
-                onClick={handleRewind}
-                sx={{ width: 32, height: 32 }}
-              >
-                <FastRewindIcon />
-              </IconButton>
-            </Tooltip>
-            <Tooltip title={isPlaying ? 'Stop' : 'Play'}>
-              <IconButton
-                size="small"
-                onClick={handlePlayStop}
+                onClick={handleRecord}
                 sx={{
                   width: 32,
                   height: 32,
-                  color: isPlaying ? 'error.main' : 'primary.main',
+                  color: 'error.main',
                 }}
               >
-                {isPlaying ? <StopIcon /> : <PlayArrowIcon />}
+                <FiberManualRecordIcon />
               </IconButton>
             </Tooltip>
           </Box>
@@ -378,6 +365,19 @@ export const AudioPanel = () => {
             >
               <div>WebGL Initialization Failed</div>
               <div style={{ fontSize: '0.9rem', color: 'text.secondary' }}>{webglError}</div>
+            </Box>
+          ) : noDataAvailable ? (
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                height: '100%',
+                color: 'text.secondary',
+                fontSize: '1.2rem',
+              }}
+            >
+              Record some data to display here
             </Box>
           ) : sgcBinaryData && renderer ? (
             <Stack

@@ -43,8 +43,8 @@ const BYTES_PER_FRAME = CHANNELS_PER_FRAME * BYTES_PER_CHANNEL; // 8192
 const NUM_FRAMES = 1024;
 const TOTAL_BYTES = NUM_FRAMES * BYTES_PER_FRAME;
 
-// Mock SGC frame data buffer (allocated on startup)
-let sgcFrameData: Buffer;
+// Mock SGC frame data buffer (null until recorded)
+let sgcFrameData: Buffer | null = null;
 
 interface ClientContext {
   socket: WebSocket;
@@ -645,7 +645,7 @@ const handleRequest = async (client: ClientContext, message: JsonRpcRequest) => 
     await respondSuccess(client.socket, message.id, result);
 
     // Send binary data for specific methods
-    if (method === "state.getSgcFrameData") {
+    if (method === "state.getSgcFrameData" && sgcFrameData) {
       // Send the SGC frame data as a binary message
       client.socket.send(sgcFrameData);
     }
@@ -969,6 +969,18 @@ const dispatchMethod = async (
       };
     }
     case "state.getSgcFrameData": {
+      // Check if data has been recorded
+      if (!sgcFrameData) {
+        return {
+          result: {
+            error: {
+              code: -32001,
+              message: "No SGC frame data available. Record some data first."
+            }
+          } as RpcError,
+          shouldBroadcastTick: false,
+        };
+      }
       // This method will trigger a binary response
       // The actual binary data will be sent separately after the JSON response
       return {
@@ -979,6 +991,16 @@ const dispatchMethod = async (
           totalBytes: TOTAL_BYTES
         },
         shouldBroadcastTick: false,
+      };
+    }
+    case "state.recordSgcFrames": {
+      // Regenerate SGC frame data with new random seed
+      sgcFrameData = generateSgcFrameData();
+      // Pause emulator after recording
+      isRunning = false;
+      return {
+        result: {},
+        shouldBroadcastTick: true,
       };
     }
     default:
@@ -1264,9 +1286,13 @@ const broadcastTick = (hitBreakpointId?: number) => {
   }
 };
 
+// Global seed counter for generating different data on each record
+let sgcDataGenerationSeed = 0;
+
 // Generate mock SGC frame data
 const generateSgcFrameData = (): Buffer => {
-  console.log(`Generating ${NUM_FRAMES} frames of SGC data (${(TOTAL_BYTES / 1024 / 1024).toFixed(2)} MB)...`);
+  sgcDataGenerationSeed++;
+  console.log(`Generating ${NUM_FRAMES} frames of SGC data (${(TOTAL_BYTES / 1024 / 1024).toFixed(2)} MB) with seed ${sgcDataGenerationSeed}...`);
 
   const buffer = Buffer.alloc(TOTAL_BYTES);
 
@@ -1284,10 +1310,12 @@ const generateSgcFrameData = (): Buffer => {
 
   // Select 8 random channels to be active (deterministic based on seed)
   const activeChannels = new Set<number>();
-  const channelSelectionSeed = 12345;
+  const channelSelectionSeed = 12345 + (sgcDataGenerationSeed * 10000);
+  let iteration = 0;
   while (activeChannels.size < 8) {
-    const channelIdx = seededRandom(channelSelectionSeed + activeChannels.size, 0, CHANNELS_PER_FRAME - 1);
+    const channelIdx = seededRandom(channelSelectionSeed + iteration, 0, CHANNELS_PER_FRAME - 1);
     activeChannels.add(channelIdx);
+    iteration++;
   }
   console.log(`Active channels: ${Array.from(activeChannels).sort((a, b) => a - b).join(', ')}`);
 
@@ -1526,9 +1554,6 @@ const generateSgcFrameData = (): Buffer => {
 };
 
 const start = async () => {
-  // Generate mock SGC frame data on startup
-  sgcFrameData = generateSgcFrameData();
-
   const app = express();
   let vite: Awaited<ReturnType<typeof createViteServer>> | null = null;
 
