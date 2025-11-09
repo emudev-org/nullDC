@@ -1,4 +1,4 @@
-import { Box, IconButton, Typography } from "@mui/material";
+import { Box, IconButton } from "@mui/material";
 import VolumeUpIcon from '@mui/icons-material/VolumeUp';
 import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
 import GraphicEqIcon from '@mui/icons-material/GraphicEq';
@@ -8,6 +8,7 @@ import { useRef, useEffect, memo, useImperativeHandle, forwardRef, useState, use
 import { HideOnHoverTooltip } from "./HideOnHoverTooltip";
 import { SgcFrameData } from "../../lib/sgcChannelData";
 import { SgcWaveformRenderer } from "./SgcWaveformRenderer";
+import { SgcChannelHeader } from "./SgcChannelHeader";
 
 // Channel state type: 0 = normal, 1 = muted, 2 = soloed
 export type ChannelState = 0 | 1 | 2;
@@ -22,6 +23,8 @@ interface SgcChannelViewProps {
   channelState: ChannelState;
   onMuteToggle: (index: number) => void;
   onSoloToggle: (index: number) => void;
+  onHoverPositionChange: (position: number | null) => void;
+  onPlaybackPositionChange: (position: number) => void;
   sgcBinaryData: ArrayBuffer;
   renderer: SgcWaveformRenderer;
 }
@@ -31,6 +34,8 @@ export const SgcChannelView = memo(forwardRef<SgcChannelViewHandle, SgcChannelVi
   channelState,
   onMuteToggle,
   onSoloToggle,
+  onHoverPositionChange,
+  onPlaybackPositionChange,
   sgcBinaryData,
   renderer,
 }, ref) => {
@@ -45,57 +50,18 @@ export const SgcChannelView = memo(forwardRef<SgcChannelViewHandle, SgcChannelVi
   // Rendering state
   const renderQueuedRef = useRef<boolean>(false);
   const animationFrameRef = useRef<number | undefined>(undefined);
-  const vertexBuffersRef = useRef<WebGLBuffer[]>([]);
+
+  // Cached vertex buffers - only recreated when waveform data changes
+  const waveformBufferRef = useRef<WebGLBuffer | null>(null);
+  const aegBufferRef = useRef<WebGLBuffer | null>(null);
+  const fegBufferRef = useRef<WebGLBuffer | null>(null);
+
+  // Position indicator buffers - recreated on every render
+  const positionBuffersRef = useRef<WebGLBuffer[]>([]);
 
   // Get channel data from the active sample (hover position if available, otherwise playback position)
   const activeSampleIndex = hoverPosition ?? playbackPosition;
   const channelData = new SgcFrameData(sgcBinaryData, activeSampleIndex).getChannel(channelIndex);
-
-  // Helper function to get format string from PCMS value
-  const getFormat = (pcms: number): string => {
-    switch (pcms) {
-      case 0: return 'PCM16';
-      case 1: return 'PCM8';
-      case 2: return 'ADPCM';
-      case 3: return 'ADPCM-L';
-      default: return 'PCM16';
-    }
-  };
-
-  // Helper function to convert OCT to signed octave
-  const getOctave = (oct: number): number => {
-    // OCT is 4-bit, treat as signed: 0-7 = +0 to +7, 8-15 = -8 to -1
-    return oct > 7 ? oct - 16 : oct;
-  };
-
-  const getSampleStep = (oct: number, fns: number, plfo: number): number => {
-    if (oct > 7) {
-      return (1024 + fns + plfo) >> (16-oct);
-    } else {
-      return (1024 + fns + plfo) << oct;
-    }
-  };
-
-  const getSampleRate = (oct: number, fns: number, plfo: number): number => {
-    const step = getSampleStep(oct, fns, plfo);
-    return (44100 * (step/1024)) | 0;
-  };
-
-  const getRightPan = (DIPAN: number): number => {
-    if (DIPAN & 0x10) {
-      return DIPAN & 0xF;
-    } else {
-      return 0xF;
-    }
-  };
-
-  const getLeftPan = (DIPAN: number): number => {
-    if (DIPAN & 0x10) {
-      return 0xF;
-    } else {
-      return DIPAN & 0xF;
-    }
-  };
 
   // WebGL rendering function ref
   const renderCanvasRef = useRef<(() => void) | null>(null);
@@ -112,6 +78,42 @@ export const SgcChannelView = memo(forwardRef<SgcChannelViewHandle, SgcChannelVi
       }
     });
   }, []);
+
+  // Calculate sample position from mouse X coordinate
+  const calculateSamplePosition = useCallback((clientX: number): number => {
+    const container = containerRef.current;
+    if (!container) return 0;
+
+    const rect = container.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const canvasWidth = rect.width;
+    const { scrollOffsetX, zoomLevel } = panZoomRef.current;
+
+    // Account for scroll offset and zoom
+    const normalizedX = (x + scrollOffsetX) / (canvasWidth * zoomLevel);
+    const constrainedNormalized = Math.max(0, Math.min(normalizedX, 1));
+
+    // Convert to sample index [0, 1024)
+    const sampleIndex = Math.floor(constrainedNormalized * 1024);
+    return Math.max(0, Math.min(sampleIndex, 1023));
+  }, []);
+
+  // Handle mouse move for hover position
+  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const sampleIndex = calculateSamplePosition(e.clientX);
+    onHoverPositionChange(sampleIndex);
+  }, [calculateSamplePosition, onHoverPositionChange]);
+
+  // Handle mouse leave to clear hover position
+  const handleMouseLeave = useCallback(() => {
+    onHoverPositionChange(null);
+  }, [onHoverPositionChange]);
+
+  // Handle click to set playback position
+  const handleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const sampleIndex = calculateSamplePosition(e.clientX);
+    onPlaybackPositionChange(sampleIndex);
+  }, [calculateSamplePosition, onPlaybackPositionChange]);
 
   // Extract waveform data from SGC frame data
   useEffect(() => {
@@ -147,7 +149,205 @@ export const SgcChannelView = memo(forwardRef<SgcChannelViewHandle, SgcChannelVi
   }, [channelIndex, sgcBinaryData, viewMode, queueGraphRerender]);
 
 
-  // WebGL rendering - setup the render function
+  // Create/update cached vertex buffers when waveform data or canvas size changes
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const { width, height } = canvas;
+    if (width === 0 || height === 0) return;
+
+    const numFrames = 1024;
+    const waveform = waveformDataRef.current;
+    if (waveform.length === 0) return;
+
+    // Clean up old buffers
+    if (waveformBufferRef.current) {
+      renderer.destroyVertexBuffer(waveformBufferRef.current);
+      waveformBufferRef.current = null;
+    }
+    if (aegBufferRef.current) {
+      renderer.destroyVertexBuffer(aegBufferRef.current);
+      aegBufferRef.current = null;
+    }
+    if (fegBufferRef.current) {
+      renderer.destroyVertexBuffer(fegBufferRef.current);
+      fegBufferRef.current = null;
+    }
+
+    // Create waveform buffer
+    if (viewMode === 'post-volpan') {
+      // Post-volpan mode - 3 waveforms (left, right, DSP)
+      const topCenterY = height / 6;
+      const middleCenterY = height / 2;
+      const bottomCenterY = (height * 5) / 6;
+      const waveHeight = height * 0.12;
+
+      // Pre-allocate Float32Array: 3 channels * numFrames * 6 vertices/bar * 6 floats/vertex
+      const vertices = new Float32Array(numFrames * 3 * 6 * 6);
+      let offset = 0;
+
+      for (let i = 0; i < numFrames; i++) {
+        const frameData = new SgcFrameData(sgcBinaryData, i);
+        const frameChannelData = frameData.getChannel(channelIndex);
+
+        const x = (i / numFrames) * width;
+        const nextX = ((i + 1) / numFrames) * width;
+
+        const leftAmp = frameChannelData.sample_left / 32768.0;
+        const rightAmp = frameChannelData.sample_right / 32768.0;
+        const dspAmp = frameChannelData.sample_dsp / 32768.0;
+
+        // Left channel (blue)
+        const leftHeight = Math.abs(leftAmp * waveHeight);
+        const leftY = leftAmp >= 0 ? topCenterY - leftHeight : topCenterY;
+        vertices.set([
+          x, leftY, 0.098, 0.463, 0.824, 0.8,
+          nextX, leftY, 0.098, 0.463, 0.824, 0.8,
+          x, leftY + leftHeight, 0.098, 0.463, 0.824, 0.8,
+          nextX, leftY, 0.098, 0.463, 0.824, 0.8,
+          nextX, leftY + leftHeight, 0.098, 0.463, 0.824, 0.8,
+          x, leftY + leftHeight, 0.098, 0.463, 0.824, 0.8
+        ], offset);
+        offset += 36;
+
+        // Right channel (pink)
+        const rightHeight = Math.abs(rightAmp * waveHeight);
+        const rightY = rightAmp >= 0 ? middleCenterY - rightHeight : middleCenterY;
+        vertices.set([
+          x, rightY, 0.824, 0.098, 0.463, 0.8,
+          nextX, rightY, 0.824, 0.098, 0.463, 0.8,
+          x, rightY + rightHeight, 0.824, 0.098, 0.463, 0.8,
+          nextX, rightY, 0.824, 0.098, 0.463, 0.8,
+          nextX, rightY + rightHeight, 0.824, 0.098, 0.463, 0.8,
+          x, rightY + rightHeight, 0.824, 0.098, 0.463, 0.8
+        ], offset);
+        offset += 36;
+
+        // DSP channel (orange)
+        const dspHeight = Math.abs(dspAmp * waveHeight);
+        const dspY = dspAmp >= 0 ? bottomCenterY - dspHeight : bottomCenterY;
+        vertices.set([
+          x, dspY, 1.0, 0.596, 0.0, 0.8,
+          nextX, dspY, 1.0, 0.596, 0.0, 0.8,
+          x, dspY + dspHeight, 1.0, 0.596, 0.0, 0.8,
+          nextX, dspY, 1.0, 0.596, 0.0, 0.8,
+          nextX, dspY + dspHeight, 1.0, 0.596, 0.0, 0.8,
+          x, dspY + dspHeight, 1.0, 0.596, 0.0, 0.8
+        ], offset);
+        offset += 36;
+      }
+
+      waveformBufferRef.current = renderer.createVertexBuffer(vertices);
+    } else {
+      // Pre-volpan or Input mode - single centered waveform
+      const centerY = height / 2;
+      const waveHeight = height * 0.4;
+      const [r, g, b, a] = viewMode === 'input' ? [0.612, 0.153, 0.690, 0.8] : [0.098, 0.463, 0.824, 0.8];
+
+      // Pre-allocate Float32Array: numFrames * 6 vertices/bar * 6 floats/vertex
+      const vertices = new Float32Array(numFrames * 6 * 6);
+      let offset = 0;
+
+      waveform.forEach((amplitude, i) => {
+        const x = (i / numFrames) * width;
+        const nextX = ((i + 1) / numFrames) * width;
+        const barHeight = Math.abs(amplitude * waveHeight);
+        const barY = amplitude >= 0 ? centerY - barHeight : centerY;
+
+        vertices.set([
+          x, barY, r, g, b, a,
+          nextX, barY, r, g, b, a,
+          x, barY + barHeight, r, g, b, a,
+          nextX, barY, r, g, b, a,
+          nextX, barY + barHeight, r, g, b, a,
+          x, barY + barHeight, r, g, b, a
+        ], offset);
+        offset += 36;
+      });
+
+      waveformBufferRef.current = renderer.createVertexBuffer(vertices);
+    }
+
+    // Create envelope buffers
+    const centerY = height / 2;
+    const envelopeHeight = height * 0.3;
+
+    // AEG envelope (green)
+    const aegVertices = new Float32Array((numFrames - 1) * 6 * 6);
+    let aegOffset = 0;
+
+    for (let i = 0; i < numFrames - 1; i++) {
+      const frameData1 = new SgcFrameData(sgcBinaryData, i);
+      const frameData2 = new SgcFrameData(sgcBinaryData, i + 1);
+      const channelData1 = frameData1.getChannel(channelIndex);
+      const channelData2 = frameData2.getChannel(channelIndex);
+
+      const x1 = (i / (numFrames - 1)) * width;
+      const x2 = ((i + 1) / (numFrames - 1)) * width;
+      const y1 = centerY - height * 0.15 - ((channelData1.aeg_value / 0x3FF) * envelopeHeight);
+      const y2 = centerY - height * 0.15 - ((channelData2.aeg_value / 0x3FF) * envelopeHeight);
+
+      aegVertices.set([
+        x1, y1 - 0.75, 0.298, 0.686, 0.314, 0.7,
+        x2, y2 - 0.75, 0.298, 0.686, 0.314, 0.7,
+        x1, y1 + 0.75, 0.298, 0.686, 0.314, 0.7,
+        x2, y2 - 0.75, 0.298, 0.686, 0.314, 0.7,
+        x2, y2 + 0.75, 0.298, 0.686, 0.314, 0.7,
+        x1, y1 + 0.75, 0.298, 0.686, 0.314, 0.7
+      ], aegOffset);
+      aegOffset += 36;
+    }
+    aegBufferRef.current = renderer.createVertexBuffer(aegVertices);
+
+    // FEG envelope (orange)
+    const fegVertices = new Float32Array((numFrames - 1) * 6 * 6);
+    let fegOffset = 0;
+
+    for (let i = 0; i < numFrames - 1; i++) {
+      const frameData1 = new SgcFrameData(sgcBinaryData, i);
+      const frameData2 = new SgcFrameData(sgcBinaryData, i + 1);
+      const channelData1 = frameData1.getChannel(channelIndex);
+      const channelData2 = frameData2.getChannel(channelIndex);
+
+      const x1 = (i / (numFrames - 1)) * width;
+      const x2 = ((i + 1) / (numFrames - 1)) * width;
+      const y1 = centerY + height * 0.15 - ((channelData1.feg_value / 0x1FF8) * envelopeHeight);
+      const y2 = centerY + height * 0.15 - ((channelData2.feg_value / 0x1FF8) * envelopeHeight);
+
+      fegVertices.set([
+        x1, y1 - 0.75, 1.0, 0.596, 0.0, 0.7,
+        x2, y2 - 0.75, 1.0, 0.596, 0.0, 0.7,
+        x1, y1 + 0.75, 1.0, 0.596, 0.0, 0.7,
+        x2, y2 - 0.75, 1.0, 0.596, 0.0, 0.7,
+        x2, y2 + 0.75, 1.0, 0.596, 0.0, 0.7,
+        x1, y1 + 0.75, 1.0, 0.596, 0.0, 0.7
+      ], fegOffset);
+      fegOffset += 36;
+    }
+    fegBufferRef.current = renderer.createVertexBuffer(fegVertices);
+
+    // Trigger a render
+    queueGraphRerender();
+
+    // Cleanup on unmount or when buffers are recreated
+    return () => {
+      if (waveformBufferRef.current) {
+        renderer.destroyVertexBuffer(waveformBufferRef.current);
+        waveformBufferRef.current = null;
+      }
+      if (aegBufferRef.current) {
+        renderer.destroyVertexBuffer(aegBufferRef.current);
+        aegBufferRef.current = null;
+      }
+      if (fegBufferRef.current) {
+        renderer.destroyVertexBuffer(fegBufferRef.current);
+        fegBufferRef.current = null;
+      }
+    };
+  }, [renderer, sgcBinaryData, channelIndex, viewMode, queueGraphRerender]);
+
+  // Render using cached buffers - only updates when pan/zoom or positions change
   useEffect(() => {
     const renderCanvas = () => {
       const canvas = canvasRef.current;
@@ -156,180 +356,35 @@ export const SgcChannelView = memo(forwardRef<SgcChannelViewHandle, SgcChannelVi
       const { width, height } = canvas;
       if (width === 0 || height === 0) return;
 
-      const { scrollOffsetX, zoomLevel } = panZoomRef.current;
       const numFrames = 1024;
-      const waveform = waveformDataRef.current;
 
-      if (waveform.length === 0) return;
+      // Get current pan/zoom values
+      const { scrollOffsetX, zoomLevel } = panZoomRef.current;
 
-      // Clean up old vertex buffers
-      vertexBuffersRef.current.forEach(buffer => renderer.destroyVertexBuffer(buffer));
-      vertexBuffersRef.current = [];
-
-      // Clear the offscreen canvas before rendering
+      // Clear offscreen canvas
       renderer.clear();
 
-      // Draw waveforms
-      if (viewMode === 'post-volpan') {
-        // Post-volpan mode - 3 waveforms (left, right, DSP)
-        const topCenterY = height / 6;
-        const middleCenterY = height / 2;
-        const bottomCenterY = (height * 5) / 6;
-        const waveHeight = height * 0.12;
-
-        // Pre-allocate Float32Array: 3 channels * numFrames * 6 vertices/bar * 6 floats/vertex
-        const vertices = new Float32Array(numFrames * 3 * 6 * 6);
-        let offset = 0;
-
-        for (let i = 0; i < numFrames; i++) {
-          const frameData = new SgcFrameData(sgcBinaryData, i);
-          const frameChannelData = frameData.getChannel(channelIndex);
-
-          const x = (i / numFrames) * width;
-          const nextX = ((i + 1) / numFrames) * width;
-
-          const leftAmp = frameChannelData.sample_left / 32768.0;
-          const rightAmp = frameChannelData.sample_right / 32768.0;
-          const dspAmp = frameChannelData.sample_dsp / 32768.0;
-
-          // Left channel (blue)
-          const leftHeight = Math.abs(leftAmp * waveHeight);
-          const leftY = leftAmp >= 0 ? topCenterY - leftHeight : topCenterY;
-          vertices.set([
-            x, leftY, 0.098, 0.463, 0.824, 0.8,
-            nextX, leftY, 0.098, 0.463, 0.824, 0.8,
-            x, leftY + leftHeight, 0.098, 0.463, 0.824, 0.8,
-            nextX, leftY, 0.098, 0.463, 0.824, 0.8,
-            nextX, leftY + leftHeight, 0.098, 0.463, 0.824, 0.8,
-            x, leftY + leftHeight, 0.098, 0.463, 0.824, 0.8
-          ], offset);
-          offset += 36;
-
-          // Right channel (pink)
-          const rightHeight = Math.abs(rightAmp * waveHeight);
-          const rightY = rightAmp >= 0 ? middleCenterY - rightHeight : middleCenterY;
-          vertices.set([
-            x, rightY, 0.824, 0.098, 0.463, 0.8,
-            nextX, rightY, 0.824, 0.098, 0.463, 0.8,
-            x, rightY + rightHeight, 0.824, 0.098, 0.463, 0.8,
-            nextX, rightY, 0.824, 0.098, 0.463, 0.8,
-            nextX, rightY + rightHeight, 0.824, 0.098, 0.463, 0.8,
-            x, rightY + rightHeight, 0.824, 0.098, 0.463, 0.8
-          ], offset);
-          offset += 36;
-
-          // DSP channel (orange)
-          const dspHeight = Math.abs(dspAmp * waveHeight);
-          const dspY = dspAmp >= 0 ? bottomCenterY - dspHeight : bottomCenterY;
-          vertices.set([
-            x, dspY, 1.0, 0.596, 0.0, 0.8,
-            nextX, dspY, 1.0, 0.596, 0.0, 0.8,
-            x, dspY + dspHeight, 1.0, 0.596, 0.0, 0.8,
-            nextX, dspY, 1.0, 0.596, 0.0, 0.8,
-            nextX, dspY + dspHeight, 1.0, 0.596, 0.0, 0.8,
-            x, dspY + dspHeight, 1.0, 0.596, 0.0, 0.8
-          ], offset);
-          offset += 36;
-        }
-
-        const buffer = renderer.createVertexBuffer(vertices);
-        vertexBuffersRef.current.push(buffer);
-        renderer.render(buffer, vertices.length / 6, scrollOffsetX, zoomLevel);
-      } else {
-        // Pre-volpan or Input mode - single centered waveform
-        const centerY = height / 2;
-        const waveHeight = height * 0.4;
-        const [r, g, b, a] = viewMode === 'input' ? [0.612, 0.153, 0.690, 0.8] : [0.098, 0.463, 0.824, 0.8];
-
-        // Pre-allocate Float32Array: numFrames * 6 vertices/bar * 6 floats/vertex
-        const vertices = new Float32Array(numFrames * 6 * 6);
-        let offset = 0;
-
-        waveform.forEach((amplitude, i) => {
-          const x = (i / numFrames) * width;
-          const nextX = ((i + 1) / numFrames) * width;
-          const barHeight = Math.abs(amplitude * waveHeight);
-          const barY = amplitude >= 0 ? centerY - barHeight : centerY;
-
-          vertices.set([
-            x, barY, r, g, b, a,
-            nextX, barY, r, g, b, a,
-            x, barY + barHeight, r, g, b, a,
-            nextX, barY, r, g, b, a,
-            nextX, barY + barHeight, r, g, b, a,
-            x, barY + barHeight, r, g, b, a
-          ], offset);
-          offset += 36;
-        });
-
-        const buffer = renderer.createVertexBuffer(vertices);
-        vertexBuffersRef.current.push(buffer);
-        renderer.render(buffer, vertices.length / 6, scrollOffsetX, zoomLevel);
+      // Render waveform (cached)
+      if (waveformBufferRef.current) {
+        const vertexCount = viewMode === 'post-volpan' ? numFrames * 3 * 6 : numFrames * 6;
+        renderer.render(waveformBufferRef.current, vertexCount, scrollOffsetX, zoomLevel);
       }
 
-      // Draw envelope curves
-      const centerY = height / 2;
-      const envelopeHeight = height * 0.3;
-
-      // AEG envelope (green)
-      const aegVertices = new Float32Array((numFrames - 1) * 6 * 6);
-      let aegOffset = 0;
-
-      for (let i = 0; i < numFrames - 1; i++) {
-        const frameData1 = new SgcFrameData(sgcBinaryData, i);
-        const frameData2 = new SgcFrameData(sgcBinaryData, i + 1);
-        const channelData1 = frameData1.getChannel(channelIndex);
-        const channelData2 = frameData2.getChannel(channelIndex);
-
-        const x1 = (i / (numFrames - 1)) * width;
-        const x2 = ((i + 1) / (numFrames - 1)) * width;
-        const y1 = centerY - height * 0.15 - ((channelData1.aeg_value / 0x3FF) * envelopeHeight);
-        const y2 = centerY - height * 0.15 - ((channelData2.aeg_value / 0x3FF) * envelopeHeight);
-
-        aegVertices.set([
-          x1, y1 - 0.75, 0.298, 0.686, 0.314, 0.7,
-          x2, y2 - 0.75, 0.298, 0.686, 0.314, 0.7,
-          x1, y1 + 0.75, 0.298, 0.686, 0.314, 0.7,
-          x2, y2 - 0.75, 0.298, 0.686, 0.314, 0.7,
-          x2, y2 + 0.75, 0.298, 0.686, 0.314, 0.7,
-          x1, y1 + 0.75, 0.298, 0.686, 0.314, 0.7
-        ], aegOffset);
-        aegOffset += 36;
+      // Render AEG envelope (cached)
+      if (aegBufferRef.current) {
+        renderer.render(aegBufferRef.current, (numFrames - 1) * 6, scrollOffsetX, zoomLevel);
       }
-      let buffer = renderer.createVertexBuffer(aegVertices);
-      vertexBuffersRef.current.push(buffer);
-      renderer.render(buffer, aegVertices.length / 6, scrollOffsetX, zoomLevel);
 
-      // FEG envelope (orange)
-      const fegVertices = new Float32Array((numFrames - 1) * 6 * 6);
-      let fegOffset = 0;
-
-      for (let i = 0; i < numFrames - 1; i++) {
-        const frameData1 = new SgcFrameData(sgcBinaryData, i);
-        const frameData2 = new SgcFrameData(sgcBinaryData, i + 1);
-        const channelData1 = frameData1.getChannel(channelIndex);
-        const channelData2 = frameData2.getChannel(channelIndex);
-
-        const x1 = (i / (numFrames - 1)) * width;
-        const x2 = ((i + 1) / (numFrames - 1)) * width;
-        const y1 = centerY + height * 0.15 - ((channelData1.feg_value / 0x1FF8) * envelopeHeight);
-        const y2 = centerY + height * 0.15 - ((channelData2.feg_value / 0x1FF8) * envelopeHeight);
-
-        fegVertices.set([
-          x1, y1 - 0.75, 1.0, 0.596, 0.0, 0.7,
-          x2, y2 - 0.75, 1.0, 0.596, 0.0, 0.7,
-          x1, y1 + 0.75, 1.0, 0.596, 0.0, 0.7,
-          x2, y2 - 0.75, 1.0, 0.596, 0.0, 0.7,
-          x2, y2 + 0.75, 1.0, 0.596, 0.0, 0.7,
-          x1, y1 + 0.75, 1.0, 0.596, 0.0, 0.7
-        ], fegOffset);
-        fegOffset += 36;
+      // Render FEG envelope (cached)
+      if (fegBufferRef.current) {
+        renderer.render(fegBufferRef.current, (numFrames - 1) * 6, scrollOffsetX, zoomLevel);
       }
-      buffer = renderer.createVertexBuffer(fegVertices);
-      vertexBuffersRef.current.push(buffer);
-      renderer.render(buffer, fegVertices.length / 6, scrollOffsetX, zoomLevel);
 
-      // Draw position indicators (not affected by pan/zoom)
+      // Clean up old position buffers
+      positionBuffersRef.current.forEach(buffer => renderer.destroyVertexBuffer(buffer));
+      positionBuffersRef.current = [];
+
+      // Render position indicators (not cached, recreated each frame)
       if (hoverPosition !== null) {
         const hoverX = (hoverPosition / (numFrames - 1)) * width;
         const hoverVertices = new Float32Array([
@@ -340,9 +395,9 @@ export const SgcChannelView = memo(forwardRef<SgcChannelViewHandle, SgcChannelVi
           hoverX + 1, height, 1, 1, 1, 0.4,
           hoverX - 1, height, 1, 1, 1, 0.4
         ]);
-        buffer = renderer.createVertexBuffer(hoverVertices);
-        vertexBuffersRef.current.push(buffer);
-        renderer.render(buffer, 6, 0, 1); // No pan/zoom for indicators
+        const hoverBuffer = renderer.createVertexBuffer(hoverVertices);
+        positionBuffersRef.current.push(hoverBuffer);
+        renderer.render(hoverBuffer, 6, 0, 1); // No pan/zoom for indicators
       }
 
       const playbackX = (playbackPosition / (numFrames - 1)) * width;
@@ -354,9 +409,9 @@ export const SgcChannelView = memo(forwardRef<SgcChannelViewHandle, SgcChannelVi
         playbackX + 1, height, 1, 0.596, 0, 0.9,
         playbackX - 1, height, 1, 0.596, 0, 0.9
       ]);
-      buffer = renderer.createVertexBuffer(playbackVertices);
-      vertexBuffersRef.current.push(buffer);
-      renderer.render(buffer, 6, 0, 1); // No pan/zoom for indicators
+      const playbackBuffer = renderer.createVertexBuffer(playbackVertices);
+      positionBuffersRef.current.push(playbackBuffer);
+      renderer.render(playbackBuffer, 6, 0, 1); // No pan/zoom for indicators
 
       // Copy offscreen canvas to display canvas
       renderer.copyToCanvas(canvas);
@@ -367,13 +422,7 @@ export const SgcChannelView = memo(forwardRef<SgcChannelViewHandle, SgcChannelVi
 
     // Trigger initial render
     renderCanvas();
-
-    // Cleanup on unmount
-    return () => {
-      vertexBuffersRef.current.forEach(buffer => renderer.destroyVertexBuffer(buffer));
-      vertexBuffersRef.current = [];
-    };
-  }, [renderer, sgcBinaryData, channelIndex, viewMode, hoverPosition, playbackPosition]);
+  }, [renderer, viewMode, hoverPosition, playbackPosition]);
 
 
   // Expose setPanZoom and setPositions methods to parent
@@ -420,8 +469,6 @@ export const SgcChannelView = memo(forwardRef<SgcChannelViewHandle, SgcChannelVi
   // Compute button states declaratively
   const isMuted = channelState === 1;
   const isSoloed = channelState === 2;
-
-  const channelLabel = `${channelIndex.toString().padStart(2, '0')}`;
   const isMutedOrNotSoloed = channelState === 1;
 
   return (
@@ -439,145 +486,7 @@ export const SgcChannelView = memo(forwardRef<SgcChannelViewHandle, SgcChannelVi
       }}
     >
       {/* Top bar - Channel number and info */}
-      <Box sx={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 0.5,
-        mb: 0.5,
-        flexWrap: 'wrap',
-        minHeight: '20px',
-      }}>
-        <Typography
-          variant="caption"
-          color="text.secondary"
-          sx={{ fontFamily: 'monospace', fontWeight: 'bold', fontSize: '0.75rem', minWidth: '16px', textAlign: 'center' }}
-        >
-          {channelLabel}
-        </Typography>
-
-        {/* Channel state indicators */}
-        <HideOnHoverTooltip title="Start Address in Audio Ram">
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{ fontFamily: 'monospace', fontSize: '0.65rem' }}
-          >
-            {channelData.SA.toString(16).toUpperCase().padStart(6, '0')}
-          </Typography>
-        </HideOnHoverTooltip>
-
-        <HideOnHoverTooltip title="Channel Format">
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{ fontFamily: 'monospace', fontSize: '0.65rem' }}
-          >
-            {getFormat(channelData.PCMS).padStart(7, '\u00A0')}
-          </Typography>
-        </HideOnHoverTooltip>
-        |
-        <HideOnHoverTooltip title="Looped Indicator">
-          <Box
-            sx={{
-              width: 8,
-              height: 8,
-              borderRadius: '50%',
-              bgcolor: channelData.LPCTL ? 'warning.main' : 'transparent',
-              border: channelData.LPCTL ? 'none' : '1px solid',
-              borderColor: 'text.secondary',
-            }}
-          />
-        </HideOnHoverTooltip>
-
-        <HideOnHoverTooltip title="Play Position">
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{ fontFamily: 'monospace', fontSize: '0.65rem' }}
-          >
-            HEAD: {channelData.ca_current.toString().padStart(5, '\u00A0')}:{channelData.ca_fraction.toString().padStart(4, '\u00A0')}
-          </Typography>
-        </HideOnHoverTooltip>
-
-        <HideOnHoverTooltip title="Loop Parameters">
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{ fontFamily: 'monospace', fontSize: '0.65rem' }}
-          >
-          [{channelData.LSA.toString().padStart(5, '\u00A0')}-{channelData.LEA.toString().padStart(5, '\u00A0')}]
-          </Typography>
-        </HideOnHoverTooltip>
-        |
-        <HideOnHoverTooltip title="Current Sample: Filtered (Prev, Next)">
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{ fontFamily: 'monospace', fontSize: '0.65rem' }}
-          >
-            S: {channelData.sample_filtered.toString().padStart(6, '\u00A0')} ({channelData.sample_previous.toString().padStart(6, '\u00A0')}, {channelData.sample_current.toString().padStart(6, '\u00A0')})
-          </Typography>
-        </HideOnHoverTooltip>
-        |
-        <HideOnHoverTooltip title={`${getSampleRate(channelData.OCT, channelData.FNS, channelData.plfo_value)} hz / ${getSampleStep(channelData.OCT, channelData.FNS, channelData.plfo_value)}`}>
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{ fontFamily: 'monospace', fontSize: '0.65rem' }}
-          >
-           PITCH: {getOctave(channelData.OCT) >= 0 ? '+' : ''}{getOctave(channelData.OCT)}/{channelData.FNS.toString().padEnd(4, '\u00A0')}
-          </Typography>
-        </HideOnHoverTooltip>
-          |
-        <HideOnHoverTooltip title="Volume(TL) Send Level(DISDL) PAN(DIPAN)">
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{ fontFamily: 'monospace', fontSize: '0.65rem' }}
-          >
-            VOL: TL{channelData.TL.toString().padStart(3, '0')} S{channelData.DISDL.toString(16).toUpperCase()} L{getLeftPan(channelData.DIPAN).toString(16).toUpperCase()}/R{getRightPan(channelData.DIPAN).toString(16).toUpperCase()}
-          </Typography>
-        </HideOnHoverTooltip>
-          |
-        <HideOnHoverTooltip title="DSP Channel / Volume">
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{ fontFamily: 'monospace', fontSize: '0.65rem' }}
-          >
-            DSP: {channelData.ISEL.toString().padStart(2, '0')}/{channelData.DISDL.toString(16).toUpperCase()}
-          </Typography>
-        </HideOnHoverTooltip>
-        |
-        <HideOnHoverTooltip title="Amplitude & Filter Envelope">
-          <Typography
-              variant="caption"
-              color="text.secondary"
-              sx={{ fontFamily: 'monospace', fontSize: '0.65rem' }}
-            >
-            ENV:
-          </Typography>
-        </HideOnHoverTooltip>
-        <HideOnHoverTooltip title="AEG">
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{ fontFamily: 'monospace', fontSize: '0.65rem' }}
-          >
-            {channelData.aeg_value.toString(16).toUpperCase().padStart(3, '0')}
-          </Typography>
-        </HideOnHoverTooltip>
-
-        <HideOnHoverTooltip title="FEG">
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{ fontFamily: 'monospace', fontSize: '0.65rem' }}
-          >
-            {channelData.feg_value.toString(16).toUpperCase().padStart(4, '0')}
-          </Typography>
-        </HideOnHoverTooltip>
-      </Box>
+      <SgcChannelHeader channelIndex={channelIndex} channelData={channelData} />
 
       {/* Bottom section - Action buttons and waveform */}
       <Box sx={{ display: 'flex', flexDirection: 'row', height: '8em', gap: 0.5 }}>
@@ -681,7 +590,19 @@ export const SgcChannelView = memo(forwardRef<SgcChannelViewHandle, SgcChannelVi
         </Box>
 
         {/* Right - Waveform canvas */}
-        <Box ref={containerRef} sx={{ flex: 1, position: 'relative', minHeight: 0, overflow: 'hidden' }}>
+        <Box
+          ref={containerRef}
+          onMouseMove={handleMouseMove}
+          onMouseLeave={handleMouseLeave}
+          onClick={handleClick}
+          sx={{
+            flex: 1,
+            position: 'relative',
+            minHeight: 0,
+            overflow: 'hidden',
+            cursor: 'crosshair',
+          }}
+        >
           <canvas
             ref={canvasRef}
             style={{

@@ -172,7 +172,7 @@ export const AudioPanel = () => {
     e.preventDefault();
   }, [zoomLevel, scrollOffsetX]);
 
-  // Handle mouse move for both hover position and dragging
+  // Handle mouse move for dragging
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const container = channelListRef.current;
     if (!container) return;
@@ -184,55 +184,28 @@ export const AudioPanel = () => {
       const maxScroll = getMaxScrollOffset();
       const constrainedScroll = Math.max(0, Math.min(newScrollOffset, maxScroll));
       setScrollOffsetX(constrainedScroll);
-      return;
     }
-
-    // Handle hover position - convert to sample index [0, 1024)
-    const rect = container.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const canvasWidth = getCanvasWidth();
-
-    // Account for scroll offset and zoom
-    const normalizedX = (x + scrollOffsetX - 8) / (canvasWidth * zoomLevel);
-    const constrainedNormalized = Math.max(0, Math.min(normalizedX, 1));
-
-    // Convert to sample index [0, 1024)
-    const sampleIndex = Math.floor(constrainedNormalized * 1024);
-    const constrainedIndex = Math.max(0, Math.min(sampleIndex, 1023));
-    setHoverPosition(constrainedIndex);
-  }, [getCanvasWidth, getMaxScrollOffset, zoomLevel, scrollOffsetX, isDragging]);
+  }, [getMaxScrollOffset, isDragging]);
 
   // Handle mouse up to end drag
   const handleMouseUp = useCallback(() => {
     setIsDragging(false);
   }, []);
 
-  // Handle mouse leave to hide hover position and end drag
+  // Handle mouse leave to end drag
   const handleMouseLeave = useCallback(() => {
-    setHoverPosition(null);
     setIsDragging(false);
   }, []);
 
-  // Handle click to set playback position
-  const handleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (isDragging) return; // Don't set position if we were dragging
+  // Callback when a channel updates hover position
+  const handleHoverPositionChange = useCallback((position: number | null) => {
+    setHoverPosition(position);
+  }, []);
 
-    const container = channelListRef.current;
-    if (!container) return;
-
-    const rect = container.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const canvasWidth = getCanvasWidth();
-
-    // Convert to normalized position (0-1)
-    const normalizedX = (x + scrollOffsetX - 8) / (canvasWidth * zoomLevel);
-    const constrainedNormalized = Math.max(0, Math.min(normalizedX, 1));
-
-    // Convert to sample index [0, 1024)
-    const sampleIndex = Math.floor(constrainedNormalized * 1024);
-    const constrainedIndex = Math.max(0, Math.min(sampleIndex, 1023));
-    setPlaybackPosition(constrainedIndex);
-  }, [getCanvasWidth, zoomLevel, scrollOffsetX, isDragging]);
+  // Callback when a channel updates playback position
+  const handlePlaybackPositionChange = useCallback((position: number) => {
+    setPlaybackPosition(position);
+  }, []);
 
   // Handle wheel event for shift+scroll zoom
   const handleWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
@@ -250,9 +223,9 @@ export const AudioPanel = () => {
   // Filter channels based on showFilter setting
   const visibleChannels = useMemo(() => {
     if (showFilter === 'active') {
-      return Array.from({ length: 1 }, (_, i) => i).filter((i) => activeChannels.has(i));
+      return Array.from({ length: 64 }, (_, i) => i).filter((i) => activeChannels.has(i));
     }
-    return Array.from({ length: 1 }, (_, i) => i);
+    return Array.from({ length: 64 }, (_, i) => i);
   }, [showFilter, activeChannels]);
 
   // Create stable ref callback
@@ -391,7 +364,6 @@ export const AudioPanel = () => {
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onMouseLeave={handleMouseLeave}
-          onClick={handleClick}
           onWheel={handleWheel}
           sx={{
             flex: 1,
@@ -399,7 +371,7 @@ export const AudioPanel = () => {
             overflowX: 'hidden',
             minHeight: 0,
             position: 'relative',
-            cursor: isDragging ? 'grabbing' : (zoomLevel > 1 ? 'grab' : 'crosshair'),
+            cursor: isDragging ? 'grabbing' : (zoomLevel > 1 ? 'grab' : 'default'),
           }}
         >
           {webglError ? (
@@ -434,6 +406,8 @@ export const AudioPanel = () => {
                   channelState={channelStates[i]}
                   onMuteToggle={handleMuteToggle}
                   onSoloToggle={handleSoloToggle}
+                  onHoverPositionChange={handleHoverPositionChange}
+                  onPlaybackPositionChange={handlePlaybackPositionChange}
                   sgcBinaryData={sgcBinaryData}
                   renderer={renderer}
                 />
