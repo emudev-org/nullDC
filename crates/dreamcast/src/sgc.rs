@@ -398,6 +398,117 @@ impl ChannelRegs {
     unsafe fn tl(&self) -> u32 {
         self.read_u8(0x29) as u32
     }
+
+    // Debug register setters for devtools
+    // These write to extended debug registers beyond the standard AICA register space
+    // Structure: 128 bytes per channel (72 bytes registers + 56 bytes debug data)
+
+    // Sample data setters (starting at byte 72, after the 18 32-bit registers)
+    unsafe fn set_sample(&self, index: usize, value: i16) {
+        let offset = 72 + index * 2;
+        let ptr = self.ptr(offset);
+        let bytes = value.to_le_bytes();
+        *ptr = bytes[0];
+        *ptr.add(1) = bytes[1];
+    }
+
+    unsafe fn set_sample_current(&self, value: i16) {
+        self.set_sample(0, value);
+    }
+
+    unsafe fn set_sample_previous(&self, value: i16) {
+        self.set_sample(1, value);
+    }
+
+    unsafe fn set_sample_filtered(&self, value: i16) {
+        self.set_sample(2, value);
+    }
+
+    unsafe fn set_sample_post_aeg(&self, value: i16) {
+        self.set_sample(3, value);
+    }
+
+    unsafe fn set_sample_post_feg(&self, value: i16) {
+        self.set_sample(4, value);
+    }
+
+    unsafe fn set_sample_post_tl(&self, value: i16) {
+        self.set_sample(5, value);
+    }
+
+    unsafe fn set_sample_left(&self, value: i16) {
+        self.set_sample(6, value);
+    }
+
+    unsafe fn set_sample_right(&self, value: i16) {
+        self.set_sample(7, value);
+    }
+
+    unsafe fn set_sample_dsp(&self, value: i16) {
+        self.set_sample(8, value);
+    }
+
+    // Additional state setters (starting at byte 90)
+
+    unsafe fn set_ca_fraction(&self, value: u32) {
+        let offset = 90;
+        let ptr = self.ptr(offset);
+        let word = u16::from_le_bytes([*ptr, *ptr.add(1)]) as u32;
+        let new_word = (word & !0x3FF) | (value & 0x3FF);
+        let bytes = (new_word as u16).to_le_bytes();
+        *ptr = bytes[0];
+        *ptr.add(1) = bytes[1];
+    }
+
+    unsafe fn set_ca_step(&self, value: u32) {
+        let offset = 92;
+        let ptr = self.ptr(offset);
+        let bytes = value.to_le_bytes();
+        *ptr = bytes[0];
+        *ptr.add(1) = bytes[1];
+        *ptr.add(2) = bytes[2];
+        *ptr.add(3) = bytes[3];
+    }
+
+    unsafe fn set_aeg_value(&self, value: u32) {
+        let offset = 96;
+        let ptr = self.ptr(offset);
+        let bytes = value.to_le_bytes();
+        *ptr = bytes[0];
+        *ptr.add(1) = bytes[1];
+        *ptr.add(2) = bytes[2];
+        *ptr.add(3) = bytes[3];
+    }
+
+    unsafe fn set_feg_value(&self, value: u32) {
+        let offset = 100;
+        let ptr = self.ptr(offset);
+        let bytes = value.to_le_bytes();
+        *ptr = bytes[0];
+        *ptr.add(1) = bytes[1];
+        *ptr.add(2) = bytes[2];
+        *ptr.add(3) = bytes[3];
+    }
+
+    unsafe fn set_lfo_value(&self, value: u8) {
+        *self.ptr(104) = value;
+    }
+
+    unsafe fn set_alfo_value(&self, value: u8) {
+        *self.ptr(105) = value;
+    }
+
+    unsafe fn set_plfo_value(&self, value: u8) {
+        *self.ptr(106) = value;
+    }
+
+    unsafe fn set_ca_current(&self, value: u16) {
+        let offset = 107;
+        let ptr = self.ptr(offset);
+        let bytes = value.to_le_bytes();
+        *ptr = bytes[0];
+        *ptr.add(1) = bytes[1];
+    }
 }
 
 struct CommonRegs {

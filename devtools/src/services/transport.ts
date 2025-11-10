@@ -1,6 +1,7 @@
 ﻿export type TransportState = "idle" | "connecting" | "open" | "closed";
 
 export type TransportMessageHandler = (payload: string) => void;
+export type BinaryMessageHandler = (payload: ArrayBuffer) => void;
 export type TransportStateHandler = (state: TransportState, event?: Event | Error) => void;
 
 export interface TransportOptions {
@@ -24,6 +25,7 @@ export interface DebuggerTransport {
   disconnect(code?: number, reason?: string): void;
   send(payload: string): void;
   subscribe(handler: TransportMessageHandler): () => void;
+  subscribeBinary(handler: BinaryMessageHandler): () => void;
   onStateChange(handler: TransportStateHandler): () => void;
 }
 
@@ -31,6 +33,7 @@ abstract class BaseTransport implements DebuggerTransport {
   public abstract readonly kind: DebuggerTransport["kind"];
   public state: TransportState = "idle";
   protected messageHandlers = new Set<TransportMessageHandler>();
+  protected binaryHandlers = new Set<BinaryMessageHandler>();
   protected stateHandlers = new Set<TransportStateHandler>();
 
   abstract connect(endpoint: string, options?: TransportOptions): Promise<void>;
@@ -40,6 +43,11 @@ abstract class BaseTransport implements DebuggerTransport {
   public subscribe(handler: TransportMessageHandler): () => void {
     this.messageHandlers.add(handler);
     return () => this.messageHandlers.delete(handler);
+  }
+
+  public subscribeBinary(handler: BinaryMessageHandler): () => void {
+    this.binaryHandlers.add(handler);
+    return () => this.binaryHandlers.delete(handler);
   }
 
   public onStateChange(handler: TransportStateHandler): () => void {
@@ -54,6 +62,10 @@ abstract class BaseTransport implements DebuggerTransport {
 
   protected broadcastMessage(payload: string) {
     this.messageHandlers.forEach((handler) => handler(payload));
+  }
+
+  protected broadcastBinaryMessage(payload: ArrayBuffer) {
+    this.binaryHandlers.forEach((handler) => handler(payload));
   }
 }
 
@@ -70,13 +82,18 @@ export class WebSocketTransport extends BaseTransport {
 
     await new Promise<void>((resolve, reject) => {
       const ws = new WebSocket(endpoint, options?.protocols);
+      ws.binaryType = 'arraybuffer';
       this.socket = ws;
 
       const handleOpen = () => {
         ws.removeEventListener("open", handleOpen);
         ws.removeEventListener("error", handleError);
         ws.addEventListener("message", (event) => {
-          this.broadcastMessage(String(event.data));
+          if (event.data instanceof ArrayBuffer) {
+            this.broadcastBinaryMessage(event.data);
+          } else {
+            this.broadcastMessage(String(event.data));
+          }
         });
         ws.addEventListener("close", () => {
           this.broadcastState("closed");
@@ -140,7 +157,9 @@ export class BroadcastChannelTransport extends BaseTransport {
     this.channel = channel;
 
     channel.addEventListener("message", (event) => {
-      if (typeof event.data === "string") {
+      if (event.data instanceof ArrayBuffer) {
+        this.broadcastBinaryMessage(event.data);
+      } else if (typeof event.data === "string") {
         // Handle ping/pong messages
         if (event.data === "pong") {
           if (this.pongTimeout) {

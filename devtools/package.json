@@ -7,6 +7,7 @@
     "dev": "npm run build:dspsim && tsx watch --tsconfig tsconfig.server.json server/mockServer.ts",
     "mock:serve": "tsx --tsconfig tsconfig.server.json server/mockServer.ts",
     "mock:dev": "npm run build:dspsim && tsx --tsconfig tsconfig.server.json server/mockServer.ts",
+    "mock:prod": "npm run build:native && cross-env NODE_ENV=production tsx --tsconfig tsconfig.server.json server/mockServer.ts",
     "build:native": "npm run build:dspsim && tsc -b && vite build --outDir dist-native",
     "build:wasm": "npm run build:dspsim && tsc -b && cross-env VITE_TRANSPORT_MODE=wasm vite build --outDir dist-wasm",
     "build:dspsim": "cd crates/aica-dsp && wasm-pack build --target web --out-dir ../../src/wasm/aica-dsp",

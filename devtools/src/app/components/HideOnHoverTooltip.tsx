@@ -22,10 +22,10 @@ export const HideOnHoverTooltip = (props: TooltipProps) => {
       open={open}
       onOpen={handleOpen}
       onClose={handleClose}
-      componentsProps={{
-        ...props.componentsProps,
+      slotProps ={{
+        ...props.slotProps,
         tooltip: {
-          ...props.componentsProps?.tooltip,
+          ...props.slotProps?.tooltip,
           onMouseEnter: handleClose,
         },
       }}
