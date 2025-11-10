@@ -1,6 +1,6 @@
 import { Panel } from "../layout/Panel";
 import { Box, Stack, IconButton, Tooltip, ToggleButton, ToggleButtonGroup } from "@mui/material";
-import { SgcChannelView, type ChannelState, type SgcChannelViewHandle } from "../components/SgcChannelView";
+import { SgcChannelView, type SgcChannelViewHandle } from "../components/SgcChannelView";
 import { SgcWaveformRenderer } from "../components/SgcWaveformRenderer";
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
@@ -9,13 +9,12 @@ import { useDebuggerDataStore } from "../../state/debuggerDataStore";
 import { SgcFrameData } from "../../lib/sgcChannelData";
 
 export const AudioPanel = () => {
-  // Channel states: 0 = normal, 1 = muted, 2 = soloed
-  const [channelStates, setChannelStates] = useState<ChannelState[]>(Array(64).fill(0));
   const [showFilter, setShowFilter] = useState<'all' | 'active'>('active');
   const [hoverPosition, setHoverPosition] = useState<number | null>(null); // Sample index [0, 1024)
   const [playbackPosition, setPlaybackPosition] = useState<number>(0); // Sample index [0, 1024)
   const [zoomLevel, setZoomLevel] = useState<number>(1); // 1 = 100%, 2 = 200%, etc.
   const [scrollOffsetX, setScrollOffsetX] = useState<number>(0); // Horizontal scroll offset when zoomed
+  const [fullscreenChannel, setFullscreenChannel] = useState<number | null>(null); // Channel in fullscreen mode
 
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const [sgcBinaryData, setSgcBinaryData] = useState<ArrayBuffer | null>(null);
@@ -84,40 +83,8 @@ export const AudioPanel = () => {
     }
   }, []);
 
-  const handleMuteToggle = useCallback((channelIndex: number) => {
-    setChannelStates((prevStates) => {
-      const newStates = [...prevStates];
-
-      // Toggle between normal (0) and muted (1)
-      if (newStates[channelIndex] === 1) {
-        newStates[channelIndex] = 0; // Unmute
-      } else {
-        newStates[channelIndex] = 1; // Mute
-      }
-
-      return newStates;
-    });
-  }, []);
-
-  const handleSoloToggle = useCallback((channelIndex: number) => {
-    setChannelStates((prevStates) => {
-      const newStates = [...prevStates];
-
-      if (newStates[channelIndex] === 2) {
-        // If this channel is already soloed, unsolo it (set to normal)
-        newStates[channelIndex] = 0;
-      } else {
-        // Clear all other solos and solo this channel
-        for (let i = 0; i < newStates.length; i++) {
-          if (newStates[i] === 2) {
-            newStates[i] = 0; // Clear other solos
-          }
-        }
-        newStates[channelIndex] = 2; // Solo this channel
-      }
-
-      return newStates;
-    });
+  const handleFullscreenToggle = useCallback((channelIndex: number) => {
+    setFullscreenChannel((prev) => (prev === channelIndex ? null : channelIndex));
   }, []);
 
   const handleRecord = useCallback(async () => {
@@ -238,13 +205,18 @@ export const AudioPanel = () => {
     });
   }, []);
 
-  // Filter channels based on showFilter setting
+  // Filter channels based on showFilter setting and fullscreen mode
   const visibleChannels = useMemo(() => {
+    // If fullscreen mode is active, only show that channel
+    if (fullscreenChannel !== null) {
+      return [fullscreenChannel];
+    }
+
     if (showFilter === 'active') {
       return Array.from({ length: 64 }, (_, i) => i).filter((i) => activeChannels.has(i));
     }
     return Array.from({ length: 64 }, (_, i) => i);
-  }, [showFilter, activeChannels]);
+  }, [showFilter, activeChannels, fullscreenChannel]);
 
   // Create stable ref callback
   const setChannelRef = useCallback((index: number) => {
@@ -343,7 +315,7 @@ export const AudioPanel = () => {
           onWheel={handleWheel}
           sx={{
             flex: 1,
-            overflowY: 'scroll',
+            overflowY: fullscreenChannel !== null ? 'hidden' : 'scroll',
             overflowX: 'hidden',
             minHeight: 0,
             position: 'relative',
@@ -384,7 +356,8 @@ export const AudioPanel = () => {
               direction="column"
               spacing={0.5}
               sx={{
-                p: 1,
+                p: fullscreenChannel !== null ? 0 : 1,
+                height: fullscreenChannel !== null ? '100%' : 'auto',
               }}
             >
               {visibleChannels.map((i) => (
@@ -392,9 +365,8 @@ export const AudioPanel = () => {
                   key={i}
                   ref={setChannelRef(i)}
                   channelIndex={i}
-                  channelState={channelStates[i]}
-                  onMuteToggle={handleMuteToggle}
-                  onSoloToggle={handleSoloToggle}
+                  isFullscreen={fullscreenChannel === i}
+                  onFullscreenToggle={handleFullscreenToggle}
                   onHoverPositionChange={handleHoverPositionChange}
                   onPlaybackPositionChange={handlePlaybackPositionChange}
                   sgcBinaryData={sgcBinaryData}

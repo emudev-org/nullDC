@@ -7,9 +7,6 @@ import { SgcChannelSidebar } from "./SgcChannelSidebar";
 import { SgcWaveformCanvas } from "./SgcWaveformCanvas";
 import type { SgcWaveformCanvasHandle } from "./SgcWaveformCanvas";
 
-// Channel state type: 0 = normal, 1 = muted, 2 = soloed
-export type ChannelState = 0 | 1 | 2;
-
 export interface SgcChannelViewHandle {
   setPanZoom: (scrollOffsetX: number, zoomLevel: number) => void;
   setPositions: (hoverPosition: number | null, playbackPosition: number) => void;
@@ -17,9 +14,8 @@ export interface SgcChannelViewHandle {
 
 interface SgcChannelViewProps {
   channelIndex: number;
-  channelState: ChannelState;
-  onMuteToggle: (index: number) => void;
-  onSoloToggle: (index: number) => void;
+  isFullscreen: boolean;
+  onFullscreenToggle: (index: number) => void;
   onHoverPositionChange: (position: number | null) => void;
   onPlaybackPositionChange: (position: number) => void;
   sgcBinaryData: ArrayBuffer;
@@ -28,9 +24,8 @@ interface SgcChannelViewProps {
 
 export const SgcChannelView = memo(forwardRef<SgcChannelViewHandle, SgcChannelViewProps>(({
   channelIndex,
-  channelState,
-  onMuteToggle,
-  onSoloToggle,
+  isFullscreen,
+  onFullscreenToggle,
   onHoverPositionChange,
   onPlaybackPositionChange,
   sgcBinaryData,
@@ -57,10 +52,6 @@ export const SgcChannelView = memo(forwardRef<SgcChannelViewHandle, SgcChannelVi
     }
   }), []);
 
-
-  // Compute visual state based on channel state
-  const isMutedOrNotSoloed = channelState === 1;
-
   return (
     <Box
       sx={{
@@ -70,24 +61,26 @@ export const SgcChannelView = memo(forwardRef<SgcChannelViewHandle, SgcChannelVi
         p: 0.5,
         display: 'flex',
         flexDirection: 'column',
-        filter: isMutedOrNotSoloed ? 'grayscale(100%)' : 'none',
-        opacity: isMutedOrNotSoloed ? 0.5 : 1,
-        transition: 'filter 0.2s, opacity 0.2s',
+        height: isFullscreen ? '100%' : 'auto',
       }}
     >
       {/* Top bar - Channel number and info */}
       <SgcChannelHeader channelIndex={channelIndex} channelData={channelData} />
 
       {/* Bottom section - Action buttons and waveform */}
-      <Box sx={{ display: 'flex', flexDirection: 'row', height: '8em', gap: 0.5 }}>
+      <Box sx={{
+        display: 'flex',
+        flexDirection: 'row',
+        height: isFullscreen ? 'calc(100% - 32px)' : '8em',
+        gap: 0.5
+      }}>
         {/* Left - Action buttons */}
         <SgcChannelSidebar
           channelIndex={channelIndex}
-          channelState={channelState}
           viewMode={viewMode}
+          isFullscreen={isFullscreen}
           onViewModeChange={setViewMode}
-          onMuteToggle={onMuteToggle}
-          onSoloToggle={onSoloToggle}
+          onFullscreenToggle={onFullscreenToggle}
         />
 
         {/* Right - Waveform canvas */}

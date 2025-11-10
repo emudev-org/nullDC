@@ -1,33 +1,26 @@
 import { Box, IconButton } from "@mui/material";
-import VolumeUpIcon from '@mui/icons-material/VolumeUp';
-import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
 import GraphicEqIcon from '@mui/icons-material/GraphicEq';
 import TuneIcon from '@mui/icons-material/Tune';
 import InputIcon from '@mui/icons-material/Input';
+import FullscreenIcon from '@mui/icons-material/Fullscreen';
+import FullscreenExitIcon from '@mui/icons-material/FullscreenExit';
 import { HideOnHoverTooltip } from "./HideOnHoverTooltip";
-
-// Channel state type: 0 = normal, 1 = muted, 2 = soloed
-type ChannelState = 0 | 1 | 2;
 
 interface SgcChannelSidebarProps {
   channelIndex: number;
-  channelState: ChannelState;
   viewMode: 'pre-volpan' | 'post-volpan' | 'input';
+  isFullscreen: boolean;
   onViewModeChange: (mode: 'pre-volpan' | 'post-volpan' | 'input') => void;
-  onMuteToggle: (index: number) => void;
-  onSoloToggle: (index: number) => void;
+  onFullscreenToggle: (index: number) => void;
 }
 
 export const SgcChannelSidebar = ({
   channelIndex,
-  channelState,
   viewMode,
+  isFullscreen,
   onViewModeChange,
-  onMuteToggle,
-  onSoloToggle,
+  onFullscreenToggle,
 }: SgcChannelSidebarProps) => {
-  const isMuted = channelState === 1;
-  const isSoloed = channelState === 2;
 
   return (
     <Box sx={{
@@ -93,37 +86,24 @@ export const SgcChannelSidebar = ({
         </IconButton>
       </HideOnHoverTooltip>
 
-      <HideOnHoverTooltip title="Mute/Unmute" placement="right">
+      <HideOnHoverTooltip title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"} placement="right">
         <IconButton
           size="small"
-          onClick={() => onMuteToggle(channelIndex)}
+          onClick={() => onFullscreenToggle(channelIndex)}
           sx={{
             width: 16,
             height: 16,
             minWidth: 16,
             minHeight: 16,
             p: 0.25,
-            color: isMuted ? 'error.main' : 'inherit',
+            color: isFullscreen ? 'primary.main' : 'inherit',
           }}
         >
-          <VolumeUpIcon sx={{ fontSize: 12 }} />
-        </IconButton>
-      </HideOnHoverTooltip>
-
-      <HideOnHoverTooltip title="Solo" placement="right">
-        <IconButton
-          size="small"
-          onClick={() => onSoloToggle(channelIndex)}
-          sx={{
-            width: 16,
-            height: 16,
-            minWidth: 16,
-            minHeight: 16,
-            p: 0.25,
-            color: isSoloed ? 'warning.main' : 'inherit',
-          }}
-        >
-          <RadioButtonUncheckedIcon sx={{ fontSize: 12 }} />
+          {isFullscreen ? (
+            <FullscreenExitIcon sx={{ fontSize: 12 }} />
+          ) : (
+            <FullscreenIcon sx={{ fontSize: 12 }} />
+          )}
         </IconButton>
       </HideOnHoverTooltip>
     </Box>
