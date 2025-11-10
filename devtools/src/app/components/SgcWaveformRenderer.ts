@@ -209,10 +209,8 @@ export class SgcWaveformRenderer {
       return;
     }
 
-    // Transfer offscreen canvas to ImageBitmap and draw
-    const imageBitmap = this.offscreenCanvas.transferToImageBitmap();
     ctx.clearRect(0, 0, destinationCanvas.width, destinationCanvas.height);
-    ctx.drawImage(imageBitmap, 0, 0);
+    ctx.drawImage(this.offscreenCanvas, 0, 0);
   }
 
   /**
