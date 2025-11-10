@@ -25,8 +25,10 @@ pub use area0::AREA0_HANDLERS;
 mod aica;
 mod asic;
 mod gdrom;
+mod maple;
 mod pvr;
 pub mod refsw2;
+mod reios_impl;
 mod sgc;
 mod spg;
 mod system_bus;
@@ -38,6 +40,8 @@ use arm7di_core::{
 };
 
 pub use pvr::present_for_texture;
+
+use crate::sgc::Sgc;
 
 static DREAMCAST_PTR: AtomicPtr<Dreamcast> = AtomicPtr::new(std::ptr::null_mut());
 
@@ -59,11 +63,8 @@ fn peripheral_hook(_ctx: *mut sh4_core::Sh4Ctx, cycles: u32) {
 
     unsafe {
         let dc = &mut *dc_ptr;
-        if !dc.arm_enabled {
-            return;
-        }
 
-        if !dc.arm_ctx.enabled {
+        if !dc.arm_ctx.is_running {
             return;
         }
 
@@ -71,9 +72,20 @@ fn peripheral_hook(_ctx: *mut sh4_core::Sh4Ctx, cycles: u32) {
 
         while dc.arm_cycle_accumulator >= 20 {
             dc.arm_cycle_accumulator -= 20;
-            let mut arm = arm7di_core::Arm7Di::new(&mut dc.arm_ctx);
-            arm.update_interrupts();
-            arm.step();
+            if dc.arm_ctx.is_running {
+                let mut arm = arm7di_core::Arm7Di::new(&mut dc.arm_ctx);
+                arm.update_interrupts();
+                arm.step();
+            }
+        }
+
+        dc.sgc_cycle_accumulator = dc.sgc_cycle_accumulator.wrapping_add(cycles);
+        while dc.sgc_cycle_accumulator > (200 * 1000 * 1000 / 44100) {
+            dc.sgc_cycle_accumulator -= 200 * 1000 * 1000 / 44100;
+            // Step AICA timers before processing audio sample
+            aica::step(&mut dc.arm_ctx, 1);
+
+            dc.sgc.aica_sample();
         }
     }
 }
@@ -110,8 +122,14 @@ pub struct Dreamcast {
     pub running: bool,
     pub running_mtx: Mutex<()>,
     pub arm_ctx: arm7di_core::Arm7Context,
-    pub arm_enabled: bool,
     pub arm_cycle_accumulator: u32,
+    pub sgc_cycle_accumulator: u32,
+
+    // AICA/SGC state
+    pub aica_reg: Box<[u8; 0x8000]>,
+    pub dsp: Box<sgc::DspContext>,
+
+    pub sgc: sgc::Sgc,
 }
 
 impl Default for Dreamcast {
@@ -134,7 +152,7 @@ impl Default for Dreamcast {
             let v = vec![0u8; VIDEORAM_SIZE as usize];
             v.into_boxed_slice().try_into().expect("len matches")
         };
-        let audio_ram = {
+        let mut audio_ram: Box<[u8; AUDIORAM_SIZE as usize]> = {
             let v = vec![0u8; AUDIORAM_SIZE as usize];
             v.into_boxed_slice().try_into().expect("len matches")
         };
@@ -143,6 +161,21 @@ impl Default for Dreamcast {
             let v = vec![0u8; OCRAM_SIZE as usize];
             v.into_boxed_slice().try_into().expect("len matches")
         };
+
+        let mut aica_reg: Box<[u8; 0x8000]> = {
+            let v = vec![0u8; 0x8000];
+            v.into_boxed_slice().try_into().expect("len matches")
+        };
+
+        let dsp = Box::new(sgc::DspContext::default());
+
+        // Create SGC with proper references
+        let audio_stream = Box::new(sgc::NilAudioStream);
+        let aica_reg_ptr = std::ptr::NonNull::new(aica_reg.as_mut_ptr()).unwrap();
+        let dsp_ptr = Box::new(sgc::DspContext::default());
+        let audio_ram_ptr = std::ptr::NonNull::new(audio_ram.as_mut_ptr()).unwrap();
+
+        let sgc = sgc::Sgc::new(audio_stream, aica_reg_ptr, dsp_ptr, audio_ram_ptr, AUDIORAM_SIZE);
 
         Self {
             ctx: Sh4Ctx::default(),
@@ -157,44 +190,29 @@ impl Default for Dreamcast {
             running: true,
             running_mtx: Mutex::new(()),
             arm_ctx: arm7di_core::Arm7Context::new(),
-            arm_enabled: false,
             arm_cycle_accumulator: 0,
+            sgc_cycle_accumulator: 0,
+            aica_reg,
+            dsp,
+            sgc,
         }
     }
 }
 
 fn reset_arm7(dc: &mut Dreamcast) {
     let mut arm_ctx = arm7di_core::Arm7Context::new();
+    
     arm_ctx.aica_ram = NonNull::new(dc.audio_ram.as_mut_ptr());
     arm_ctx.aram_mask = AUDIORAM_MASK;
 
-    arm_ctx.arm_mode = 0x13; // SVC
-    arm_ctx.arm_irq_enable = true;
-    arm_ctx.arm_fiq_enable = false;
-    arm_ctx.enabled = true;
     arm_ctx.read8 = Some(aica::arm_read8);
     arm_ctx.read32 = Some(aica::arm_read32);
     arm_ctx.write8 = Some(aica::arm_write8);
     arm_ctx.write32 = Some(aica::arm_write32);
 
-    // Initialise general-purpose registers and banked stacks
-    arm_ctx.regs[13].set(0x0300_7F00);
-    arm_ctx.regs[R13_IRQ].set(0x0300_7FA0);
-    arm_ctx.regs[R13_SVC].set(0x0300_7FE0);
-    arm_ctx.regs[R15_ARM_NEXT].set(0);
-
-    let mut cpsr = ArmPsr::new(0);
-    cpsr.set_mode(0x13);
-    cpsr.set_fiq_mask(true);
-    arm_ctx.regs[RN_CPSR].set_psr(cpsr);
-    arm_ctx.regs[RN_SPSR].set_psr(cpsr);
-    arm_ctx.regs[RN_PSR_FLAGS].set_psr(cpsr);
-
-    // ARM pipeline prefetch: PC visible as PC+8
-    arm_ctx.regs[15].set(4);
+    arm7di_core::reset_arm7_ctx(&mut arm_ctx);
 
     dc.arm_ctx = arm_ctx;
-    dc.arm_enabled = true;
     dc.arm_cycle_accumulator = 0;
 
     let mut arm = arm7di_core::Arm7Di::new(&mut dc.arm_ctx);
@@ -349,6 +367,14 @@ fn reset_dreamcast_to_defaults(dc: &mut Dreamcast) {
     // AREA 0 (BIOS, Flash, System Bus)
     sh4_core::sh4_register_mem_handler(
         &mut dc.ctx,
+        0x0000_0000,
+        0x03FF_FFFF,
+        0xFFFF_FFFF,
+        AREA0_HANDLERS,
+        dc as *mut _ as *mut u8,
+    );
+    sh4_core::sh4_register_mem_handler(
+        &mut dc.ctx,
         0x8000_0000,
         0x83FF_FFFF,
         0xFFFF_FFFF,
@@ -489,10 +515,6 @@ pub fn read_arm_memory_slice(dc: *mut Dreamcast, base_address: u64, length: usiz
     let mut result = Vec::with_capacity(length);
     unsafe {
         let ctx = &mut (*dc).arm_ctx;
-        if !ctx.enabled {
-            result.resize(length, 0);
-            return result;
-        }
 
         let mut cached_aligned = u32::MAX;
         let mut cached_word = 0u32;
@@ -784,6 +806,53 @@ pub fn init_dreamcast_with_elf(dc: *mut Dreamcast, elf_bytes: &[u8]) -> Result<(
             dc_ref.ctx.pc1 = entry + 2;
             dc_ref.ctx.pc2 = entry + 4;
         }
+
+        // Initialize REIOS for syscall support
+        init_reios_for_elf(dc_ref);
+
         Ok(())
     }
+}
+
+/// Initialize REIOS for ELF execution (provides syscall support)
+fn init_reios_for_elf(dc: &mut Dreamcast) {
+    use crate::reios_impl::{Sh4ContextWrapper, DUMMY_DISC_INSTANCE};
+
+    // Use unsafe to split borrows for REIOS boot and create context pointers
+    let dc_ptr = dc as *mut Dreamcast;
+    let mut reios_ctx = unsafe {
+        // Allocate ctx_wrapper on heap so pointers remain valid
+        let ctx_wrapper = Box::new(Sh4ContextWrapper {
+            ctx: &mut (*dc_ptr).ctx,
+            running: &mut (*dc_ptr).running,
+            dreamcast: &mut *dc_ptr,
+        });
+
+        // Leak the box to get a stable pointer with 'static lifetime
+        let wrapper_ptr = Box::leak(ctx_wrapper) as *mut Sh4ContextWrapper;
+
+        // Create trait object pointers from wrapper
+        let mem_ptr: *mut dyn reios::ReiosSh4Memory = wrapper_ptr;
+        let ctx_ptr: *mut dyn reios::ReiosSh4Context = wrapper_ptr;
+        let disc_ptr: *const dyn reios::ReiosDisc = &DUMMY_DISC_INSTANCE;
+
+        // Initialize REIOS with pointers
+        let mut reios_ctx = reios::ReiosContext::new(mem_ptr, ctx_ptr, disc_ptr);
+
+        let mem = &mut *dc_ptr;
+        reios_ctx.init(mem);
+
+        // Boot REIOS (this sets up syscalls but doesn't change PC)
+        let mem_ref = &mut *wrapper_ptr as &mut dyn reios::ReiosSh4Memory;
+        let ctx_ref = &mut *wrapper_ptr as &mut dyn reios::ReiosSh4Context;
+
+        reios_ctx.boot(mem_ref, ctx_ref, &DUMMY_DISC_INSTANCE);
+
+        reios_ctx
+    };
+
+    // Store REIOS context in SH4 context for trap handling
+    dc.ctx.reios_ctx = Some(reios_ctx);
+
+    println!("REIOS initialized for ELF execution");
 }

@@ -5,7 +5,8 @@ members = [
     "crates/dreamcast",
     "crates/nulldc-minimal",
     "crates/refsw2-rust",
-    "crates/refsw2-cpp"
+    "crates/refsw2-cpp",
+    "crates/devcast/reios"
 ]
 
 default-members = ["."]

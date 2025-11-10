@@ -230,6 +230,14 @@ pub const SCIF_SCLSR2_ADDR: u32 = 0x1FE80024;
 pub const UDI_SDIR_ADDR: u32 = 0x1FF00000;
 pub const UDI_SDDR_ADDR: u32 = 0x1FF00008;
 
+//
+// ==== PMCR ====
+pub const PMCR_CTRL_ADDR: u32 = 0x1FF00084;
+pub const PMCR_VALUE_LOW_0_ADDR: u32 = 0x1FF10000;
+pub const PMCR_VALUE_LOW_1_ADDR: u32 = 0x1FF10004;
+pub const PMCR_VALUE_HIGH_0_ADDR: u32 = 0x1FF10008;
+pub const PMCR_VALUE_HIGH_1_ADDR: u32 = 0x1FF1000C;
+
 use bitfield::bitfield;
 
 //
@@ -1648,6 +1656,8 @@ const P4REGISTER_DRAM_CFG: P4Register = P4Register {
 };
 
 static mut RIO_CCN: [P4Register; 18] = [P4REGISTER_UNREACHABLE; 18];
+static mut RIO_PMCR: [P4Register; 34] = [P4REGISTER_UNREACHABLE; 34];
+static mut RIO_PMCR_VALUE: [P4Register; 4] = [P4REGISTER_UNREACHABLE; 4];
 static mut RIO_UBC: [P4Register; 9] = [P4REGISTER_UNREACHABLE; 9];
 static mut RIO_BSC: [P4Register; 19] = [P4REGISTER_UNREACHABLE; 19];
 static mut RIO_DMAC: [P4Register; 17] = [P4REGISTER_UNREACHABLE; 17];
@@ -1664,6 +1674,8 @@ pub fn area7_router(mut addr: u32) -> &'static P4Register {
     unsafe {
         match addr {
             0x1F000000..=0x1F000044 => &RIO_CCN[idx],
+            0x1F000084..=0x1F000088 => &RIO_PMCR[idx],
+            0x1F100000..=0x1F10000C => &RIO_PMCR_VALUE[idx],
             0x1F200000..=0x1F200020 => &RIO_UBC[idx],
             0x1F800000..=0x1F800048 => &RIO_BSC[idx],
             0x1F900000..=0x1F90FFFF => &P4REGISTER_DRAM_CFG, // DRAM Settings 2
@@ -1733,7 +1745,7 @@ pub fn p4_read<T: crate::sh4mem::MemoryData>(_ctx: *mut u8, addr: u32) -> T {
 
         0xFF => {
             let handler = area7_router(addr);
-            if handler.size as usize != std::mem::size_of::<T>() {
+            if handler.size as usize != std::mem::size_of::<T>() && handler.size != 0 {
                 println!(
                     "p4_read::<u{}> {:x} size mismatch, handler size = {}",
                     std::mem::size_of::<T>(),
@@ -1741,7 +1753,13 @@ pub fn p4_read<T: crate::sh4mem::MemoryData>(_ctx: *mut u8, addr: u32) -> T {
                     handler.size
                 );
             }
-            let raw_value = (handler.read)(handler.ctx, addr & !(handler.size as u32 -1));
+            let mask = {
+                match handler.size {
+                    0 => 0xFFFF_FFFF,
+                    _ => !(handler.size as u32 - 1)
+                }
+            };
+            let raw_value = (handler.read)(handler.ctx, addr & mask);
             T::from_u32(raw_value)
         }
 
@@ -1987,7 +2005,6 @@ fn scif_write_transmit(ctx: *mut u8, _addr: u32, data: u32) {
     unsafe {
         *(ctx as *mut u8) = byte;
     }
-    #[cfg(debug_assertions)]
     eprint!("{}", byte as char);
 }
 
@@ -2111,6 +2128,24 @@ fn write_ccn_qacr<const IDX: usize>(ctx: *mut u8, _addr: u32, data: u32) {
 
 fn read_ccn_prr(_ctx: *mut u8, _addr: u32) -> u32 {
     0
+}
+
+fn read_pmcr_ctrl(_ctx: *mut u8, addr: u32) -> u32 {
+    eprintln!("read_pmcr_ctrl: Ignoring read from read_pmcr_ctrl register {:08x}", addr);
+    0
+}
+
+fn write_pmcr_ctrl(_ctx: *mut u8, addr: u32, data: u32) {
+    eprintln!("write_pmcr_ctrl: Ignoring write to write_pmcr_ctrl register {:08x} data {:04x}", addr, data);
+}
+
+fn read_pmcr_value(_ctx: *mut u8, addr: u32) -> u32 {
+    eprintln!("read_pmcr_value: Ignoring read from read_pmcr_value register {:08x}", addr);
+    0
+}
+
+fn write_pmcr_value(_ctx: *mut u8, addr: u32, data: u32) {
+    eprintln!("write_pmcr_value: Ignoring write to write_pmcr_value register {:08x} data {:08x}", addr, data);
 }
 
 fn initialize_default_register_values() {
@@ -2362,5 +2397,12 @@ pub fn p4_init(sh4ctx: &mut crate::Sh4Ctx) {
             sh4_ctx_ptr
         );
         rio!(CCN, PRR, read_ccn_prr, area7_read_only, 32);
+        
+        // PMCR_CTRL / PMCR_VALUE
+        rio!(PMCR, CTRL, read_pmcr_ctrl, write_pmcr_ctrl, 16, sh4_ctx_ptr);
+        rio!(PMCR_VALUE, LOW_1, read_pmcr_value, write_pmcr_value, 32, sh4_ctx_ptr);
+        rio!(PMCR_VALUE, LOW_0, read_pmcr_value, write_pmcr_value, 32, sh4_ctx_ptr);
+        rio!(PMCR_VALUE, HIGH_0, read_pmcr_value, write_pmcr_value, 32, sh4_ctx_ptr);
+        rio!(PMCR_VALUE, HIGH_1, read_pmcr_value, write_pmcr_value, 32, sh4_ctx_ptr);
     }
 }

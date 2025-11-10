@@ -242,7 +242,7 @@ pub struct Arm7Context {
     pub e68k_out: bool,
     pub e68k_reg_l: u32,
     pub e68k_reg_m: u32,
-    pub enabled: bool,
+    pub is_running: bool,
     pub read8: Option<Read8Fn>,
     pub read32: Option<Read32Fn>,
     pub write8: Option<Write8Fn>,
@@ -263,7 +263,7 @@ impl Arm7Context {
             e68k_out: false,
             e68k_reg_l: 0,
             e68k_reg_m: 0,
-            enabled: false,
+            is_running: false,
             read8: None,
             read32: None,
             write8: None,
@@ -1319,7 +1319,7 @@ impl<'a> Arm7Di<'a> {
         // Sign-extend the 24-bit offset: shift left 10 to move bit 23 to bit 31,
         // then arithmetic shift right 8 to sign-extend and multiply by 4
         let offset = ((opcode << 10) as i32) >> 8;
-        let next = self.ctx.regs[R15_ARM_NEXT].get();
+        let next = self.ctx.regs[15].get();
         if link {
             self.ctx.regs[14].set(self.ctx.regs[15].get().wrapping_sub(4));
         }
@@ -1540,4 +1540,26 @@ impl<'a> Arm7Di<'a> {
         }
         cycles
     }
+}
+
+pub fn reset_arm7_ctx(arm_ctx: &mut Arm7Context) {
+    arm_ctx.arm_mode = 0x13; // SVC
+    arm_ctx.arm_irq_enable = true;
+    arm_ctx.arm_fiq_enable = false;
+
+    // Initialise general-purpose registers and banked stacks
+    arm_ctx.regs[13].set(0x0300_7F00);
+    arm_ctx.regs[R13_IRQ].set(0x0300_7FA0);
+    arm_ctx.regs[R13_SVC].set(0x0300_7FE0);
+    arm_ctx.regs[R15_ARM_NEXT].set(0);
+
+    let mut cpsr = ArmPsr::new(0);
+    cpsr.set_mode(0x13);
+    cpsr.set_fiq_mask(true);
+    arm_ctx.regs[RN_CPSR].set_psr(cpsr);
+    arm_ctx.regs[RN_SPSR].set_psr(cpsr);
+    arm_ctx.regs[RN_PSR_FLAGS].set_psr(cpsr);
+
+    // ARM pipeline prefetch: PC visible as PC+8
+    arm_ctx.regs[15].set(4);
 }

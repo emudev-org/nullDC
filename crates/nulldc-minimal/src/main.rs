@@ -27,8 +27,6 @@ fn load_bios_files() -> (Vec<u8>, Vec<u8>) {
 fn main() {
     let args: Vec<String> = std::env::args().collect();
 
-    let (bios_rom, bios_flash) = load_bios_files();
-
     // Create window
     let mut window = Window::new(
         "nullDC Minimal - Dreamcast Emulator",
@@ -45,8 +43,7 @@ fn main() {
 
     // Initialize Dreamcast
     let dc = Box::into_raw(Box::new(dreamcast::Dreamcast::default()));
-    dreamcast::init_dreamcast(dc, &bios_rom, &bios_flash);
-
+    
     // Load ELF if provided as command line argument
     if args.len() > 1 {
         let elf_path = &args[1];
@@ -59,6 +56,9 @@ fn main() {
             .unwrap_or_else(|e| panic!("Failed to load ELF: {}", e));
 
         println!("ELF file loaded successfully");
+    } else {
+        let (bios_rom, bios_flash) = load_bios_files();
+        dreamcast::init_dreamcast(dc, &bios_rom, &bios_flash);
     }
 
     // Framebuffer for minifb (ARGB format)

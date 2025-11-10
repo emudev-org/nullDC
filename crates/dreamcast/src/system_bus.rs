@@ -394,6 +394,11 @@ impl SystemBus {
         );
     }
 
+    fn sbio_read_gdrom_unlock_2(_ctx: *mut u32, _addr: u32) -> u32 {
+        println!("sbio_read_gdrom_unlock_2: read");
+        0
+    }
+
     #[inline(always)]
     fn sbio_writeonly(ctx: *mut u32, _addr: u32, data: u32) {
         unsafe {
@@ -410,22 +415,65 @@ impl SystemBus {
 
     #[inline(always)]
     fn sb_dma_start_write(ctx: *mut u32, addr: u32, data: u32) {
-        unsafe {
-            *(ctx) = 0;
-        }
         let name = match addr {
-            SB_MDST_ADDR => { 
-                asic::raise_normal(12); // maple dma
-                "SB_MDST"   
+            SB_MDST_ADDR => {
+                // Set register value first
+                unsafe {
+                    *(ctx) = data;
+                }
+
+                // Process Maple DMA if bit 0 is set
+                if (data & 0x1) != 0 {
+                    let dc_ptr = crate::dreamcast_ptr();
+                    if !dc_ptr.is_null() {
+                        unsafe {
+                            let dc = &mut *dc_ptr;
+                            crate::maple::maple_do_dma(dc);
+                        }
+                    }
+                }
+                "SB_MDST"
             }
-            SB_GDST_ADDR => "SB_GDST",
-            SB_ADST_ADDR => "SB_ADST",
-            SB_E1ST_ADDR => "SB_E1ST",
-            SB_E2ST_ADDR => "SB_E2ST",
-            SB_DDST_ADDR => "SB_DDST",
-            _ => "SB_DMA_START",
+            SB_GDST_ADDR => {
+                unsafe {
+                    *(ctx) = 0;
+                }
+                "SB_GDST"
+            }
+            SB_ADST_ADDR => {
+                unsafe {
+                    *(ctx) = 0;
+                }
+                "SB_ADST"
+            }
+            SB_E1ST_ADDR => {
+                unsafe {
+                    *(ctx) = 0;
+                }
+                "SB_E1ST"
+            }
+            SB_E2ST_ADDR => {
+                unsafe {
+                    *(ctx) = 0;
+                }
+                "SB_E2ST"
+            }
+            SB_DDST_ADDR => {
+                unsafe {
+                    *(ctx) = 0;
+                }
+                "SB_DDST"
+            }
+            _ => {
+                unsafe {
+                    *(ctx) = 0;
+                }
+                "SB_DMA_START"
+            }
         };
-        println!("SB DMA start write: {} = {:#010x}", name, data);
+        if (addr != SB_MDST_ADDR) {
+            println!("SB DMA start write: {} = {:#010x}", name, data);
+        }
     }
 
     fn sb_ffst_read(ctx: *mut u32, _addr: u32) -> u32 {
@@ -789,6 +837,15 @@ impl SystemBus {
             RIO_WO_FUNC,
             None,
             Some(Self::sbio_write_gdrom_unlock),
+        );
+
+        let reg_ptr = self.regn32(SB_PDAPRO_ADDR);
+        self.register_rio(
+            reg_ptr,
+            0x005f74ec,
+            RIO_RO_FUNC,
+            Some(Self::sbio_read_gdrom_unlock_2),
+            None
         );
 
         for &a in &[

@@ -1844,6 +1844,16 @@ sh4op! {
         backend::sh4_write_mem32_disp(dc, addr_of!((*dc).r[n]), (-4i32) as u32, addr_of!((*dc).sgr));
         backend::sh4_addi(addr_of_mut!((*dc).r[n]), addr_of!((*dc).r[n]), (-4i32) as u32);
     }
+
+    (disas = "REIOS_OPCODE")
+    // pub const REIOS_OPCODE: u16 = 0x085B;
+    i0000_1000_0101_1011(dc, state, opcode) {
+        // REIOS trap instruction - BIOS syscall emulation
+        // Call trap_self if REIOS context is available
+        if let Some(ref mut reios_ctx) = (*dc).reios_ctx {
+            reios_ctx.trap_self(opcode, state.pc);
+        }
+    }
 }
 
 const MASK_N_M: u16 = 0xF00F;

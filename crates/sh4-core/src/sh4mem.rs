@@ -136,8 +136,19 @@ pub fn write_mem_sq(ctx: *mut Sh4Ctx, addr: u32, data: *const u32) {
         if (base as usize) < MAX_MEMHANDLERS {
             let handler = (*ctx).memhandlers.get_unchecked(base as usize);
             let context = *(*ctx).memcontexts.get_unchecked(base as usize);
+            if crate::dummy_write256 as usize == handler.write256 as usize {
+                (handler.write32)(context, (offset + 0) as u32, *data.add(0));
+                (handler.write32)(context, (offset + 4) as u32, *data.add(1));
+                (handler.write32)(context, (offset + 8) as u32, *data.add(2));
+                (handler.write32)(context, (offset + 12) as u32, *data.add(3));
 
-            (handler.write256)(context, offset as u32, data);
+                (handler.write32)(context, (offset + 16) as u32, *data.add(4));
+                (handler.write32)(context, (offset + 20) as u32, *data.add(5));
+                (handler.write32)(context, (offset + 24) as u32, *data.add(6));
+                (handler.write32)(context, (offset + 28) as u32, *data.add(7));
+            } else {
+                (handler.write256)(context, offset as u32, data);
+            }
         } else {
             let ptr = base.add(offset) as *mut u32;
             ptr::copy_nonoverlapping(data, ptr, 32/4);

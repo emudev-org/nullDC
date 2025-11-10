@@ -198,6 +198,9 @@ pub struct Sh4Ctx {
 
     // for fns dispatcher
     pub ptrs: Vec<*const u8>,
+
+    // REIOS context for syscall emulation
+    pub reios_ctx: Option<reios::ReiosContext>,
 }
 
 impl Default for Sh4Ctx {
@@ -255,6 +258,8 @@ impl Default for Sh4Ctx {
             dec_branch_target: 0,
             dec_branch_target_dynamic: ptr::null(),
             dec_branch_dslot: 0,
+
+            reios_ctx: None,
         }
     }
 }
@@ -277,6 +282,7 @@ pub fn sh4_ipr_dispatcher(ctx: *mut Sh4Ctx) {
 
             let mut opcode: u16 = 0;
 
+            let next_pc = (*ctx).pc0.wrapping_add(2);
             read_mem(ctx, (*ctx).pc0, &mut opcode);
             // println!("PC: {:08X} Opcode: {:04X}", (*ctx).pc0, opcode);
 

@@ -121,7 +121,7 @@ fn area_0_read<T: sh4mem::MemoryData>(ctx: *mut u8, addr: u32) -> T {
     T::default()
 }
 
-static mut SYSTEM_BUS: system_bus::SystemBus = system_bus::SystemBus::default();
+pub(crate) static mut SYSTEM_BUS: system_bus::SystemBus = system_bus::SystemBus::default();
 
 fn area_0_write<T: sh4mem::MemoryData>(ctx: *mut u8, addr: u32, value: T) {
     let dc = unsafe { &mut *(ctx as *mut Dreamcast) };
