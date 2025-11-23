@@ -20,6 +20,14 @@ static DEBUGGER_UI: Dir = include_dir!("$CARGO_MANIFEST_DIR/devtools/dist-native
 
 const JSON_RPC_VERSION: &str = "2.0";
 
+/// Send binary data over WebSocket
+async fn send_binary(
+    sender: &mut futures::stream::SplitSink<WebSocket, Message>,
+    data: Vec<u8>,
+) -> Result<(), axum::Error> {
+    sender.send(Message::Binary(data.into())).await
+}
+
 /// Start the debugger UI HTTP server on port 55543
 /// The server runs in a background thread and serves static files
 /// Also handles WebSocket connections for the debugger protocol

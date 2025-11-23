@@ -5,6 +5,7 @@ import type {
   CallstackFrame,
   DebuggerNotification,
   DebuggerRpcSchema,
+  RpcError,
   TargetProcessor,
   WatchId,
 } from "../lib/debuggerSchema";
@@ -127,6 +128,35 @@ export class DebuggerClient {
 
   async fetchDisassembly(params: { target: TargetProcessor; address: number; count: number; context?: number }) {
     return this.rpc.call(RpcMethod.STATE_GET_DISASSEMBLY, params);
+  }
+
+  async fetchSgcFrameData(): Promise<ArrayBuffer> {
+    // Set up a promise to wait for the binary data
+    const binaryDataPromise = new Promise<ArrayBuffer>((resolve) => {
+      const unsubscribe = this.transport.subscribeBinary((data) => {
+        unsubscribe();
+        resolve(data);
+      });
+    });
+
+    // Make the RPC call (which triggers the server to send binary data)
+    const result = await this.rpc.call("state.getSgcFrameData" as keyof DebuggerRpcSchema, {});
+
+    // Check if the result contains an error
+    if (result && typeof result === 'object' && 'error' in result) {
+      const rpcError = result as RpcError;
+      if (rpcError.error) {
+        throw new Error(rpcError.error.message || 'Failed to fetch SGC frame data');
+      }
+    }
+
+    // Wait for and return the binary data
+    return binaryDataPromise;
+  }
+
+  async recordSgcFrames(): Promise<void> {
+    // Request the server to record 1024 frames
+    await this.rpc.call("state.recordSgcFrames" as keyof DebuggerRpcSchema, {});
   }
 
   async sendNotification(method: keyof DebuggerRpcSchema, params: unknown) {

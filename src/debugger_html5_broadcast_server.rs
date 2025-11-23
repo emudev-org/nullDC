@@ -17,6 +17,12 @@ fn generate_guid() -> String {
     format!("{:x}{:x}", timestamp, random)
 }
 
+/// Send binary data over BroadcastChannel
+fn send_binary(channel: &BroadcastChannel, data: Vec<u8>) -> Result<(), JsValue> {
+    let array = js_sys::Uint8Array::from(&data[..]);
+    channel.post_message(&array.buffer())
+}
+
 #[derive(Serialize, Deserialize)]
 struct Announcement {
     id: String,
